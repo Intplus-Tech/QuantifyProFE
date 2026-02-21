@@ -137,7 +137,7 @@ export default function TemplatesPage() {
 
       {/* Action Button */}
       <div>
-        <Button className="bg-orange-500 hover:bg-orange-600 text-white shadow-sm">
+        <Button size={"lg"}>
           <Users className="w-4 h-4 mr-2" />
           System Template
         </Button>
@@ -149,7 +149,7 @@ export default function TemplatesPage() {
           <h2 className="text-xl font-bold text-foreground">System Template</h2>
           <Badge
             variant="outline"
-            className="text-orange-500 border-orange-200 bg-orange-50/50 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5"
+            className="bg-transparent text-primary border-primary"
           >
             SYSTEM DEFAULT
           </Badge>

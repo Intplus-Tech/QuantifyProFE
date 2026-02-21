@@ -143,28 +143,30 @@ export default function TemplatesPage() {
 
       {/* Tab Switcher */}
       <div className="flex gap-2">
-        <button
+        <Button
+          size={"lg"}
           onClick={() => setActiveTab("system")}
-          className={`flex items-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-full transition-colors ${
+          className={` ${
             activeTab === "system"
-              ? "bg-orange-500 text-white shadow-sm"
-              : "bg-white text-muted-foreground border border-border/50 hover:bg-muted/30"
+              ? "bg-primary text-white shadow-sm"
+              : "bg-white text-muted-foreground border border-border/50 hover:bg-primary/10"
           }`}
         >
           <BookOpen className="w-4 h-4" />
           System Template
-        </button>
-        <button
+        </Button>
+        <Button
+          size={"lg"}
           onClick={() => setActiveTab("organization")}
-          className={`flex items-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-full transition-colors ${
+          className={` ${
             activeTab === "organization"
-              ? "bg-orange-500 text-white shadow-sm"
-              : "bg-white text-muted-foreground border border-border/50 hover:bg-muted/30"
+              ? "bg-primary text-white shadow-sm"
+              : "bg-white text-muted-foreground border border-border/50 hover:bg-primary/10"
           }`}
         >
           <Building className="w-4 h-4" />
           Organization Template
-        </button>
+        </Button>
       </div>
 
       {/* Template Banner */}
