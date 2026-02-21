@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -9,6 +10,7 @@ import {
   Search,
   Users,
   BookOpen,
+  Building,
   Home,
   Building2,
   Factory,
@@ -124,6 +126,10 @@ const mockTemplates = [
 ];
 
 export default function TemplatesPage() {
+  const [activeTab, setActiveTab] = useState<"system" | "organization">(
+    "system",
+  );
+
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-8 bg-slate-50/50 min-h-screen">
       {/* Header Section */}
@@ -135,42 +141,79 @@ export default function TemplatesPage() {
         </p>
       </div>
 
-      {/* Action Button */}
-      <div>
-        <Button className="bg-orange-500 hover:bg-orange-600 text-white shadow-sm">
-          <Users className="w-4 h-4 mr-2" />
+      {/* Tab Switcher */}
+      <div className="flex gap-2">
+        <button
+          onClick={() => setActiveTab("system")}
+          className={`flex items-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-full transition-colors ${
+            activeTab === "system"
+              ? "bg-orange-500 text-white shadow-sm"
+              : "bg-white text-muted-foreground border border-border/50 hover:bg-muted/30"
+          }`}
+        >
+          <BookOpen className="w-4 h-4" />
           System Template
-        </Button>
+        </button>
+        <button
+          onClick={() => setActiveTab("organization")}
+          className={`flex items-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-full transition-colors ${
+            activeTab === "organization"
+              ? "bg-orange-500 text-white shadow-sm"
+              : "bg-white text-muted-foreground border border-border/50 hover:bg-muted/30"
+          }`}
+        >
+          <Building className="w-4 h-4" />
+          Organization Template
+        </button>
       </div>
 
-      {/* System Template Banner */}
+      {/* Template Banner */}
       <div className="space-y-4">
-        <div className="flex items-center gap-3">
-          <h2 className="text-xl font-bold text-foreground">System Template</h2>
-          <Badge
-            variant="outline"
-            className="text-orange-500 border-orange-200 bg-orange-50/50 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5"
-          >
-            SYSTEM DEFAULT
-          </Badge>
-        </div>
-
-        <Card className="border-2 border-dashed border-orange-200 bg-orange-50/30 shadow-none">
-          <CardContent className="p-6 flex items-start gap-4">
-            <div className="bg-orange-100 p-3 rounded-lg shrink-0">
-              <BookOpen className="w-6 h-6 text-orange-600" />
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-orange-900 mb-1">
-                System Template
-              </h3>
-              <p className="text-sm text-orange-700/80">
-                Professional templates created by Quantify pro, optimized for
-                Nigerian construction projects.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+        {activeTab === "system" ? (
+          <>
+            <h2 className="text-xl font-bold text-foreground">
+              System Template
+            </h2>
+            <Card className="border-2 border-dashed border-orange-200 bg-orange-50/30 shadow-none">
+              <CardContent className="p-6 flex items-start gap-4">
+                <div className="bg-orange-100 p-3 rounded-lg shrink-0">
+                  <BookOpen className="w-6 h-6 text-orange-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-orange-900 mb-1">
+                    System Template
+                  </h3>
+                  <p className="text-sm text-orange-700/80">
+                    Professional templates created by Quantify pro, optimized
+                    for Nigerian construction projects.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        ) : (
+          <>
+            <h2 className="text-xl font-bold text-foreground">
+              Organizational Template
+            </h2>
+            <Card className="border-2 border-dashed border-orange-200 bg-orange-50/30 shadow-none">
+              <CardContent className="p-6 flex items-start gap-4">
+                <div className="bg-orange-100 p-3 rounded-lg shrink-0">
+                  <Building className="w-6 h-6 text-orange-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-orange-900 mb-1">
+                    Organizational Template
+                  </h3>
+                  <p className="text-sm text-orange-700/80">
+                    Custom templates created by your team members based on
+                    completed projects. Share and reuse proven BOQ structures.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
 
       {/* Search Bar */}
