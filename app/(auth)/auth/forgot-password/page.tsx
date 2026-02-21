@@ -2,15 +2,15 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, ArrowLeft, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, FieldLabel, FieldError } from "@/components/ui/field";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 
 // ── Schema ─────────────────────────────────────────────
 
@@ -23,6 +23,7 @@ type ForgotPasswordFormData = z.infer<typeof forgotPasswordSchema>;
 // ── Page Component ─────────────────────────────────────
 
 export default function ForgotPasswordPage() {
+  const router = useRouter();
   const [submitted, setSubmitted] = useState(false);
 
   const {
@@ -35,89 +36,66 @@ export default function ForgotPasswordPage() {
   });
 
   async function onSubmit(data: ForgotPasswordFormData) {
-    // Mock — simulate API call
     await new Promise((resolve) => setTimeout(resolve, 1500));
-    console.log("Password reset requested for:", data.email);
     setSubmitted(true);
+    router.push(`/auth/verification?email=${encodeURIComponent(data.email)}`);
   }
 
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-4">
-      {/* Breadcrumb */}
-      <p className="text-xs text-muted-foreground">
-        <Link href="/login" className="hover:text-foreground">
-          Login
-        </Link>{" "}
-        &gt; Forgot Password
-      </p>
+    <div className="mx-auto h-[calc(100dvh-1.5rem)] max-w-[1260px]">
+      <Button
+        asChild
+        variant="secondary"
+        size="icon-sm"
+        className="bg-gray-400 absolute left-6 top-6"
+      >
+        <Link href="/auth/login" aria-label="Back to login">
+          <ArrowLeft className="size-3.5" />
+        </Link>
+      </Button>
 
-      {/* Heading */}
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">
-          Reset your password
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Enter your email address and we&apos;ll send you a link to reset your
-          password.
-        </p>
-      </div>
+      <section className="relative h-[calc(100dvh-1.5rem)] overflow-hidden">
+        <div className="relative flex h-full flex-col p-6">
+          <div className="mx-auto flex h-full w-full max-w-md flex-col items-center justify-center">
+            <div className="w-full max-w-[420px] space-y-3">
+              <h1 className="text-center text-3xl font-semibold">
+                Forgot Password?
+              </h1>
+              <p className="text-center text-xs text-muted-foreground">
+                Enter your email address to reset your password
+              </p>
 
-      {submitted ? (
-        <div className="space-y-4">
-          <Alert className="border-green-200 bg-green-50 text-green-800">
-            <CheckCircle2 className="size-4 text-green-600" />
-            <AlertDescription>
-              If an account exists with that email, you&apos;ll receive a
-              password reset link shortly.
-            </AlertDescription>
-          </Alert>
-          <Button
-            asChild
-            variant="outline"
-            size="lg"
-            className="h-10 w-full rounded-lg text-sm"
-          >
-            <Link href="/login">
-              <ArrowLeft className="size-4" />
-              Back to Login
-            </Link>
-          </Button>
+              <form
+                onSubmit={handleSubmit(onSubmit)}
+                className="space-y-3 pt-3"
+              >
+                <Field data-invalid={!!errors.email}>
+                  <FieldLabel htmlFor="email">Email Address</FieldLabel>
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="davidgoliath12@initplus.co"
+                    className="h-10"
+                    {...register("email")}
+                  />
+                  <FieldError>{errors.email?.message}</FieldError>
+                </Field>
+
+                <Button
+                  type="submit"
+                  disabled={isSubmitting || submitted}
+                  className="h-10 w-full rounded-md text-xs"
+                >
+                  {isSubmitting && (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  )}
+                  {isSubmitting ? "Sending..." : "Reset"}
+                </Button>
+              </form>
+            </div>
+          </div>
         </div>
-      ) : (
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-3.5">
-          <Field data-invalid={!!errors.email}>
-            <FieldLabel htmlFor="email">Email Address</FieldLabel>
-            <Input
-              id="email"
-              type="email"
-              placeholder="Enter your email address"
-              className="h-9 text-sm"
-              {...register("email")}
-            />
-            <FieldError>{errors.email?.message}</FieldError>
-          </Field>
-
-          <Button
-            type="submit"
-            size="lg"
-            disabled={isSubmitting}
-            className="h-10 w-full rounded-lg text-sm font-semibold"
-          >
-            {isSubmitting && <Loader2 className="size-4 animate-spin" />}
-            {isSubmitting ? "Sending..." : "Send Reset Link"}
-          </Button>
-
-          <p className="text-center text-sm text-muted-foreground">
-            Remember your password?{" "}
-            <Link
-              href="/login"
-              className="font-semibold text-primary underline-offset-4 hover:underline"
-            >
-              Login
-            </Link>
-          </p>
-        </form>
-      )}
+      </section>
     </div>
   );
 }

@@ -95,7 +95,7 @@ export default function RegisterPage() {
     await new Promise((resolve) => setTimeout(resolve, 1500));
     console.log("Registered:", data);
     // Redirect to login after mock success
-    router.push("/login?registered=true");
+    router.push("/auth/login?registered=true");
   }
 
   return (
@@ -288,7 +288,7 @@ export default function RegisterPage() {
           <p className="text-center text-sm text-muted-foreground">
             Already have an account?{" "}
             <Link
-              href="/login"
+              href="/auth/login"
               className="font-semibold text-primary underline-offset-4 hover:underline"
             >
               Login
