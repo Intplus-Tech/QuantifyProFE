@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Select,
   SelectContent,
@@ -13,310 +14,545 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Progress } from "@/components/ui/progress";
 import {
-  Building2,
-  Users,
-  FolderOpen,
-  BarChart3,
-  HardDrive,
-  Camera,
+  MoreVertical,
+  Edit2,
+  Shield,
+  Lock,
+  ArrowRightLeft,
+  ArrowRight,
+  Info,
+  Plus,
 } from "lucide-react";
+
+const teamMembers = [
+  {
+    id: 1,
+    name: "Adebola Olaitan",
+    email: "adebola@quantifypro.co",
+    avatar: "https://i.pravatar.cc/150?u=adebola",
+    initials: "AO",
+    role: "Owner",
+    roleBg: "bg-transparent text-muted-foreground",
+    status: "Active",
+    statusColor: "bg-green-500",
+    lastActive: "Now",
+  },
+  {
+    id: 2,
+    name: "Yash Ghori",
+    email: "yash.ghori@architects.io",
+    avatar: "",
+    initials: "YG",
+    avatarBg: "bg-orange-100 text-orange-600",
+    role: "Lead Surveyor",
+    roleBg: "bg-blue-50 text-blue-600",
+    status: "Active",
+    statusColor: "bg-green-500",
+    lastActive: "12 mins ago",
+  },
+  {
+    id: 3,
+    name: "Sarah Jenkins",
+    email: "s.jenkins@constructions.uk",
+    avatar: "",
+    initials: "SJ",
+    avatarBg: "bg-green-100 text-green-600",
+    role: "Member",
+    roleBg: "bg-transparent text-muted-foreground",
+    status: "Offline",
+    statusColor: "bg-gray-300",
+    lastActive: "2 days ago",
+  },
+  {
+    id: 4,
+    name: "Marcus Chen",
+    email: "m.chen@outlook.com",
+    avatar: "",
+    initials: "MC",
+    avatarBg: "bg-blue-100 text-blue-600",
+    role: "Member",
+    roleBg: "bg-transparent text-muted-foreground",
+    status: "Invited",
+    statusColor: "bg-orange-500",
+    lastActive: "-",
+    isInvited: true,
+  },
+];
+
+const libraries = [
+  {
+    id: 1,
+    desc: "Ready-Mix Concrete C35/45",
+    subDesc: "ID: MAT-4429",
+    iconBg: "bg-orange-100 text-orange-600",
+    unit: "m",
+    rate: "142.50",
+    category: "STRUCTURAL",
+    date: "Oct 12, 2023",
+  },
+  {
+    id: 2,
+    desc: "Reinforcement Bars (16mm)",
+    subDesc: "ID: MAT-8812",
+    iconBg: "bg-blue-100 text-blue-600",
+    unit: "Tonne",
+    rate: "875.00",
+    category: "STEELWORK",
+    date: "Oct 10, 2023",
+  },
+  {
+    id: 3,
+    desc: "Plasterboard Standard 12.5mm",
+    subDesc: "ID: MAT-3301",
+    iconBg: "bg-green-100 text-green-600",
+    unit: "m",
+    rate: "12.45",
+    category: "DRYLINING",
+    date: "Sep 28, 2023",
+  },
+  {
+    id: 4,
+    desc: "Fire Door - 30min Rated (Single)",
+    subDesc: "ID: MAT-1109",
+    iconBg: "bg-purple-100 text-purple-600",
+    unit: "Each",
+    rate: "210.00",
+    category: "JOINERY",
+    date: "Sep 24, 2023",
+  },
+];
 
 export default function EnterpriseOrganizationSettings() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       {/* Left Column */}
       <div className="lg:col-span-2 space-y-6">
-        {/* Organization Information */}
+        {/* Basic Information */}
         <Card className="shadow-sm border-border/50">
           <CardHeader className="flex flex-row items-center justify-between pb-4">
             <CardTitle className="text-lg font-bold text-foreground">
-              Organization Information
+              Basic Information
             </CardTitle>
-            <Badge className="bg-primary text-white hover:bg-primary/80 border-0 text-[10px] font-bold rounded-full px-3">
+            <Badge className="bg-green-100 text-green-700 hover:bg-green-100 border-0 text-[10px] font-bold rounded-full px-3">
               Enterprise
             </Badge>
           </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="flex items-center gap-5 mb-2">
-              <div className="relative">
-                <div className="w-20 h-20 rounded-xl bg-primary/10 flex items-center justify-center overflow-hidden border-2 border-primary/20">
-                  <Building2 className="w-8 h-8 text-primary" />
+          <CardContent>
+            <div className="flex flex-col sm:flex-row gap-6">
+              {/* Logo */}
+              <div className="flex flex-col gap-2 shrink-0">
+                <Label className="text-xs font-medium text-muted-foreground">
+                  Company Logo
+                </Label>
+                <div className="w-24 h-24 rounded-xl bg-orange-50 flex items-center justify-center overflow-hidden border-2 border-dashed border-orange-200">
+                  <img
+                    src="https://i.pravatar.cc/150?u=company"
+                    alt="Company Logo"
+                    className="w-full h-full object-cover opacity-50"
+                  />
                 </div>
-                <button className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-primary flex items-center justify-center border-2 border-white">
-                  <Camera className="w-3 h-3 text-white" />
-                </button>
-              </div>
-              <div>
-                <h3 className="font-bold text-foreground">Organization Logo</h3>
-                <p className="text-xs text-muted-foreground">
-                  PNG, JPG up to 2MB. Recommended 200x200px
+                <p className="text-[10px] text-muted-foreground uppercase font-medium text-center">
+                  PNG OR JPG, MAX 2MB
                 </p>
               </div>
-            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              <div className="space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">
-                  Organization Name
-                </Label>
-                <Input
-                  defaultValue="Quantify Pro Enterprise Ltd"
-                  className="bg-white border-border/50"
-                />
+              {/* Form Fields */}
+              <div className="flex-1 space-y-5">
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium text-muted-foreground">
+                    Company Legal Name
+                  </Label>
+                  <Input
+                    defaultValue="Quantify Pro Enterprise Ltd"
+                    className="bg-white border-border/50"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-muted-foreground">
+                      Industry
+                    </Label>
+                    <Select defaultValue="qs">
+                      <SelectTrigger className="bg-white border-border/50">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="qs">Quantity Surveying</SelectItem>
+                        <SelectItem value="civil">Civil Engineering</SelectItem>
+                        <SelectItem value="arch">Architecture</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-muted-foreground">
+                      Company Size
+                    </Label>
+                    <Select defaultValue="1-10">
+                      <SelectTrigger className="bg-white border-border/50">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1-10">1-10</SelectItem>
+                        <SelectItem value="10-50">10-50</SelectItem>
+                        <SelectItem value="50-100">50-100</SelectItem>
+                        <SelectItem value="100+">100+</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium text-muted-foreground">
+                    Govt. Registration Number
+                  </Label>
+                  <Input
+                    placeholder="e.g. 12345678"
+                    className="bg-white border-border/50"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium text-muted-foreground">
+                    Company Address
+                  </Label>
+                  <div className="space-y-3">
+                    <Input
+                      placeholder="Address Line 1"
+                      className="bg-white border-border/50"
+                    />
+                    <Input
+                      placeholder="Address Line 2"
+                      className="bg-white border-border/50"
+                    />
+                    <Select defaultValue="state">
+                      <SelectTrigger className="bg-white border-border/50 text-muted-foreground">
+                        <SelectValue placeholder="State" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="state">State</SelectItem>
+                        <SelectItem value="lagos">Lagos</SelectItem>
+                        <SelectItem value="abuja">Abuja</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select defaultValue="nigeria">
+                      <SelectTrigger className="bg-white border-border/50">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="nigeria">Nigeria</SelectItem>
+                        <SelectItem value="uk">United Kingdom</SelectItem>
+                        <SelectItem value="us">United States</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <button className="text-xs font-medium text-orange-500 hover:text-orange-600 mt-2">
+                    + Add New Location
+                  </button>
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">
-                  Organization Type
-                </Label>
-                <Select defaultValue="llc">
-                  <SelectTrigger className="bg-white border-border/50">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="llc">LLC</SelectItem>
-                    <SelectItem value="ltd">Ltd</SelectItem>
-                    <SelectItem value="plc">PLC</SelectItem>
-                    <SelectItem value="partnership">Partnership</SelectItem>
-                    <SelectItem value="corporation">Corporation</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              <div className="space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">
-                  Industry
-                </Label>
-                <Select defaultValue="qs">
-                  <SelectTrigger className="bg-white border-border/50">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="qs">Quantity Surveying</SelectItem>
-                    <SelectItem value="civil">Civil Engineering</SelectItem>
-                    <SelectItem value="arch">Architecture</SelectItem>
-                    <SelectItem value="construction">
-                      Construction Management
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">
-                  Organization Size
-                </Label>
-                <Select defaultValue="50-100">
-                  <SelectTrigger className="bg-white border-border/50">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="10-50">10-50 employees</SelectItem>
-                    <SelectItem value="50-100">50-100 employees</SelectItem>
-                    <SelectItem value="100-500">100-500 employees</SelectItem>
-                    <SelectItem value="500+">500+ employees</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              <div className="space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">
-                  Tax ID / Registration Number
-                </Label>
-                <Input
-                  defaultValue="RC-1234567"
-                  className="bg-white border-border/50"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">
-                  Website
-                </Label>
-                <Input
-                  defaultValue="https://quantifypro.com"
-                  className="bg-white border-border/50"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground">
-                Head Office Address
-              </Label>
-              <Textarea
-                defaultValue="15 Awolowo Road, Ikoyi, Lagos, Nigeria"
-                className="bg-white border-border/50 resize-none min-h-[80px]"
-              />
-            </div>
-            <div className="flex justify-end">
-              <Button>Save Organization Settings</Button>
             </div>
           </CardContent>
         </Card>
 
-        {/* Admin Contact */}
+        {/* Team Members */}
         <Card className="shadow-sm border-border/50">
           <CardHeader className="flex flex-row items-center justify-between pb-4">
             <CardTitle className="text-lg font-bold text-foreground">
-              Primary Admin Contact
+              Team Members
             </CardTitle>
+            <Button className="bg-orange-500 hover:bg-orange-600 text-white h-9">
+              <Plus className="w-4 h-4 mr-2" />
+              Invite Member
+            </Button>
           </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              <div className="space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">
-                  Full Name
-                </Label>
-                <Input
-                  defaultValue="Adebayo Johnson"
-                  className="bg-white border-border/50"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">
-                  Job Title
-                </Label>
-                <Input
-                  defaultValue="Chief Quantity Surveyor"
-                  className="bg-white border-border/50"
-                />
-              </div>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-y border-border bg-muted/5">
+                    <th className="text-left py-3 px-6 font-semibold text-muted-foreground uppercase tracking-wider">
+                      NAME & EMAIL
+                    </th>
+                    <th className="text-left py-3 px-6 font-semibold text-muted-foreground uppercase tracking-wider">
+                      ROLE
+                    </th>
+                    <th className="text-left py-3 px-6 font-semibold text-muted-foreground uppercase tracking-wider">
+                      STATUS
+                    </th>
+                    <th className="text-left py-3 px-6 font-semibold text-muted-foreground uppercase tracking-wider">
+                      LAST ACTIVE
+                    </th>
+                    <th className="text-right py-3 px-6"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {teamMembers.map((member) => (
+                    <tr
+                      key={member.id}
+                      className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors"
+                    >
+                      <td className="py-3 px-6">
+                        <div className="flex items-center gap-3">
+                          <Avatar className="w-8 h-8">
+                            {member.avatar ? (
+                              <AvatarImage src={member.avatar} />
+                            ) : null}
+                            <AvatarFallback
+                              className={`text-xs font-semibold ${member.avatarBg}`}
+                            >
+                              {member.initials}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <p className="font-semibold text-foreground">
+                              {member.name}
+                            </p>
+                            <p className="text-muted-foreground">
+                              {member.email}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-6">
+                        <Badge
+                          variant="secondary"
+                          className={`border-0 font-medium ${member.roleBg}`}
+                        >
+                          {member.role}
+                        </Badge>
+                      </td>
+                      <td className="py-3 px-6">
+                        <div className="flex items-center gap-1.5">
+                          <div
+                            className={`w-1.5 h-1.5 rounded-full ${member.statusColor}`}
+                          />
+                          <span className="font-medium text-muted-foreground">
+                            {member.status}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-6 text-muted-foreground">
+                        {member.lastActive}
+                      </td>
+                      <td className="py-3 px-6 text-right">
+                        {member.isInvited ? (
+                          <button className="text-orange-500 font-semibold uppercase text-[10px] tracking-wider hover:text-orange-600">
+                            RESEND
+                          </button>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground"
+                          >
+                            <MoreVertical className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              <div className="space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">
-                  Email Address
-                </Label>
-                <Input
-                  defaultValue="adebayo@quantifypro.com"
-                  className="bg-white border-border/50"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">
-                  Phone Number
-                </Label>
-                <Input
-                  defaultValue="+234 733 955 4338"
-                  className="bg-white border-border/50"
-                />
-              </div>
-            </div>
-            <div className="flex justify-end">
-              <Button className="text-white font-semibold px-6">
-                Update Contact
-              </Button>
+            <div className="p-4 text-right">
+              <button className="text-xs font-semibold text-orange-500 hover:text-orange-600">
+                View All
+              </button>
             </div>
           </CardContent>
         </Card>
+
+        {/* Enterprise Libraries */}
+        <Card className="shadow-sm border-border/50">
+          <CardHeader className="flex flex-row items-center justify-between pb-4">
+            <CardTitle className="text-lg font-bold text-foreground">
+              Enterprise Libraries
+            </CardTitle>
+            <Select defaultValue="subcontractor">
+              <SelectTrigger className="w-[200px] h-9 bg-muted/30 border-border/50 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="subcontractor">
+                  Subcontractor Directory
+                </SelectItem>
+                <SelectItem value="materials">Materials Directory</SelectItem>
+              </SelectContent>
+            </Select>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-y border-border bg-muted/5">
+                    <th className="text-left py-3 px-6 font-semibold text-muted-foreground uppercase tracking-wider">
+                      ITEM DESCRIPTION
+                    </th>
+                    <th className="text-left py-3 px-6 font-semibold text-muted-foreground uppercase tracking-wider">
+                      UNIT
+                    </th>
+                    <th className="text-left py-3 px-6 font-semibold text-muted-foreground uppercase tracking-wider">
+                      CURRENT RATE
+                    </th>
+                    <th className="text-left py-3 px-6 font-semibold text-muted-foreground uppercase tracking-wider">
+                      CATEGORY
+                    </th>
+                    <th className="text-left py-3 px-6 font-semibold text-muted-foreground uppercase tracking-wider">
+                      LAST UPDATED
+                    </th>
+                    <th className="text-right py-3 px-6"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {libraries.map((lib) => (
+                    <tr
+                      key={lib.id}
+                      className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors"
+                    >
+                      <td className="py-3 px-6">
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`w-6 h-6 rounded flex items-center justify-center shrink-0 ${lib.iconBg}`}
+                          >
+                            <span className="text-[10px] font-bold">
+                              {lib.desc.charAt(0)}
+                            </span>
+                          </div>
+                          <div>
+                            <p className="font-semibold text-foreground">
+                              {lib.desc}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground">
+                              {lib.subDesc}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-6 font-medium text-foreground">
+                        {lib.unit}
+                      </td>
+                      <td className="py-3 px-6 font-bold text-foreground">
+                        {lib.rate}
+                      </td>
+                      <td className="py-3 px-6">
+                        <Badge
+                          variant="outline"
+                          className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground border-border/50"
+                        >
+                          {lib.category}
+                        </Badge>
+                      </td>
+                      <td className="py-3 px-6 text-muted-foreground">
+                        {lib.date}
+                      </td>
+                      <td className="py-3 px-6 text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-muted-foreground"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="p-4 text-right">
+              <button className="text-xs font-semibold text-orange-500 hover:text-orange-600">
+                View All
+              </button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Enterprise Tip */}
+        <div className="bg-orange-50 border border-orange-100 rounded-xl p-4 flex items-start gap-3">
+          <Info className="w-5 h-5 text-orange-500 shrink-0 mt-0.5" />
+          <div>
+            <h4 className="font-bold text-orange-900 text-sm mb-1">
+              Enterprise Tip
+            </h4>
+            <p className="text-xs text-orange-700/80 leading-relaxed">
+              Your enterprise license allows for custom API integrations and
+              dedicated account support 24/7.
+            </p>
+          </div>
+        </div>
       </div>
 
-      {/* Right Column - Subscription & Usage Overview */}
+      {/* Right Column */}
       <div className="space-y-6">
-        <Card className="shadow-sm border-border/50 bg-slate-50/80">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base font-bold text-foreground">
-              Subscription Overview
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            {/* Current Plan */}
-            <div className="bg-white rounded-lg p-4 border border-border/30">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-                  CURRENT PLAN
-                </span>
-                <Badge className="bg-green-100 text-green-600 hover:bg-green-100 border-0 text-[10px] font-bold">
-                  ACTIVE
-                </Badge>
-              </div>
-              <h3 className="text-xl font-bold text-primary">Enterprise</h3>
-              <p className="text-muted-foreground text-sm mt-1">
-                ₦150,000/month
+        {/* Role Permissions */}
+        <Card className="shadow-sm border-border/50">
+          <CardContent className="p-6 space-y-4">
+            <div className="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center">
+              <Shield className="w-5 h-5 text-purple-600" />
+            </div>
+            <div>
+              <h3 className="font-bold text-foreground text-base mb-1">
+                Role Permissions
+              </h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Customize what different team roles can access and modify within
+                projects.
               </p>
             </div>
+            <button className="text-sm font-semibold text-orange-500 hover:text-orange-600 flex items-center gap-1">
+              Edit Role Settings <ArrowRight className="w-4 h-4" />
+            </button>
+          </CardContent>
+        </Card>
 
-            {/* Team Seats */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Users className="w-4 h-4 text-primary" />
-                  <span className="text-sm font-medium text-foreground">
-                    Team Seats
-                  </span>
-                </div>
-                <span className="text-sm font-bold text-foreground">18/25</span>
+        {/* Lock Sections */}
+        <Card className="shadow-sm border-border/50">
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-start justify-between">
+              <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
+                <Lock className="w-5 h-5 text-blue-600" />
               </div>
-              <Progress
-                value={72}
-                className="h-2 bg-gray-200 [&>div]:bg-primary"
+              <Switch
+                defaultChecked
+                className="data-[state=checked]:bg-orange-500"
               />
             </div>
-
-            {/* Active Projects */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <FolderOpen className="w-4 h-4 text-orange-500" />
-                  <span className="text-sm font-medium text-foreground">
-                    Active Projects
-                  </span>
-                </div>
-                <span className="text-sm font-bold text-foreground">
-                  12/Unlimited
-                </span>
-              </div>
-              <Progress
-                value={30}
-                className="h-2 bg-gray-200 [&>div]:bg-orange-500"
-              />
+            <div>
+              <h3 className="font-bold text-foreground text-base mb-1">
+                Lock Sections
+              </h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Prevent users from deleting mandatory sections in
+                enterprise-standard templates.
+              </p>
             </div>
+          </CardContent>
+        </Card>
 
-            {/* BOQ Extractions */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <BarChart3 className="w-4 h-4 text-blue-500" />
-                  <span className="text-sm font-medium text-foreground">
-                    BOQ Extractions
-                  </span>
-                </div>
-                <span className="text-sm font-bold text-foreground">
-                  84/Unlimited
-                </span>
-              </div>
-              <Progress
-                value={40}
-                className="h-2 bg-gray-200 [&>div]:bg-blue-500"
-              />
+        {/* Transfer Ownership */}
+        <Card className="shadow-sm border-border/50">
+          <CardContent className="p-6 space-y-4">
+            <div className="w-10 h-10 rounded-lg bg-red-50 flex items-center justify-center">
+              <ArrowRightLeft className="w-5 h-5 text-red-500" />
             </div>
-
-            {/* Cloud Storage */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <HardDrive className="w-4 h-4 text-emerald-500" />
-                  <span className="text-sm font-medium text-foreground">
-                    Cloud Storage
-                  </span>
-                </div>
-                <span className="text-sm font-bold text-foreground">
-                  42GB/100GB
-                </span>
-              </div>
-              <Progress
-                value={42}
-                className="h-2 bg-gray-200 [&>div]:bg-emerald-500"
-              />
+            <div>
+              <h3 className="font-bold text-foreground text-base mb-1">
+                Transfer Ownership
+              </h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Handing over account control to another user.
+              </p>
             </div>
-
-            <Button
-              variant="outline"
-              className="w-full border-primary text-primary hover:bg-primary/5 font-medium"
-            >
-              Manage Subscription
-            </Button>
+            <div className="flex justify-end">
+              <Button
+                variant="secondary"
+                className="bg-red-100 text-red-600 hover:bg-red-200 font-semibold"
+              >
+                Transfer
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>

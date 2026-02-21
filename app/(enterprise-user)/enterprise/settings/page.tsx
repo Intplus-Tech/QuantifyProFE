@@ -12,19 +12,19 @@ import {
 import EnterpriseOrganizationSettings from "@/components/settings/EnterpriseOrganizationSettings";
 import EnterpriseTeamManagement from "@/components/settings/EnterpriseTeamManagement";
 import EnterpriseRolesPermissions from "@/components/settings/EnterpriseRolesPermissions";
-import BillingPlan from "@/components/settings/BillingPlan";
-import HelpSupport from "@/components/settings/HelpSupport";
+import EnterpriseBillingPlan from "@/components/settings/EnterpriseBillingPlan";
+import EnterpriseHelpSupport from "@/components/settings/EnterpriseHelpSupport";
 
 const tabs = [
-  { id: "organization", label: "Organization", icon: Building2 },
-  { id: "team", label: "Team Management", icon: Users },
-  { id: "roles", label: "Roles & Permissions", icon: Shield },
-  { id: "billing", label: "Billing & Plan", icon: CreditCard },
-  { id: "help", label: "Help & Support", icon: HelpCircle },
+  { id: "company", label: "Company Settings", icon: Building2 },
+  { id: "profile", label: "My Profile", icon: Users },
+  { id: "security", label: "Security & Access", icon: Shield },
+  { id: "billing", label: "Billing & Subscription", icon: CreditCard },
+  { id: "support", label: "Support", icon: HelpCircle },
 ];
 
 export default function EnterpriseSettingsPage() {
-  const [activeTab, setActiveTab] = useState("organization");
+  const [activeTab, setActiveTab] = useState("company");
 
   return (
     <div className="p-6 space-y-6 max-w-[1200px]">
@@ -34,11 +34,9 @@ export default function EnterpriseSettingsPage() {
           <Settings className="w-5 h-5 text-orange-500" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-foreground">
-            Enterprise Settings
-          </h1>
+          <h1 className="text-2xl font-bold text-foreground">Settings</h1>
           <p className="text-sm text-muted-foreground">
-            Manage your organization, team, and enterprise preferences
+            Manage your enterprise account and team members.
           </p>
         </div>
       </div>
@@ -66,11 +64,11 @@ export default function EnterpriseSettingsPage() {
 
       {/* Tab Content */}
       <div>
-        {activeTab === "organization" && <EnterpriseOrganizationSettings />}
-        {activeTab === "team" && <EnterpriseTeamManagement />}
-        {activeTab === "roles" && <EnterpriseRolesPermissions />}
-        {activeTab === "billing" && <BillingPlan />}
-        {activeTab === "help" && <HelpSupport />}
+        {activeTab === "company" && <EnterpriseOrganizationSettings />}
+        {activeTab === "profile" && <EnterpriseTeamManagement />}
+        {activeTab === "security" && <EnterpriseRolesPermissions />}
+        {activeTab === "billing" && <EnterpriseBillingPlan />}
+        {activeTab === "support" && <EnterpriseHelpSupport />}
       </div>
     </div>
   );
