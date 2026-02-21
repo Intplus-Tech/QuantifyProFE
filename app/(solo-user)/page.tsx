@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -7,7 +7,6 @@ export default function Page() {
   const router = useRouter();
 
   useEffect(() => {
-    // For now, redirect to dashboard. In a real app, check auth status first
     router.push("/dashboard");
   }, [router]);
 
