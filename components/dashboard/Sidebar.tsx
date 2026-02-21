@@ -69,14 +69,11 @@ export function Sidebar() {
               Quantify Pro
             </span>
           </div>
-          <span className="text-xs font-semibold text-primary uppercase group-data-[collapsible=icon]:hidden tracking-wider">
-            Dashboard
-          </span>
         </Link>
       </SidebarHeader>
 
       {/* Navigation Content */}
-      <SidebarContent className="px-0">
+      <SidebarContent className="px-0 mt-8">
         <SidebarMenu className="gap-1 px-2">
           {navItems.map((item) => {
             const Icon = item.icon;

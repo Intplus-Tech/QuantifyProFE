@@ -12,7 +12,7 @@ export function Header() {
     <header className="border-b border-border bg-card h-16 flex items-center px-6 gap-6 sticky top-0 z-50">
       {/* Sidebar Toggle */}
       <SidebarTrigger className="-ml-2" />
-      <Separator orientation="vertical" className="h-6" />
+      {/* <Separator orientation="vertical" className="h-6" /> */}
 
       {/* Search */}
       <div className="flex-1 max-w-md">
