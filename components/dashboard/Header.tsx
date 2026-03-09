@@ -1,6 +1,6 @@
 "use client";
 
-import { Search, Bell } from "lucide-react";
+import { Search, Bell, Plus } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
@@ -9,24 +9,33 @@ import { Separator } from "@/components/ui/separator";
 
 export function Header() {
   return (
-    <header className="border-b border-border bg-card h-16 flex items-center px-6 gap-6 sticky top-0 z-50">
+    <header className=" bg-[#F4F7FE] h-fit py-4 flex items-center px-6 gap-6 sticky top-0 z-50">
       {/* Sidebar Toggle */}
-      <SidebarTrigger className="-ml-2" />
+      {/* <SidebarTrigger className="-ml-2" /> */}
       {/* <Separator orientation="vertical" className="h-6" /> */}
 
-      {/* Search */}
-      <div className="flex-1 max-w-md">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search projects, clients..."
-            className="pl-10 bg-muted h-9 text-sm"
-          />
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <p className="text-muted-foreground mt-1">Hi, Adebola</p>
+          <h1 className="text-3xl font-bold text-foreground">
+            Welcome to Quantify Pro!
+          </h1>
         </div>
       </div>
 
       {/* Right Section */}
       <div className="flex items-center gap-6 ml-auto">
+        {/* Search */}
+        <div className="flex-1 max-w-md">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search projects, clients..."
+              className="pl-10 bg-muted h-9 text-sm"
+            />
+          </div>
+        </div>
         {/* Notifications */}
         <Button variant="ghost" size="icon" className="relative h-9 w-9">
           <Bell className="w-5 h-5" />

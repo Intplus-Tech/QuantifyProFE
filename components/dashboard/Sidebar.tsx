@@ -61,7 +61,7 @@ export function Sidebar() {
   return (
     <SidebarComponent collapsible="icon" variant="sidebar">
       {/* Logo Header */}
-      <SidebarHeader className="pb-4">
+      {/* <SidebarHeader className="pb-4">
         <Link href="/" className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
             <Logo variant="contained" size="md" />
@@ -70,10 +70,10 @@ export function Sidebar() {
             </span>
           </div>
         </Link>
-      </SidebarHeader>
+      </SidebarHeader> */}
 
       {/* Navigation Content */}
-      <SidebarContent className="px-0 mt-8">
+      <SidebarContent className="px-0 mt-20">
         <SidebarMenu className="gap-1 px-2">
           {navItems.map((item) => {
             const Icon = item.icon;

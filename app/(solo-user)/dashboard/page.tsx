@@ -5,113 +5,68 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
-  TrendingUp,
-  DollarSign,
-  Briefcase,
-  CheckCircle2,
-  Star,
-  FileText,
+  ChartNoAxesColumn,
   Check,
+  FileText,
   MessageSquare,
   Upload,
-  Plus,
 } from "lucide-react";
+import Image from "next/image";
+import { Separator } from "@/components/ui/separator";
+import { StatsGrid } from "@/components/dashboard/StatsGrid";
 
 export default function DashboardPage() {
+  const statsData = [
+    {
+      label: "Total Project Value",
+      value: "₦143,000,000",
+      icon: null,
+      colorClass: "",
+    },
+    {
+      label: "Projects",
+      value: "4/5",
+      icon: (
+        <ChartNoAxesColumn className="text-primary" size={24} strokeWidth={4} />
+      ),
+      colorClass: "",
+    },
+    {
+      label: "BOQs",
+      value: "84",
+      icon: (
+        <Image src="/icons/boq.svg" alt="BOQ Icon" width={32} height={32} />
+      ),
+      colorClass: "",
+    },
+    {
+      label: "Invite a user",
+      value: "",
+      icon: (
+        <Image
+          src="/icons/invite.svg"
+          alt="Invite Icon"
+          width={32}
+          height={32}
+        />
+      ),
+      colorClass: "text-primary",
+      border: true,
+      extra: (
+        <>
+          <Separator orientation="horizontal" />
+          <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
+            Upgrade your plan
+          </p>
+        </>
+      ),
+    },
+  ];
+
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">
-            Good morning, Adebayo
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Here's what's happening with your projects today.
-          </p>
-        </div>
-        <Button className="bg-primary text-primary-foreground hover:bg-primary/90">
-          <Plus className="w-4 h-4 mr-2" />
-          New Project
-        </Button>
-      </div>
-
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {/* Total Value */}
-        <Card className="shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Value
-            </CardTitle>
-            <DollarSign className="w-4 h-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-foreground">$4.2M</div>
-            <div className="flex items-center gap-1 mt-2 text-green-600">
-              <TrendingUp className="w-4 h-4" />
-              <span className="text-xs font-medium">+12% vs last month</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Projects */}
-        <Card className="shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Projects
-            </CardTitle>
-            <Briefcase className="w-4 h-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-foreground">12</div>
-            <div className="flex items-center gap-1 mt-2 text-green-600">
-              <TrendingUp className="w-4 h-4" />
-              <span className="text-xs font-medium">+2 this month</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* BOQs */}
-        <Card className="shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              BOQs
-            </CardTitle>
-            <CheckCircle2 className="w-4 h-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-foreground">84</div>
-            <div className="flex items-center gap-1 mt-2 text-green-600">
-              <span className="text-xs font-medium">All time</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Promo Card */}
-        <Card className="shadow-sm border-primary/10">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-bold text-foreground">
-              Quantify Pro+
-            </CardTitle>
-            <div className="bg-primary rounded-full p-1">
-              <Star className="w-3 h-3 text-primary-foreground fill-current" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
-              Upgrade to get multi-user access and advanced team security
-              features.
-            </p>
-            <Button
-              size="sm"
-              className="h-7 text-xs bg-primary text-primary-foreground hover:bg-primary/90"
-            >
-              Invite Users
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+      <StatsGrid stats={statsData} />
 
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
