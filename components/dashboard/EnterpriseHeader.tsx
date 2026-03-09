@@ -8,27 +8,27 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { usePathname } from "next/navigation";
 
-export function Header() {
+export function EnterpriseHeader() {
   const pathname = usePathname() || "";
 
-  let title = "Welcome to Quantify Pro!";
-  let subtitle = "Hi, Adebola";
+  let title = "Enterprise Dashboard";
+  let subtitle = "Hi, Adebayo";
 
   if (pathname.includes("/projects")) {
     title = "Projects";
-    subtitle = "Manage your projects and estimates";
+    subtitle = "Manage your enterprise projects";
   } else if (pathname.includes("/clients")) {
     title = "Clients";
-    subtitle = "Manage your clients and contacts";
+    subtitle = "Manage your enterprise clients";
   } else if (pathname.includes("/templates")) {
     title = "Templates";
-    subtitle = "Manage your project templates";
+    subtitle = "Manage your enterprise templates";
   } else if (pathname.includes("/libraries")) {
     title = "Libraries";
-    subtitle = "Manage your component libraries";
+    subtitle = "Manage your enterprise libraries";
   } else if (pathname.includes("/settings")) {
     title = "Settings";
-    subtitle = "Manage your account preferences";
+    subtitle = "Manage your enterprise settings";
   }
 
   return (
@@ -68,7 +68,7 @@ export function Header() {
         {/* User Avatar */}
         <Avatar className="w-9 h-9">
           <AvatarImage src="https://avatar.vercel.sh/user" alt="User" />
-          <AvatarFallback>JP</AvatarFallback>
+          <AvatarFallback>AD</AvatarFallback>
         </Avatar>
       </div>
     </header>
