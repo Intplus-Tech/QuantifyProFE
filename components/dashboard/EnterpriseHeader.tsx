@@ -16,7 +16,7 @@ export function EnterpriseHeader() {
 
   if (pathname.includes("/projects")) {
     title = "Projects";
-    subtitle = "Manage your enterprise projects";
+    subtitle = "";
   } else if (pathname.includes("/clients")) {
     title = "Clients";
     subtitle = "Manage your enterprise clients";

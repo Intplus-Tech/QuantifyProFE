@@ -16,19 +16,19 @@ export function Header() {
 
   if (pathname.includes("/projects")) {
     title = "Projects";
-    subtitle = "Manage your projects and estimates";
-  } else if (pathname.includes("/clients")) {
+    subtitle = "";
+  } else if (pathname.includes("/clients")) { 
     title = "Clients";
-    subtitle = "Manage your clients and contacts";
+    subtitle = "";
   } else if (pathname.includes("/templates")) {
     title = "Templates";
-    subtitle = "Manage your project templates";
+    subtitle = "";
   } else if (pathname.includes("/libraries")) {
     title = "Libraries";
-    subtitle = "Manage your component libraries";
+    subtitle = "";
   } else if (pathname.includes("/settings")) {
     title = "Settings";
-    subtitle = "Manage your account preferences";
+    subtitle = "";
   }
 
   return (
