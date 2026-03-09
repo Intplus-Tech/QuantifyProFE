@@ -1,10 +1,12 @@
 ﻿"use client";
 
+import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Search, ArrowUpDown, Plus, MoreVertical } from "lucide-react";
+import { NewProjectDialog } from "@/components/projects/NewProjectDialog";
 
 const mockProjects = [
   {
@@ -88,6 +90,8 @@ const mockProjects = [
 ];
 
 export default function ProjectsPage() {
+  const [dialogOpen, setDialogOpen] = useState(false);
+
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto">
       {/* Top Bar */}
@@ -107,7 +111,7 @@ export default function ProjectsPage() {
             <ArrowUpDown className="w-4 h-4 mr-2" />
             Sort by: Recent
           </Button>
-          <Button className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm">
+          <Button className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm" onClick={() => setDialogOpen(true)}>
             <Plus className="w-4 h-4 mr-2" />
             New Project
           </Button>
@@ -117,17 +121,7 @@ export default function ProjectsPage() {
       {/* Projects Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {/* Create New Project Card */}
-        <Card className="border-2 border-dashed border-border/60 bg-muted/5 hover:bg-muted/20 transition-colors cursor-pointer flex flex-col items-center justify-center min-h-[320px] shadow-none">
-          <div className="w-14 h-14 rounded-full bg-primary flex items-center justify-center mb-4 shadow-sm">
-            <Plus className="w-6 h-6 text-primary-foreground" />
-          </div>
-          <h3 className="text-lg font-semibold text-primary mb-1">
-            Create New Project
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            Start from scratch or template
-          </p>
-        </Card>
+        <NewProjectDialog open={dialogOpen} onOpenChange={setDialogOpen} />
 
         {/* Project Cards */}
         {mockProjects.map((project) => (
