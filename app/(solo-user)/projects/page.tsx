@@ -1,6 +1,7 @@
-﻿"use client";
+"use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -91,6 +92,7 @@ const mockProjects = [
 
 export default function ProjectsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
+  const router = useRouter();
 
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto">
@@ -127,7 +129,8 @@ export default function ProjectsPage() {
         {mockProjects.map((project) => (
           <Card
             key={project.id}
-            className="overflow-hidden flex flex-col shadow-sm hover:shadow-md transition-shadow border-border/50"
+            className="overflow-hidden flex flex-col shadow-sm hover:shadow-md transition-shadow border-border/50 cursor-pointer"
+            onClick={() => router.push("/projects/demo-project/boq")}
           >
             {/* Project Image */}
             <div className="relative h-48 w-full bg-muted">
