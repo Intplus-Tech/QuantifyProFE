@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la /c/Users/HP/Desktop/Projects/quantify-pro/app/\\\\\\(enterprise-user\\\\\\)/)",
+      "Bash(ls -la /c/Users/HP/Desktop/Projects/quantify-pro/app/\\\\\\(enterprise-user\\\\\\)/components/)",
+      "Bash(ls /c/Users/HP/Desktop/Projects/quantify-pro/app/\\\\\\(enterprise-user\\\\\\)/enterprise/libraries/)",
+      "Bash(ls /c/Users/HP/Desktop/Projects/quantify-pro/app/\\\\\\(solo-user\\\\\\)/libraries/)",
+      "Bash(ls /c/Users/HP/Desktop/Projects/quantify-pro/app/\\\\\\(enterprise-user\\\\\\)/enterprise/)",
+      "Bash(ls /c/Users/HP/Desktop/Projects/quantify-pro/app/\\\\\\(solo-user\\\\\\)/)"
+    ]
+  }
+}
