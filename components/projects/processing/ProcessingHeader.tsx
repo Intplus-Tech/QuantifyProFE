@@ -36,7 +36,7 @@ export function ProcessingHeader({ state }: ProcessingHeaderProps) {
       {/* Progress bar */}
       <div className="w-full h-2.5 rounded-full bg-muted overflow-hidden mb-6">
         <div
-          className="h-full rounded-full bg-gradient-to-r from-amber-400 to-amber-500 transition-all duration-500 ease-out"
+          className="h-full rounded-full bg-linear-to-r from-amber-400 to-amber-500 transition-all duration-500 ease-out"
           style={{ width: `${state.progress}%` }}
         />
       </div>

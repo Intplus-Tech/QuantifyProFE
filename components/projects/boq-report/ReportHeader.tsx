@@ -41,7 +41,7 @@ export function ReportHeader({ meta }: ReportHeaderProps) {
             {meta.reportTitle}
           </h3>
           <p className="text-sm font-medium text-amber-500 mt-1">{meta.reportSubtitle}</p>
-          <div className="h-1 w-20 bg-gradient-to-r from-amber-500 to-amber-400 rounded-full mt-3" />
+          <div className="h-1 w-20 bg-linear-to-r from-amber-500 to-amber-400 rounded-full mt-3" />
         </div>
       </div>
     </div>
