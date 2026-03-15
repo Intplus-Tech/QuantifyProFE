@@ -1,5 +1,10 @@
 "use client";
 
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +22,40 @@ import {
   Mail,
   Clock,
 } from "lucide-react";
+
+// ─── Schema ─────────────────────────────────────────────────────────────────
+
+const passwordSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Current password is required"),
+    newPassword: z
+      .string()
+      .min(8, "New password must be at least 8 characters"),
+    confirmPassword: z.string().min(1, "Please confirm your new password"),
+  })
+  .refine((d) => d.newPassword === d.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  });
+
+type PasswordFormValues = z.infer<typeof passwordSchema>;
+
+// ─── Dummy API handler ───────────────────────────────────────────────────────
+
+async function updatePassword(data: PasswordFormValues): Promise<void> {
+  // TODO: Replace with real API call e.g. await api.patch("/user/password", data)
+  await new Promise((r) => setTimeout(r, 800));
+  console.log("[API] updatePassword →", { ...data, currentPassword: "***", newPassword: "***", confirmPassword: "***" });
+}
+
+// ─── Field error helper ──────────────────────────────────────────────────────
+
+function FieldError({ message }: { message?: string }) {
+  if (!message) return null;
+  return <p className="text-xs text-destructive mt-1">{message}</p>;
+}
+
+// ─── Static data ─────────────────────────────────────────────────────────────
 
 const loginActivity = [
   {
@@ -49,7 +88,36 @@ const loginActivity = [
   },
 ];
 
+// ─── Component ───────────────────────────────────────────────────────────────
+
 export default function SecurityLogin() {
+  const [emailAlerts, setEmailAlerts] = useState(true);
+  const [sessionTimeout, setSessionTimeout] = useState(false);
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<PasswordFormValues>({
+    resolver: zodResolver(passwordSchema),
+    defaultValues: {
+      currentPassword: "",
+      newPassword: "",
+      confirmPassword: "",
+    },
+  });
+
+  async function onPasswordSubmit(data: PasswordFormValues) {
+    try {
+      await updatePassword(data);
+      toast.success("Password updated successfully.");
+      reset();
+    } catch {
+      toast.error("Failed to update password.");
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -73,44 +141,56 @@ export default function SecurityLogin() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="space-y-5">
-              <div className="space-y-2">
-                <Label className="text-xs font-medium text-muted-foreground">
-                  Current Password
-                </Label>
-                <Input
-                  type="password"
-                  defaultValue="••••••••••••"
-                  className="bg-white border-border/50"
-                />
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <CardContent>
+              <form onSubmit={handleSubmit(onPasswordSubmit)} className="space-y-5">
                 <div className="space-y-2">
                   <Label className="text-xs font-medium text-muted-foreground">
-                    New Password
+                    Current Password
                   </Label>
                   <Input
+                    {...register("currentPassword")}
                     type="password"
-                    placeholder="Enter new password"
+                    placeholder="Enter current password"
                     className="bg-white border-border/50"
                   />
+                  <FieldError message={errors.currentPassword?.message} />
                 </div>
-                <div className="space-y-2">
-                  <Label className="text-xs font-medium text-muted-foreground">
-                    Confirm Password
-                  </Label>
-                  <Input
-                    type="password"
-                    placeholder="Confirm new password"
-                    className="bg-white border-border/50"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-muted-foreground">
+                      New Password
+                    </Label>
+                    <Input
+                      {...register("newPassword")}
+                      type="password"
+                      placeholder="Enter new password"
+                      className="bg-white border-border/50"
+                    />
+                    <FieldError message={errors.newPassword?.message} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-muted-foreground">
+                      Confirm Password
+                    </Label>
+                    <Input
+                      {...register("confirmPassword")}
+                      type="password"
+                      placeholder="Confirm new password"
+                      className="bg-white border-border/50"
+                    />
+                    <FieldError message={errors.confirmPassword?.message} />
+                  </div>
                 </div>
-              </div>
-              <div className="flex justify-end">
-                <Button className="bg-primary hover:bg-primary/80 text-white font-semibold px-6">
-                  Update Password
-                </Button>
-              </div>
+                <div className="flex justify-end">
+                  <Button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="bg-primary hover:bg-primary/80 text-white font-semibold px-6"
+                  >
+                    {isSubmitting ? "Updating..." : "Update Password"}
+                  </Button>
+                </div>
+              </form>
             </CardContent>
           </Card>
 
@@ -129,7 +209,11 @@ export default function SecurityLogin() {
                     </div>
                   </div>
                   <Switch
-                    defaultChecked
+                    checked={emailAlerts}
+                    onCheckedChange={(val) => {
+                      setEmailAlerts(val);
+                      toast.success(val ? "Email alerts enabled." : "Email alerts disabled.");
+                    }}
                     className="data-[state=checked]:bg-primary"
                   />
                 </div>
@@ -150,7 +234,14 @@ export default function SecurityLogin() {
                       </p>
                     </div>
                   </div>
-                  <Switch className="data-[state=checked]:bg-primary" />
+                  <Switch
+                    checked={sessionTimeout}
+                    onCheckedChange={(val) => {
+                      setSessionTimeout(val);
+                      toast.success(val ? "Session timeout enabled." : "Session timeout disabled.");
+                    }}
+                    className="data-[state=checked]:bg-primary"
+                  />
                 </div>
               </CardContent>
             </Card>
@@ -210,19 +301,21 @@ export default function SecurityLogin() {
           </Card>
 
           {/* Quantify Pro+ Card */}
-          <Card className="shadow-none bg-amber-400 border-0 overflow-hidden">
-            <CardContent className="p-6">
-              <div className="flex items-center gap-2 mb-2">
+          <Card className="shadow-none bg-amber-400 border-0 overflow-hidden relative">
+            {/* Decorative shield */}
+            <div className="absolute -bottom-4 -right-4 w-24 h-24 rounded-2xl bg-white/15 rotate-12" />
+            <div className="absolute -bottom-8 -right-8 w-28 h-28 rounded-2xl bg-white/10 rotate-12" />
+            <CardContent className="p-6 relative">
+              <div className="w-10 h-10 rounded-full bg-white/30 flex items-center justify-center mb-3">
                 <Star className="w-5 h-5 text-white fill-white" />
-                <h3 className="font-bold text-white text-lg">Quantify Pro+</h3>
               </div>
-              <p className="text-sm text-white/90 mb-4">
+              <h3 className="font-bold text-white text-lg mb-1">Quantify Pro+</h3>
+              <p className="text-sm text-white/90 mb-5">
                 Upgrade to get multi-user access and advanced team security
                 features.
               </p>
               <Button
-                variant="outline"
-                className="bg-white text-orange-600 border-white hover:bg-white/90 hover:text-orange-700 font-semibold"
+                className="bg-white text-amber-500 hover:bg-white/90 hover:text-amber-600 font-semibold border-0 w-full"
               >
                 Learn More
               </Button>
