@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Settings,
   Building2,
@@ -24,7 +24,13 @@ const tabs = [
 ];
 
 export default function EnterpriseSettingsPage() {
-  const [activeTab, setActiveTab] = useState("company");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const activeTab = searchParams.get("tab") ?? "company";
+
+  function setActiveTab(id: string) {
+    router.replace(`?tab=${id}`, { scroll: false });
+  }
 
   return (
     <div className="p-6 space-y-6 max-w-[1200px]">

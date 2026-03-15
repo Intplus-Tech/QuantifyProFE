@@ -129,20 +129,20 @@ export default function HelpSupport() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* FAQ Section */}
           <div className="lg:col-span-2">
-            <Card className="shadow-sm border-border/50">
-              <CardContent className="p-6">
+            <div className="">
+              <div className="p-6">
                 <div className="flex items-center gap-3 mb-5">
                   <MessageCircle className="w-5 h-5 text-primary" />
-                  <CardTitle className="text-lg font-bold text-foreground">
+                  <div className="text-lg font-bold text-foreground">
                     Frequently Asked Questions
-                  </CardTitle>
+                  </div>
                 </div>
-                <Accordion type="single" collapsible className="w-full space-y-3">
+                <Accordion type="single" collapsible className="w-full space-y-3 border-none">
                   {faqs.map((faq, idx) => (
                     <AccordionItem
                       key={idx}
                       value={`item-${idx}`}
-                      className="border border-border/50 rounded-xl px-4 bg-white"
+                      className="border border-border/50 rounded-xl px-4 bg-white data-[state=open]:bg-white"
                     >
                       <AccordionTrigger className="text-sm font-semibold text-foreground text-left hover:text-primary hover:no-underline py-4">
                         {faq.question}
@@ -153,8 +153,8 @@ export default function HelpSupport() {
                     </AccordionItem>
                   ))}
                 </Accordion>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </div>
 
           {/* Contact Support */}

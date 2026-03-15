@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Settings,
   User,
@@ -24,7 +24,13 @@ const tabs = [
 ];
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState("profile");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const activeTab = searchParams.get("tab") ?? "profile";
+
+  function setActiveTab(id: string) {
+    router.replace(`?tab=${id}`, { scroll: false });
+  }
 
   return (
     <div className="p-6 space-y-6 max-w-[1200px]">
