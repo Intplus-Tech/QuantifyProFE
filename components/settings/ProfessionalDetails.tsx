@@ -104,7 +104,7 @@ export default function ProfessionalDetails() {
                   Industry Specialization
                 </Label>
                 <Select defaultValue="residential">
-                  <SelectTrigger className="bg-white border-border/50">
+                  <SelectTrigger className="w-full bg-white border-border/50">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

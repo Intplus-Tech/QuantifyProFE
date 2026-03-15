@@ -56,7 +56,7 @@ export default function EnterpriseTeamManagement() {
                 <Label className="text-xs font-medium text-muted-foreground">
                   Company Logo
                 </Label>
-                <div className="w-24 h-24 rounded-xl bg-orange-50 flex items-center justify-center overflow-hidden border-2 border-dashed border-orange-200">
+                <div className="w-24 h-24 rounded-xl bg-primary/10 flex items-center justify-center overflow-hidden border-2 border-dashed border-orange-200">
                   <img
                     src="https://i.pravatar.cc/150?u=company"
                     alt="Company Logo"
@@ -86,7 +86,7 @@ export default function EnterpriseTeamManagement() {
                       Industry
                     </Label>
                     <Select defaultValue="qs">
-                      <SelectTrigger className="bg-white border-border/50">
+                      <SelectTrigger className="w-full bg-white border-border/50">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -101,7 +101,7 @@ export default function EnterpriseTeamManagement() {
                       Company Size
                     </Label>
                     <Select defaultValue="1-10">
-                      <SelectTrigger className="bg-white border-border/50">
+                      <SelectTrigger className="w-full bg-white border-border/50">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -126,10 +126,10 @@ export default function EnterpriseTeamManagement() {
 
                 <div className="space-y-2">
                   <Label className="text-xs font-medium text-muted-foreground">
-                    Registration Number
+                    Tax ID Number
                   </Label>
                   <Input
-                    placeholder="e.g. 12345678"
+                    placeholder="e.g. TIN-98765432"
                     className="bg-white border-border/50"
                   />
                 </div>
@@ -144,7 +144,7 @@ export default function EnterpriseTeamManagement() {
             <CardTitle className="text-lg font-bold text-foreground">
               Office Locations
             </CardTitle>
-            <button className="text-sm font-semibold text-orange-500 hover:text-orange-600">
+            <button className="text-sm font-semibold text-primary hover:text-primary">
               + Add Location
             </button>
           </CardHeader>
@@ -196,7 +196,7 @@ export default function EnterpriseTeamManagement() {
                 <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
                   CURRENT PLAN
                 </p>
-                <span className="text-[10px] font-bold text-orange-500 uppercase tracking-wider">
+                <span className="text-[10px] font-bold text-primary uppercase tracking-wider">
                   ACTIVE
                 </span>
               </div>
@@ -212,8 +212,8 @@ export default function EnterpriseTeamManagement() {
               {/* Active Projects */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-orange-50 flex items-center justify-center">
-                    <FolderOpen className="w-4 h-4 text-orange-500" />
+                  <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <FolderOpen className="w-4 h-4 text-primary" />
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-foreground">
@@ -254,13 +254,13 @@ export default function EnterpriseTeamManagement() {
         </Card>
 
         {/* Enterprise Tip */}
-        <div className="bg-orange-50 border border-orange-100 rounded-xl p-4 flex items-start gap-3">
-          <Info className="w-5 h-5 text-orange-500 shrink-0 mt-0.5" />
+        <div className="bg-primary/10 border border-primary/20 rounded-xl p-4 flex items-start gap-3">
+          <Info className="w-5 h-5 text-primary shrink-0 mt-0.5" />
           <div>
-            <h4 className="font-bold text-orange-900 text-sm mb-1">
+            <h4 className="font-bold text-foreground text-sm mb-1">
               Enterprise Tip
             </h4>
-            <p className="text-xs text-orange-700/80 leading-relaxed">
+            <p className="text-xs text-primary/70 leading-relaxed">
               Your enterprise license allows for custom API integrations and
               dedicated account support 24/7.
             </p>

@@ -42,7 +42,7 @@ export function LibraryCategoryView({ categoryId }: LibraryCategoryViewProps) {
             {categoryData.subtitle}
           </p>
         </div>
-        <Button className="bg-orange-500 hover:bg-orange-600 text-white shadow-sm">
+        <Button className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm">
           Add New Item
         </Button>
       </div>

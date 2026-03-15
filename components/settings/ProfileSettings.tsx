@@ -14,9 +14,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Briefcase, Users } from "lucide-react";
+import { useState } from "react";
+import { BillingModal } from "./BillingModal";
 
 export default function ProfileSettings() {
+  const [billingOpen, setBillingOpen] = useState(false);
   return (
+    <>
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       {/* Left Column */}
       <div className="lg:col-span-2 space-y-6">
@@ -46,7 +50,7 @@ export default function ProfileSettings() {
                   Company Type
                 </Label>
                 <Select defaultValue="llc">
-                  <SelectTrigger className="bg-white border-border/50">
+                  <SelectTrigger className="w-full bg-white border-border/50">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -64,7 +68,7 @@ export default function ProfileSettings() {
                   Industry
                 </Label>
                 <Select defaultValue="qs">
-                  <SelectTrigger className="bg-white border-border/50">
+                  <SelectTrigger className="w-full bg-white border-border/50">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -79,7 +83,7 @@ export default function ProfileSettings() {
                   Company Size
                 </Label>
                 <Select defaultValue="50-100">
-                  <SelectTrigger className="bg-white border-border/50">
+                  <SelectTrigger className="w-full bg-white border-border/50">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -132,7 +136,7 @@ export default function ProfileSettings() {
                   Professional Title
                 </Label>
                 <Select defaultValue="qs">
-                  <SelectTrigger className="bg-white border-border/50">
+                  <SelectTrigger className="w-full bg-white border-border/50">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -244,7 +248,10 @@ export default function ProfileSettings() {
             </div>
 
             {/* Manage Billing Button */}
-            <Button className="w-full bg-primary hover:bg-primary/80 text-white font-semibold">
+            <Button
+              className="w-full bg-primary hover:bg-primary/80 text-white font-semibold"
+              onClick={() => setBillingOpen(true)}
+            >
               <Briefcase className="w-4 h-4 mr-2" />
               Manage Billing
             </Button>
@@ -252,5 +259,8 @@ export default function ProfileSettings() {
         </Card>
       </div>
     </div>
+
+    <BillingModal open={billingOpen} onOpenChange={setBillingOpen} />
+    </>
   );
 }

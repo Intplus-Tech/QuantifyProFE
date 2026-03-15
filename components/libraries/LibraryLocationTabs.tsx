@@ -17,8 +17,8 @@ export function LibraryLocationTabs({
           onClick={() => onLocationChange(loc)}
           className={`flex-1 py-2.5 text-sm font-medium rounded-md transition-colors ${
             activeLocation === loc
-              ? "bg-orange-500 text-white shadow"
-              : "text-muted-foreground hover:text-foreground hover:bg-slate-50"
+              ? "bg-primary text-primary-foreground shadow"
+              : "text-muted-foreground hover:text-foreground hover:bg-muted"
           }`}
         >
           {loc}

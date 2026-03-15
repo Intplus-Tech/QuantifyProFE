@@ -53,7 +53,7 @@ export function LibraryTable({
                   {col.label}
                 </th>
               ))}
-              <th className="py-4 px-6 font-bold text-xs uppercase tracking-wider text-left text-orange-500 bg-orange-50/50">
+              <th className="py-4 px-6 font-bold text-xs uppercase tracking-wider text-left text-primary bg-primary/5">
                 Final Rate
               </th>
               <th className="py-4 px-6 font-bold text-muted-foreground text-xs uppercase tracking-wider text-center">
@@ -84,7 +84,7 @@ export function LibraryTable({
                     {col.render(item)}
                   </td>
                 ))}
-                <td className="py-4 px-6 font-bold text-orange-500 bg-orange-50/50">
+                <td className="py-4 px-6 font-bold text-primary bg-primary/5">
                   {item.final}
                 </td>
                 <td className="py-4 px-6">
@@ -136,7 +136,7 @@ export function LibraryTable({
               onClick={() => setCurrentPage(page)}
               className={`h-8 w-8 p-0 text-xs ${
                 currentPage === page
-                  ? "bg-orange-50 text-orange-600 border-orange-200 font-bold"
+                  ? "bg-primary/10 text-primary border-primary/30 font-bold"
                   : ""
               }`}
             >

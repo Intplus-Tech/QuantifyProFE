@@ -44,7 +44,7 @@ const teamMembers = [
     email: "yash.ghori@architects.io",
     avatar: "",
     initials: "YG",
-    avatarBg: "bg-orange-100 text-orange-600",
+    avatarBg: "bg-orange-100 text-primary",
     role: "Lead Surveyor",
     roleBg: "bg-blue-50 text-blue-600",
     status: "Active",
@@ -74,7 +74,7 @@ const teamMembers = [
     role: "Member",
     roleBg: "bg-transparent text-muted-foreground",
     status: "Invited",
-    statusColor: "bg-orange-500",
+    statusColor: "bg-primary",
     lastActive: "-",
     isInvited: true,
   },
@@ -85,7 +85,7 @@ const libraries = [
     id: 1,
     desc: "Ready-Mix Concrete C35/45",
     subDesc: "ID: MAT-4429",
-    iconBg: "bg-orange-100 text-orange-600",
+    iconBg: "bg-orange-100 text-primary",
     unit: "m",
     rate: "142.50",
     category: "STRUCTURAL",
@@ -145,7 +145,7 @@ export default function EnterpriseOrganizationSettings() {
                 <Label className="text-xs font-medium text-muted-foreground">
                   Company Logo
                 </Label>
-                <div className="w-24 h-24 rounded-xl bg-orange-50 flex items-center justify-center overflow-hidden border-2 border-dashed border-orange-200">
+                <div className="w-24 h-24 rounded-xl bg-primary/10 flex items-center justify-center overflow-hidden border-2 border-dashed border-primary/30">
                   <img
                     src="https://i.pravatar.cc/150?u=company"
                     alt="Company Logo"
@@ -175,7 +175,7 @@ export default function EnterpriseOrganizationSettings() {
                       Industry
                     </Label>
                     <Select defaultValue="qs">
-                      <SelectTrigger className="bg-white border-border/50">
+                      <SelectTrigger className="w-full bg-white border-border/50">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -190,7 +190,7 @@ export default function EnterpriseOrganizationSettings() {
                       Company Size
                     </Label>
                     <Select defaultValue="1-10">
-                      <SelectTrigger className="bg-white border-border/50">
+                      <SelectTrigger className="w-full bg-white border-border/50">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -237,7 +237,7 @@ export default function EnterpriseOrganizationSettings() {
                       </SelectContent>
                     </Select>
                     <Select defaultValue="nigeria">
-                      <SelectTrigger className="bg-white border-border/50">
+                      <SelectTrigger className="w-full bg-white border-border/50">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -247,7 +247,7 @@ export default function EnterpriseOrganizationSettings() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <button className="text-xs font-medium text-orange-500 hover:text-orange-600 mt-2">
+                  <button className="text-xs font-medium text-primary hover:text-primary mt-2">
                     + Add New Location
                   </button>
                 </div>
@@ -262,7 +262,7 @@ export default function EnterpriseOrganizationSettings() {
             <CardTitle className="text-lg font-bold text-foreground">
               Team Members
             </CardTitle>
-            <Button className="bg-orange-500 hover:bg-orange-600 text-white h-9">
+            <Button className="bg-primary hover:bg-primary/90 text-white h-9">
               <Plus className="w-4 h-4 mr-2" />
               Invite Member
             </Button>
@@ -338,7 +338,7 @@ export default function EnterpriseOrganizationSettings() {
                       </td>
                       <td className="py-3 px-6 text-right">
                         {member.isInvited ? (
-                          <button className="text-orange-500 font-semibold uppercase text-[10px] tracking-wider hover:text-orange-600">
+                          <button className="text-primary font-semibold uppercase text-[10px] tracking-wider hover:text-primary">
                             RESEND
                           </button>
                         ) : (
@@ -357,7 +357,7 @@ export default function EnterpriseOrganizationSettings() {
               </table>
             </div>
             <div className="p-4 text-right">
-              <button className="text-xs font-semibold text-orange-500 hover:text-orange-600">
+              <button className="text-xs font-semibold text-primary hover:text-primary">
                 View All
               </button>
             </div>
@@ -462,7 +462,7 @@ export default function EnterpriseOrganizationSettings() {
               </table>
             </div>
             <div className="p-4 text-right">
-              <button className="text-xs font-semibold text-orange-500 hover:text-orange-600">
+              <button className="text-xs font-semibold text-primary hover:text-primary">
                 View All
               </button>
             </div>
@@ -470,13 +470,13 @@ export default function EnterpriseOrganizationSettings() {
         </Card>
 
         {/* Enterprise Tip */}
-        <div className="bg-orange-50 border border-orange-100 rounded-xl p-4 flex items-start gap-3">
-          <Info className="w-5 h-5 text-orange-500 shrink-0 mt-0.5" />
+        <div className="bg-primary/10 border border-primary/20 rounded-xl p-4 flex items-start gap-3">
+          <Info className="w-5 h-5 text-primary shrink-0 mt-0.5" />
           <div>
-            <h4 className="font-bold text-orange-900 text-sm mb-1">
+            <h4 className="font-bold text-foreground text-sm mb-1">
               Enterprise Tip
             </h4>
-            <p className="text-xs text-orange-700/80 leading-relaxed">
+            <p className="text-xs text-primary/70 leading-relaxed">
               Your enterprise license allows for custom API integrations and
               dedicated account support 24/7.
             </p>
@@ -501,7 +501,7 @@ export default function EnterpriseOrganizationSettings() {
                 projects.
               </p>
             </div>
-            <button className="text-sm font-semibold text-orange-500 hover:text-orange-600 flex items-center gap-1">
+            <button className="text-sm font-semibold text-primary hover:text-primary flex items-center gap-1">
               Edit Role Settings <ArrowRight className="w-4 h-4" />
             </button>
           </CardContent>
@@ -516,7 +516,7 @@ export default function EnterpriseOrganizationSettings() {
               </div>
               <Switch
                 defaultChecked
-                className="data-[state=checked]:bg-orange-500"
+                className="data-[state=checked]:bg-primary"
               />
             </div>
             <div>
