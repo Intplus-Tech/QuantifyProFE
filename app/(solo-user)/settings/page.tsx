@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Settings,
   User,
@@ -24,14 +24,20 @@ const tabs = [
 ];
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState("profile");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const activeTab = searchParams.get("tab") ?? "profile";
+
+  function setActiveTab(id: string) {
+    router.replace(`?tab=${id}`, { scroll: false });
+  }
 
   return (
     <div className="p-6 space-y-6 max-w-[1200px]">
       {/* Page Header */}
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center">
-          <Settings className="w-5 h-5 text-orange-500" />
+        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+          <Settings className="w-5 h-5 text-primary" />
         </div>
         <div>
           <h1 className="text-2xl font-bold text-foreground">Settings</h1>
@@ -42,17 +48,17 @@ export default function SettingsPage() {
       </div>
 
       {/* Tab Navigation */}
-      <div className="flex flex-wrap gap-2 border-b border-border/30 pb-0">
+      <div className="flex flex-wrap gap-2">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
           return (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors relative ${
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg border transition-colors ${
                 isActive
-                  ? "bg-orange-50 text-orange-600 border border-b-0 border-orange-200"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-background text-muted-foreground border-border hover:text-foreground hover:border-primary/50"
               }`}
             >
               <tab.icon className="w-4 h-4" />

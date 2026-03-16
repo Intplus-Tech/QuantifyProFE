@@ -1,0 +1,211 @@
+import type { LucideIcon } from "lucide-react";
+import { Home, Building2, Factory, ShoppingBag, Hotel } from "lucide-react";
+
+export type TemplateTeamMember = {
+  avatar: string;
+  initials: string;
+};
+
+export type Template = {
+  id: number;
+  title: string;
+  description: string;
+  icon: LucideIcon;
+  iconBg: string;
+  iconColor: string;
+  openedAt: string;
+  team: TemplateTeamMember[];
+  extraUsers: string;
+  badge: string;
+  image: string;
+  boqGenerated: number;
+  estValue: string;
+  sections: string[];
+  features: string[];
+  tags: string[];
+  templateType: string;
+  lastUpdated: string;
+};
+
+export const mockTemplates: Template[] = [
+  {
+    id: 1,
+    title: "Residential Building- Standard",
+    description: "Complete BOQ template for standard residential buildings with NIQS-compliant.",
+    icon: Home,
+    iconBg: "bg-primary/10",
+    iconColor: "text-primary",
+    openedAt: "opened 2 mins ago",
+    team: [{ avatar: "https://i.pravatar.cc/150?u=1", initials: "JD" }],
+    extraUsers: "+2",
+    badge: "SYSTEM DEFAULT",
+    image: "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&q=80&w=800&h=450",
+    boqGenerated: 124,
+    estValue: "₦50M - ₦150M",
+    sections: ["Substructure", "Superstructure", "Finishes", "Services", "External Works"],
+    features: ["NIQS Standard Compliant", "Pre-filled rates for 2024", "Built-in wastage formulas"],
+    tags: ["Residential", "Standard", "2-4 Floors"],
+    templateType: "System Provided",
+    lastUpdated: "Aug 15, 2024",
+  },
+  {
+    id: 2,
+    title: "Commercial Office Building",
+    description: "Professional BOQ template for multi-story commercial office buildings",
+    icon: Building2,
+    iconBg: "bg-primary/10",
+    iconColor: "text-primary",
+    openedAt: "opened 12 mins ago",
+    team: [{ avatar: "https://i.pravatar.cc/150?u=2", initials: "AS" }],
+    extraUsers: "+3",
+    badge: "ORGANIZATION",
+    image: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&q=80&w=800&h=450",
+    boqGenerated: 86,
+    estValue: "₦500M+",
+    sections: ["Substructure", "RC Framework", "Curtain Walling", "MEP Services", "Lifts/Escalators"],
+    features: ["Bespoke façade costing", "Complex MEP breakdown", "Basement parking estimates"],
+    tags: ["Commercial", "High-Rise", "Premium"],
+    templateType: "Organization",
+    lastUpdated: "Aug 12, 2024",
+  },
+  {
+    id: 3,
+    title: "Warehouse & Industrial",
+    description: "Specialized template for warehouse and industrial facilities",
+    icon: Factory,
+    iconBg: "bg-primary/10",
+    iconColor: "text-primary",
+    openedAt: "Opened 30 mins ago",
+    team: [{ avatar: "https://i.pravatar.cc/150?u=3", initials: "MK" }],
+    extraUsers: "+2",
+    badge: "SYSTEM DEFAULT",
+    image: "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&q=80&w=800&h=450",
+    boqGenerated: 45,
+    estValue: "₦200M - ₦800M",
+    sections: ["Earthworks", "Steel Portal Frame", "Industrial Flooring", "Roofing", "External Paving"],
+    features: ["Steel tonnage calculators", "Specialist flooring rates", "Loading bay details"],
+    tags: ["Industrial", "Steel", "Large Span"],
+    templateType: "System Provided",
+    lastUpdated: "Aug 10, 2024",
+  },
+  {
+    id: 4,
+    title: "Shopping Mall/Retail",
+    description: "Comprehensive template for retail and shopping centers",
+    icon: ShoppingBag,
+    iconBg: "bg-primary/10",
+    iconColor: "text-primary",
+    openedAt: "opened 2 mins ago",
+    team: [{ avatar: "https://i.pravatar.cc/150?u=4", initials: "BL" }],
+    extraUsers: "+2",
+    badge: "ORGANIZATION",
+    image: "https://images.unsplash.com/photo-1519567281027-d15c102c019b?auto=format&fit=crop&q=80&w=800&h=450",
+    boqGenerated: 32,
+    estValue: "₦1B+",
+    sections: ["Substructure", "RC Frame", "Mall Finishes", "Vertical Transport", "HVAC"],
+    features: ["Tenant fit-out options", "Extensive glass/glazing", "Central cooling systems"],
+    tags: ["Retail", "Mall", "Public"],
+    templateType: "Organization",
+    lastUpdated: "Jul 28, 2024",
+  },
+  {
+    id: 5,
+    title: "Hotel & Hospitality",
+    description: "Detailed BOQ for hotel and hospitality projects",
+    icon: Hotel,
+    iconBg: "bg-primary/10",
+    iconColor: "text-primary",
+    openedAt: "opened 12 mins ago",
+    team: [{ avatar: "https://i.pravatar.cc/150?u=5", initials: "RJ" }],
+    extraUsers: "+3",
+    badge: "SYSTEM DEFAULT",
+    image: "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&q=80&w=800&h=450",
+    boqGenerated: 58,
+    estValue: "₦800M - ₦2B",
+    sections: ["Substructure", "Superstructure", "Room Fit-outs", "FF&E", "Pool/Leisure"],
+    features: ["Per-key breakdowns", "Premium finishes", "Kitchen/Laundry config"],
+    tags: ["Hospitality", "Luxury", "Fit-out"],
+    templateType: "System Provided",
+    lastUpdated: "Aug 05, 2024",
+  },
+  {
+    id: 6,
+    title: "Duplex & Villa",
+    description: "Luxury residential template for duplexes and villas",
+    icon: Factory, // Using Factory as placeholder for Duplex icon
+    iconBg: "bg-primary/10",
+    iconColor: "text-primary",
+    openedAt: "Opened 30 mins ago",
+    team: [{ avatar: "https://i.pravatar.cc/150?u=6", initials: "TR" }],
+    extraUsers: "+2",
+    badge: "ORGANIZATION",
+    image: "https://images.unsplash.com/photo-1600607687981-ce7009470c1d?auto=format&fit=crop&q=80&w=800&h=450",
+    boqGenerated: 215,
+    estValue: "₦100M - ₦300M",
+    sections: ["Substructure", "Superstructure", "Premium Finishes", "MEP", "Landscaping"],
+    features: ["Smart home integration", "Pool & landscaping", "High-end material rates"],
+    tags: ["Residential", "Luxury", "Villa"],
+    templateType: "Organization",
+    lastUpdated: "Aug 14, 2024",
+  },
+  {
+    id: 7,
+    title: "Residential Building- Standard",
+    description: "Complete BOQ template for standard residential buildings with NIQS-compliant.",
+    icon: Home,
+    iconBg: "bg-primary/10",
+    iconColor: "text-primary",
+    openedAt: "opened 2 mins ago",
+    team: [{ avatar: "https://i.pravatar.cc/150?u=1", initials: "JD" }],
+    extraUsers: "+2",
+    badge: "SYSTEM DEFAULT",
+    image: "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&q=80&w=800&h=450",
+    boqGenerated: 124,
+    estValue: "₦50M - ₦150M",
+    sections: ["Substructure", "Superstructure", "Finishes", "Services", "External Works"],
+    features: ["NIQS Standard Compliant", "Pre-filled rates for 2024", "Built-in wastage formulas"],
+    tags: ["Residential", "Standard", "2-4 Floors"],
+    templateType: "System Provided",
+    lastUpdated: "Aug 15, 2024",
+  },
+  {
+    id: 8,
+    title: "Commercial Office Building",
+    description: "Professional BOQ template for multi-story commercial office buildings",
+    icon: Building2,
+    iconBg: "bg-primary/10",
+    iconColor: "text-primary",
+    openedAt: "opened 12 mins ago",
+    team: [{ avatar: "https://i.pravatar.cc/150?u=2", initials: "AS" }],
+    extraUsers: "+3",
+    badge: "ORGANIZATION",
+    image: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&q=80&w=800&h=450",
+    boqGenerated: 86,
+    estValue: "₦500M+",
+    sections: ["Substructure", "RC Framework", "Curtain Walling", "MEP Services", "Lifts/Escalators"],
+    features: ["Bespoke façade costing", "Complex MEP breakdown", "Basement parking estimates"],
+    tags: ["Commercial", "High-Rise", "Premium"],
+    templateType: "Organization",
+    lastUpdated: "Aug 12, 2024",
+  },
+  {
+    id: 9,
+    title: "Warehouse & Industrial",
+    description: "Specialized template for warehouse and industrial facilities",
+    icon: Factory,
+    iconBg: "bg-primary/10",
+    iconColor: "text-primary",
+    openedAt: "Opened 30 mins ago",
+    team: [{ avatar: "https://i.pravatar.cc/150?u=3", initials: "MK" }],
+    extraUsers: "+2",
+    badge: "SYSTEM DEFAULT",
+    image: "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&q=80&w=800&h=450",
+    boqGenerated: 45,
+    estValue: "₦200M - ₦800M",
+    sections: ["Earthworks", "Steel Portal Frame", "Industrial Flooring", "Roofing", "External Paving"],
+    features: ["Steel tonnage calculators", "Specialist flooring rates", "Loading bay details"],
+    tags: ["Industrial", "Steel", "Large Span"],
+    templateType: "System Provided",
+    lastUpdated: "Aug 10, 2024",
+  },
+];
