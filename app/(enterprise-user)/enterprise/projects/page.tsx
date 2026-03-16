@@ -119,7 +119,10 @@ export default function ProjectsPage() {
             <ArrowUpDown className="w-4 h-4 mr-2" />
             Sort by: Recent
           </Button>
-          <Button className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm" onClick={() => setDialogOpen(true)}>
+          <Button
+            className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+            onClick={() => setDialogOpen(true)}
+          >
             <Plus className="w-4 h-4 mr-2" />
             New Project
           </Button>

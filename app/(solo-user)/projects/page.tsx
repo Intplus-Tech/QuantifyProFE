@@ -13,7 +13,8 @@ const mockProjects = [
     id: 1,
     title: "Central Park Cafe",
     subtitle: "Draft Estimate",
-    image: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&q=80",
+    image:
+      "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&q=80",
     updatedAt: "1w ago",
     team: [{ avatar: "https://i.pravatar.cc/150?u=1", initials: "JD" }],
   },
@@ -21,7 +22,8 @@ const mockProjects = [
     id: 2,
     title: "Central Park Cafe",
     subtitle: "Draft Estimate",
-    image: "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800&q=80",
+    image:
+      "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800&q=80",
     updatedAt: "1w ago",
     team: [{ avatar: "https://i.pravatar.cc/150?u=2", initials: "AS" }],
   },
@@ -29,7 +31,8 @@ const mockProjects = [
     id: 3,
     title: "Riverside Complex",
     subtitle: "Commercial  14,000 m",
-    image: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&q=80",
+    image:
+      "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&q=80",
     updatedAt: "2h ago",
     team: [
       { avatar: "https://i.pravatar.cc/150?u=3", initials: "MK" },
@@ -40,7 +43,8 @@ const mockProjects = [
     id: 4,
     title: "Oakwood Residences",
     subtitle: "Residential  Phase 2",
-    image: "https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=800&q=80",
+    image:
+      "https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=800&q=80",
     updatedAt: "1d ago",
     team: [{ avatar: "https://i.pravatar.cc/150?u=5", initials: "RJ" }],
   },
@@ -48,7 +52,8 @@ const mockProjects = [
     id: 5,
     title: "Metro Station Hub",
     subtitle: "Infrastructure  Civil",
-    image: "https://images.unsplash.com/photo-1541888087525-efb8f5031314?w=800&q=80",
+    image:
+      "https://images.unsplash.com/photo-1541888087525-efb8f5031314?w=800&q=80",
     updatedAt: "3d ago",
     team: [
       { avatar: "https://i.pravatar.cc/150?u=6", initials: "TR" },
@@ -60,7 +65,8 @@ const mockProjects = [
     id: 6,
     title: "Riverside Complex",
     subtitle: "Commercial  14,000 m",
-    image: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&q=80",
+    image:
+      "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&q=80",
     updatedAt: "2h ago",
     team: [
       { avatar: "https://i.pravatar.cc/150?u=3", initials: "MK" },
@@ -71,7 +77,8 @@ const mockProjects = [
     id: 7,
     title: "Oakwood Residences",
     subtitle: "Residential  Phase 2",
-    image: "https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=800&q=80",
+    image:
+      "https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=800&q=80",
     updatedAt: "1d ago",
     team: [{ avatar: "https://i.pravatar.cc/150?u=5", initials: "RJ" }],
   },
@@ -79,7 +86,8 @@ const mockProjects = [
     id: 8,
     title: "Metro Station Hub",
     subtitle: "Infrastructure  Civil",
-    image: "https://images.unsplash.com/photo-1541888087525-efb8f5031314?w=800&q=80",
+    image:
+      "https://images.unsplash.com/photo-1541888087525-efb8f5031314?w=800&q=80",
     updatedAt: "3d ago",
     team: [
       { avatar: "https://i.pravatar.cc/150?u=6", initials: "TR" },
@@ -93,25 +101,28 @@ export default function ProjectsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
 
   return (
-    <div className="p-6 md:p-8 max-w-7xl mx-auto">
+    <div className="mx-auto">
       {/* Top Bar */}
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-8">
         <div className="relative w-full sm:w-96">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4" />
           <Input
             placeholder="Search projects..."
-            className="pl-9 bg-background border-border/50 shadow-sm"
+            className="pl-9 bg-background border-border/50 shadow-sm h-12"
           />
         </div>
         <div className="flex items-center gap-3 w-full sm:w-auto">
           <Button
             variant="outline"
-            className="bg-background border-border/50 shadow-sm text-muted-foreground"
+            className="bg-background border-border/50 shadow-sm text-muted-foreground h-12"
           >
             <ArrowUpDown className="w-4 h-4 mr-2" />
             Sort by: Recent
           </Button>
-          <Button className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm" onClick={() => setDialogOpen(true)}>
+          <Button
+            className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm h-12"
+            onClick={() => setDialogOpen(true)}
+          >
             <Plus className="w-4 h-4 mr-2" />
             New Project
           </Button>

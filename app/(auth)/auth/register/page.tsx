@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { useRegisterMutation } from "@/store/api/authApi";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -68,7 +69,7 @@ export default function RegisterPage() {
     register,
     handleSubmit,
     setValue,
-    formState: { errors, isSubmitting },
+    formState: { errors },
   } = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
     defaultValues: {
@@ -81,6 +82,9 @@ export default function RegisterPage() {
     },
   });
 
+  const [registerUser, { isLoading: isSubmitting }] = useRegisterMutation();
+  const [registerError, setRegisterError] = useState<string | null>(null);
+
   function switchAccountType(type: "single" | "company") {
     setAccountType(type);
     setValue("accountType", type);
@@ -91,11 +95,29 @@ export default function RegisterPage() {
   }
 
   async function onSubmit(data: RegisterFormData) {
-    // Mock registration — simulate a 1.5 s API call
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    console.log("Registered:", data);
-    // Redirect to login after mock success
-    router.push("/auth/login?registered=true");
+    setRegisterError(null);
+    try {
+      const payload: any = {
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email,
+        password: data.password,
+        phoneNumber: data.phone,
+      };
+
+      if (data.accountType === "company") {
+        payload.role = "company";
+        payload.companyName = (data as any).companyName;
+      }
+
+      const response = await registerUser(payload).unwrap();
+
+      router.push(`/auth/verification?email=${encodeURIComponent(data.email)}`);
+    } catch (err: any) {
+      setRegisterError(
+        err.data?.message || err.message || "Registration failed.",
+      );
+    }
   }
 
   return (
@@ -105,6 +127,11 @@ export default function RegisterPage() {
         <h2 className="text-2xl font-bold tracking-tight">
           Create your account
         </h2>
+        {registerError && (
+          <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {registerError}
+          </p>
+        )}
       </div>
 
       {/* Account Type Toggle */}

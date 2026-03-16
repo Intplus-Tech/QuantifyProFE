@@ -25,8 +25,12 @@ export default function ClientsPage() {
                 TOTAL MANAGED CLIENTS
               </p>
               <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-bold text-foreground">{totalClients}</span>
-                <span className="text-xs font-medium text-green-600">+4 this month</span>
+                <span className="text-3xl font-bold text-foreground">
+                  {totalClients}
+                </span>
+                <span className="text-xs font-medium text-green-600">
+                  +4 this month
+                </span>
               </div>
             </CardContent>
           </Card>
