@@ -41,6 +41,12 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [status, data, dispatch]);
 
   useEffect(() => {
+    if (data?.user?.role === "company") {
+      router.push("/enterprise/dashboard");
+    }
+  }, [data]);
+
+  useEffect(() => {
     if (status === "unauthenticated" && !currentUser) {
       router.push("/auth/login");
     }

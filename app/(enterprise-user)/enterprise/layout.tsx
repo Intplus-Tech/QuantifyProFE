@@ -16,7 +16,7 @@ export default function EnterpriseDashboardLayout({
         <EnterpriseSidebar />
         <div className="flex-1 flex flex-col w-full">
           <EnterpriseHeader />
-          <main className="flex-1 overflow-y-auto bg-[#F4F7FE]">
+          <main className="flex-1 overflow-y-auto bg-[#F4F7FE] px-2 sm:px-6 pb-6">
             {children}
           </main>
         </div>

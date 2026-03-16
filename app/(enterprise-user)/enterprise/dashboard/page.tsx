@@ -105,7 +105,7 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-4">
+    <div className=" mx-auto space-y-4">
       <StatsGrid stats={statsData} />
       <PromoSection />
       <ProjectsTable projects={projectsData} />

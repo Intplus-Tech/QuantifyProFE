@@ -77,6 +77,8 @@ function LoginForm() {
       redirect: false,
     });
 
+    console.log(result, "result");
+
     if (result?.ok) {
       router.push("/");
     } else {

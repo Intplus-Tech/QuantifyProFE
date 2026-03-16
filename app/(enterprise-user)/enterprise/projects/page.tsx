@@ -101,7 +101,7 @@ export default function ProjectsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
 
   return (
-    <div className="p-6 md:p-8 max-w-7xl mx-auto">
+    <div className=" mx-auto">
       {/* Top Bar */}
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-8">
         <div className="relative w-full sm:w-96">
