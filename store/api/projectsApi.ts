@@ -11,6 +11,102 @@ import {
 } from "../slices/projectsSlice";
 import { ApiResponse, PaginatedResponse } from "@/types/api";
 
+export interface BimUploadResponse {
+  urn: string;
+  objectKey: string;
+  bucketKey: string;
+  translationStatus: string;
+}
+
+export interface BimTranslationStatus {
+  urn: string;
+  status: string;
+  progress: string;
+  derivatives: any[];
+}
+
+export interface BimJob {
+  _id: string;
+  urn: string;
+  originalFilename: string;
+  fileType: string;
+  status: string;
+  viewName?: string;
+  rawItemCount?: number;
+  filteredItemCount?: number;
+  thumbnailUrl?: string;
+  viewIndex?: number;
+  createdAt: string;
+  result?: {
+    projectTitle: string;
+    sections: any[]; 
+  };
+}
+
+export interface BimWorkItem {
+  item: string;
+  specification?: string;
+  unit?: string;
+  quantity?: number;
+  rate?: number;
+  total?: number;
+  notes?: string;
+}
+
+export interface BimSection {
+  sectionName: string;
+  workItems: BimWorkItem[];
+}
+
+export interface BimJobUpdateRequest {
+  projectTitle?: string;
+  sections?: BimSection[];
+  generalNotes?: string;
+}
+
+export interface PdfBoqGenerateResponse {
+  jobId: string;
+  status: string;
+}
+
+export interface PdfBoqJob {
+  _id: string;
+  originalFilename: string;
+  status: string;
+  createdAt: string;
+  result?: {
+    projectTitle: string;
+    sections: BimSection[];
+  };
+}
+
+export interface PdfBoqCreateProjectRequest {
+  name: string;
+  description: string;
+  companyId?: string;
+  clientId?: string;
+  clientName?: string;
+  projectCode?: string;
+  projectType?: string;
+  projectLocation?: string;
+  drawingType?: string;
+}
+
+export interface PdfBoqCreateProjectResponse {
+  _id: string;
+  name: string;
+  description: string;
+  source: string;
+  sourceJobId: string;
+  status: string;
+  clientName: string;
+  projectCode: string;
+  projectType: string;
+  projectLocation: string;
+  boqResult: any;
+  createdAt: string;
+}
+
 export const projectsApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
     getProjects: builder.query<
@@ -118,6 +214,85 @@ export const projectsApi = baseApi.injectEndpoints({
         }
       },
     }),
+    uploadBimFile: builder.mutation<ApiResponse<BimUploadResponse>, FormData>({
+      query: (formData) => ({
+        url: ApiEndpoints.bim.upload,
+        method: ApiMethods.POST,
+        body: formData,
+      }),
+    }),
+    getBimStatus: builder.query<ApiResponse<BimTranslationStatus>, string>({
+      query: (urn) => ({
+        url: ApiEndpoints.bim.status(urn),
+        method: ApiMethods.GET,
+      }),
+    }),
+    getBimJobs: builder.query<PaginatedResponse<BimJob>, { page?: number; limit?: number }>({
+      query: (params) => ({
+        url: ApiEndpoints.bim.jobs,
+        method: ApiMethods.GET,
+        params,
+      }),
+    }),
+    getBimJobById: builder.query<ApiResponse<BimJob>, string>({
+      query: (jobId) => ({
+        url: ApiEndpoints.bim.jobDetails(jobId),
+        method: ApiMethods.GET,
+      }),
+    }),
+    updateBimJob: builder.mutation<ApiResponse<BimJob>, { jobId: string; body: BimJobUpdateRequest }>({
+      query: ({ jobId, body }) => ({
+        url: ApiEndpoints.bim.updateJob(jobId),
+        method: ApiMethods.PATCH,
+        body,
+      }),
+    }),
+    getBimJobPdf: builder.query<ApiResponse<any>, string>({
+      query: (jobId) => ({
+        url: ApiEndpoints.bim.jobPdf(jobId),
+        method: ApiMethods.GET,
+      }),
+    }),
+    generatePdfBoq: builder.mutation<ApiResponse<PdfBoqGenerateResponse>, FormData>({
+      query: (formData) => ({
+        url: ApiEndpoints.pdfBoq.generate,
+        method: ApiMethods.POST,
+        body: formData,
+      }),
+    }),
+    getPdfBoqJobs: builder.query<PaginatedResponse<PdfBoqJob>, { page?: number; limit?: number }>({
+      query: (params) => ({
+        url: ApiEndpoints.pdfBoq.jobs,
+        method: ApiMethods.GET,
+        params,
+      }),
+    }),
+    getPdfBoqJobById: builder.query<ApiResponse<PdfBoqJob>, string>({
+      query: (jobId) => ({
+        url: ApiEndpoints.pdfBoq.jobDetails(jobId),
+        method: ApiMethods.GET,
+      }),
+    }),
+    updatePdfBoqJob: builder.mutation<ApiResponse<PdfBoqJob>, { jobId: string; body: BimJobUpdateRequest }>({
+      query: ({ jobId, body }) => ({
+        url: ApiEndpoints.pdfBoq.updateJob(jobId),
+        method: ApiMethods.PATCH,
+        body,
+      }),
+    }),
+    getPdfBoqJobPdf: builder.query<ApiResponse<any>, string>({
+      query: (jobId) => ({
+        url: ApiEndpoints.pdfBoq.jobPdf(jobId),
+        method: ApiMethods.GET,
+      }),
+    }),
+    createProjectFromPdfBoq: builder.mutation<ApiResponse<PdfBoqCreateProjectResponse>, { jobId: string; body: PdfBoqCreateProjectRequest }>({
+      query: ({ jobId, body }) => ({
+        url: ApiEndpoints.pdfBoq.createProject(jobId),
+        method: ApiMethods.POST,
+        body,
+      }),
+    }),
   }),
 });
 
@@ -128,4 +303,16 @@ export const {
   useUpdateProjectMutation,
   useDeleteProjectMutation,
   useArchiveProjectMutation,
+  useUploadBimFileMutation,
+  useGetBimStatusQuery,
+  useGetBimJobsQuery,
+  useGetBimJobByIdQuery,
+  useUpdateBimJobMutation,
+  useGetBimJobPdfQuery,
+  useGeneratePdfBoqMutation,
+  useGetPdfBoqJobsQuery,
+  useGetPdfBoqJobByIdQuery,
+  useUpdatePdfBoqJobMutation,
+  useGetPdfBoqJobPdfQuery,
+  useCreateProjectFromPdfBoqMutation,
 } = projectsApi;

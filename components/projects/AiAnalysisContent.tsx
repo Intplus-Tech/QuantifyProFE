@@ -3,10 +3,20 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
+import { useDispatch } from "react-redux";
+import { setNewProjectDraft } from "@/store/slices/projectsSlice";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useDropzone } from "react-dropzone";
-import { Upload, FileType, FileText, Zap, Shield, Sparkles, X } from "lucide-react";
+import {
+  Upload,
+  FileType,
+  FileText,
+  Zap,
+  Shield,
+  Sparkles,
+  X,
+} from "lucide-react";
 
 import {
   DialogContent,
@@ -16,7 +26,13 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Field,
   FieldLabel,
@@ -30,6 +46,8 @@ const aiFormSchema = z.object({
   clientName: z.string().min(1, "Client Name is required"),
   projectType: z.string().min(1, "Project Type is required"),
   location: z.string().optional(),
+  source: z.string().min(1, "Source is required"),
+  description: z.string().optional(),
   drawingType: z.string().min(1, "Drawing Type is required"),
   drawings: z.array(z.any()).min(1, "Please upload at least one drawing"),
 });
@@ -43,8 +61,14 @@ interface AiAnalysisContentProps {
   basePath?: string; // "/projects" or "/enterprise/projects"
 }
 
-export function AiAnalysisContent({ onCancel, onSwitchMode, onSubmitSuccess, basePath = "/projects" }: AiAnalysisContentProps) {
+export function AiAnalysisContent({
+  onCancel,
+  onSwitchMode,
+  onSubmitSuccess,
+  basePath = "/projects",
+}: AiAnalysisContentProps) {
   const router = useRouter();
+  const dispatch = useDispatch();
   const {
     register,
     handleSubmit,
@@ -60,6 +84,8 @@ export function AiAnalysisContent({ onCancel, onSwitchMode, onSubmitSuccess, bas
       clientName: "",
       projectType: "",
       location: "",
+      source: "",
+      description: "",
       drawingType: "",
       drawings: [],
     },
@@ -69,9 +95,11 @@ export function AiAnalysisContent({ onCancel, onSwitchMode, onSubmitSuccess, bas
 
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
-      setValue("drawings", [...drawings, ...acceptedFiles], { shouldValidate: true });
+      setValue("drawings", [...drawings, ...acceptedFiles], {
+        shouldValidate: true,
+      });
     },
-    [drawings, setValue]
+    [drawings, setValue],
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -89,13 +117,14 @@ export function AiAnalysisContent({ onCancel, onSwitchMode, onSubmitSuccess, bas
     setValue(
       "drawings",
       drawings.filter((_, i) => i !== indexToRemove),
-      { shouldValidate: true }
+      { shouldValidate: true },
     );
   };
 
   const onSubmit = async (data: AiFormValues) => {
     // API integration: replace this with a real POST that returns a projectId
     console.log("Form Data:", data);
+    dispatch(setNewProjectDraft(data));
     const mockProjectId = crypto.randomUUID();
     onSubmitSuccess?.(data);
     // Navigate to the processing page
@@ -105,76 +134,158 @@ export function AiAnalysisContent({ onCancel, onSwitchMode, onSubmitSuccess, bas
   return (
     <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col overflow-hidden p-0 gap-0">
       <DialogHeader className="shrink-0 px-6 py-5 pb-4 text-center border-b border-border/50 bg-muted/10">
-        <DialogTitle className="text-xl font-bold">AI-Powered Drawing Analysis</DialogTitle>
+        <DialogTitle className="text-xl font-bold">
+          AI-Powered Drawing Analysis
+        </DialogTitle>
         <DialogDescription className="text-center text-sm pt-1.5">
-          Upload your project drawings to automatically generate cost estimates and detailed Bills of Quantities.
+          Upload your project drawings to automatically generate cost estimates
+          and detailed Bills of Quantities.
         </DialogDescription>
       </DialogHeader>
 
       <div className="flex-1 overflow-y-auto p-6">
-        <form id="ai-analysis-form" onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        <form
+          id="ai-analysis-form"
+          onSubmit={handleSubmit(onSubmit)}
+          className="space-y-6"
+        >
           {/* Project Information Section */}
           <div className="border rounded-xl p-5 bg-card text-card-foreground shadow-sm">
             <div className="mb-4">
-              <h3 className="font-semibold text-base mb-1">Project Information</h3>
-              <p className="text-sm text-muted-foreground">Basic identity and physical location of the site.</p>
+              <h3 className="font-semibold text-base mb-1">
+                Project Information
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Basic identity and physical location of the site.
+              </p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Field>
                 <FieldLabel>Project Title</FieldLabel>
                 <FieldContent>
-                  <Input {...register("projectTitle")} placeholder="e.g. Skyline Residency - Phase 2" />
+                  <Input
+                    {...register("projectTitle")}
+                    placeholder="e.g. Skyline Residency - Phase 2"
+                    className="h-12"
+                  />
                 </FieldContent>
-                <FieldError errors={[{ message: errors.projectTitle?.message }]} />
+                <FieldError
+                  errors={[{ message: errors.projectTitle?.message }]}
+                />
               </Field>
 
               <Field>
                 <FieldLabel>Project Code / Reference</FieldLabel>
                 <FieldContent>
-                  <Input {...register("projectCode")} placeholder="PRJ-2024-001" />
+                  <Input
+                    {...register("projectCode")}
+                    placeholder="PRJ-2024-001"
+                    className="h-12"
+                  />
                 </FieldContent>
-                <FieldError errors={[{ message: errors.projectCode?.message }]} />
+                <FieldError
+                  errors={[{ message: errors.projectCode?.message }]}
+                />
               </Field>
 
               <Field>
                 <FieldLabel>Client Name</FieldLabel>
                 <FieldContent>
-                  <Input {...register("clientName")} placeholder="Real Estate Development Corp." />
+                  <Input
+                    {...register("clientName")}
+                    placeholder="Real Estate Development Corp."
+                    className="h-12"
+                  />
                 </FieldContent>
-                <FieldError errors={[{ message: errors.clientName?.message }]} />
+                <FieldError
+                  errors={[{ message: errors.clientName?.message }]}
+                />
               </Field>
 
               <Field>
                 <FieldLabel>Project Type</FieldLabel>
-                <FieldContent>
+                <FieldContent className="text-card-foreground!">
                   <Controller
                     control={control}
                     name="projectType"
                     render={({ field }) => (
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <SelectTrigger>
+                      <Select
+                        onValueChange={field.onChange}
+                        defaultValue={field.value}
+                      >
+                        <SelectTrigger className="h-12! py-3! w-full">
                           <SelectValue placeholder="Select Project Type" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="High-Rise Residential">High-Rise Residential</SelectItem>
+                          <SelectItem value="High-Rise Residential">
+                            High-Rise Residential
+                          </SelectItem>
                           <SelectItem value="Commercial">Commercial</SelectItem>
-                          <SelectItem value="Infrastructure">Infrastructure</SelectItem>
+                          <SelectItem value="Infrastructure">
+                            Infrastructure
+                          </SelectItem>
                           <SelectItem value="Industrial">Industrial</SelectItem>
                         </SelectContent>
                       </Select>
                     )}
                   />
                 </FieldContent>
-                <FieldError errors={[{ message: errors.projectType?.message }]} />
+                <FieldError
+                  errors={[{ message: errors.projectType?.message }]}
+                />
               </Field>
 
               <Field className="md:col-span-2">
                 <FieldLabel>Project Location (Address)</FieldLabel>
                 <FieldContent>
-                  <Input {...register("location")} placeholder="123 Construction Ave, Midtown..." />
+                  <Input
+                    {...register("location")}
+                    placeholder="123 Construction Ave, Midtown..."
+                    className="h-12"
+                  />
                 </FieldContent>
                 <FieldError errors={[{ message: errors.location?.message }]} />
+              </Field>
+
+              <Field>
+                <FieldLabel>Source</FieldLabel>
+                <FieldContent className="text-card-foreground!">
+                  <Controller
+                    control={control}
+                    name="source"
+                    render={({ field }) => (
+                      <Select
+                        onValueChange={field.onChange}
+                        defaultValue={field.value}
+                      >
+                        <SelectTrigger className="h-12! py-3! w-full">
+                          <SelectValue placeholder="Select Source" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="pdf_boq">PDF/BOQ</SelectItem>
+                          <SelectItem value="bim">BIM</SelectItem>
+                          <SelectItem value="manual">Manual</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </FieldContent>
+                <FieldError
+                  errors={[{ message: errors.source?.message }]}
+                />
+              </Field>
+
+              <Field>
+                <FieldLabel>Description</FieldLabel>
+                <FieldContent>
+                  <Input
+                    {...register("description")}
+                    placeholder="Project description or notes"
+                    className="h-12"
+                  />
+                </FieldContent>
+                <FieldError errors={[{ message: errors.description?.message }]} />
               </Field>
             </div>
           </div>
@@ -182,19 +293,26 @@ export function AiAnalysisContent({ onCancel, onSwitchMode, onSubmitSuccess, bas
           {/* Drawings Section */}
           <div className="border rounded-xl p-5 bg-card text-card-foreground shadow-sm">
             <Field className="mb-4">
-              <FieldLabel className="font-semibold text-base mb-2">What type of drawing is this?</FieldLabel>
+              <FieldLabel className="font-semibold text-base mb-2">
+                What type of drawing is this?
+              </FieldLabel>
               <FieldContent>
                 <Controller
                   control={control}
                   name="drawingType"
                   render={({ field }) => (
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <SelectTrigger className="w-full md:w-1/2">
+                    <Select
+                      onValueChange={field.onChange}
+                      defaultValue={field.value}
+                    >
+                      <SelectTrigger className="w-full md:w-1/2 h-12! py-3!">
                         <SelectValue placeholder="Select Drawing Type (e.g., Structural, Architectural, MEP)" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Structural">Structural</SelectItem>
-                        <SelectItem value="Architectural">Architectural</SelectItem>
+                        <SelectItem value="Architectural">
+                          Architectural
+                        </SelectItem>
                         <SelectItem value="MEP">MEP</SelectItem>
                       </SelectContent>
                     </Select>
@@ -207,7 +325,9 @@ export function AiAnalysisContent({ onCancel, onSwitchMode, onSubmitSuccess, bas
             <div
               {...getRootProps()}
               className={`relative overflow-hidden mt-2 border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all duration-200 ${
-                isDragActive ? "border-primary" : "border-border/60 hover:border-primary/50"
+                isDragActive
+                  ? "border-primary"
+                  : "border-border/60 hover:border-primary/50"
               }`}
             >
               {/* Mesh Gradient Background */}
@@ -219,21 +339,31 @@ export function AiAnalysisContent({ onCancel, onSwitchMode, onSubmitSuccess, bas
 
               <div className="relative z-10 w-full h-full flex flex-col items-center justify-center">
                 <input {...getInputProps()} />
-                
+
                 <div className="flex justify-center gap-5 mb-5">
                   <div className="flex flex-col items-center justify-center p-3 w-[72px] h-[72px] bg-background/90 backdrop-blur-sm rounded-2xl border shadow-sm">
                     <FileType className="w-7 h-7 text-amber-500 mb-1.5" />
-                    <span className="text-[10px] font-bold text-muted-foreground">.CAD</span>
+                    <span className="text-[10px] font-bold text-muted-foreground">
+                      .CAD
+                    </span>
                   </div>
                   <div className="flex flex-col items-center justify-center p-3 w-[72px] h-[72px] bg-background/90 backdrop-blur-sm rounded-2xl border shadow-sm">
                     <FileText className="w-7 h-7 text-amber-500 mb-1.5" />
-                    <span className="text-[10px] font-bold text-muted-foreground">.PDF</span>
+                    <span className="text-[10px] font-bold text-muted-foreground">
+                      .PDF
+                    </span>
                   </div>
                 </div>
 
-                <h4 className="text-xl font-bold text-foreground mb-1.5 drop-shadow-sm">Drag and drop your drawings here</h4>
+                <h4 className="text-xl font-bold text-foreground mb-1.5 drop-shadow-sm">
+                  Drag and drop your drawings here
+                </h4>
                 <p className="text-sm text-muted-foreground mb-8">
-                  Or <span className="text-amber-500 font-semibold hover:text-amber-600 transition-colors">browse files</span> from your computer
+                  Or{" "}
+                  <span className="text-amber-500 font-semibold hover:text-amber-600 transition-colors">
+                    browse files
+                  </span>{" "}
+                  from your computer
                 </p>
 
                 <div className="inline-flex items-center justify-center bg-background/70 backdrop-blur-md border rounded-full px-5 py-2 text-xs text-foreground font-medium shadow-xs">
@@ -244,21 +374,38 @@ export function AiAnalysisContent({ onCancel, onSwitchMode, onSubmitSuccess, bas
             </div>
 
             {/* Error for missing files */}
-            {errors.drawings && <p className="text-destructive text-sm mt-3">{errors.drawings.message?.toString()}</p>}
+            {errors.drawings && (
+              <p className="text-destructive text-sm mt-3">
+                {errors.drawings.message?.toString()}
+              </p>
+            )}
 
             {/* List of selected files */}
             {drawings.length > 0 && (
               <div className="mt-4 space-y-2">
                 {drawings.map((file: File, index: number) => (
-                  <div key={`${file.name}-${index}`} className="flex items-center justify-between p-3 border rounded-lg bg-background">
+                  <div
+                    key={`${file.name}-${index}`}
+                    className="flex items-center justify-between p-3 border rounded-lg bg-background"
+                  >
                     <div className="flex items-center gap-3 overflow-hidden">
                       <FileText className="w-5 h-5 text-muted-foreground shrink-0" />
                       <div className="truncate">
-                        <p className="text-sm font-medium truncate">{file.name}</p>
-                        <p className="text-xs text-muted-foreground">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                        <p className="text-sm font-medium truncate">
+                          {file.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {(file.size / 1024 / 1024).toFixed(2)} MB
+                        </p>
                       </div>
                     </div>
-                    <Button variant="ghost" size="icon" onClick={() => removeFile(index)} type="button" className="h-8 w-8 text-muted-foreground hover:text-destructive shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeFile(index)}
+                      type="button"
+                      className="h-8 w-8 text-muted-foreground hover:text-destructive shrink-0"
+                    >
                       <X className="w-4 h-4" />
                     </Button>
                   </div>
@@ -273,29 +420,49 @@ export function AiAnalysisContent({ onCancel, onSwitchMode, onSubmitSuccess, bas
           <div className="flex gap-3 border rounded-lg p-3">
             <Sparkles className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
             <div>
-              <h5 className="text-[10px] font-bold tracking-wider uppercase mb-1">Auto-Quantities</h5>
-              <p className="text-xs text-muted-foreground">AI identifies wall types, floor areas, and fixture counts automatically.</p>
+              <h5 className="text-[10px] font-bold tracking-wider uppercase mb-1">
+                Auto-Quantities
+              </h5>
+              <p className="text-xs text-muted-foreground">
+                AI identifies wall types, floor areas, and fixture counts
+                automatically.
+              </p>
             </div>
           </div>
           <div className="flex gap-3 border rounded-lg p-3">
             <FileText className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
             <div>
-              <h5 className="text-[10px] font-bold tracking-wider uppercase mb-1">BOQ Export</h5>
-              <p className="text-xs text-muted-foreground">Generated estimates are compatible with Excel, and Pdf.</p>
+              <h5 className="text-[10px] font-bold tracking-wider uppercase mb-1">
+                BOQ Export
+              </h5>
+              <p className="text-xs text-muted-foreground">
+                Generated estimates are compatible with Excel, and Pdf.
+              </p>
             </div>
           </div>
           <div className="flex gap-3 border rounded-lg p-3">
             <Shield className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
             <div>
-              <h5 className="text-[10px] font-bold tracking-wider uppercase mb-1">Secure Storage</h5>
-              <p className="text-xs text-muted-foreground">All drawings are encrypted and stored in SOC2 compliant servers.</p>
+              <h5 className="text-[10px] font-bold tracking-wider uppercase mb-1">
+                Secure Storage
+              </h5>
+              <p className="text-xs text-muted-foreground">
+                All drawings are encrypted and stored in SOC2 compliant servers.
+              </p>
             </div>
           </div>
         </div>
 
         <div className="mt-8 text-center mb-2">
           <span className="text-sm text-muted-foreground">
-            Switch to <button type="button" onClick={onSwitchMode} className="text-amber-500 font-medium hover:underline">Manual Entry Mode</button>
+            Switch to{" "}
+            <button
+              type="button"
+              onClick={onSwitchMode}
+              className="text-amber-500 font-medium hover:underline"
+            >
+              Manual Entry Mode
+            </button>
           </span>
         </div>
       </div>
@@ -309,7 +476,12 @@ export function AiAnalysisContent({ onCancel, onSwitchMode, onSubmitSuccess, bas
           <Button type="button" variant="outline" onClick={onCancel}>
             Cancel
           </Button>
-          <Button type="submit" form="ai-analysis-form" disabled={isSubmitting} className="bg-amber-500 hover:bg-amber-600 text-white shadow-sm border border-amber-600/20">
+          <Button
+            type="submit"
+            form="ai-analysis-form"
+            disabled={isSubmitting}
+            className="bg-amber-500 hover:bg-amber-600 text-white shadow-sm border border-amber-600/20"
+          >
             <Zap className="w-4 h-4 mr-2 fill-current" />
             Process with AI
           </Button>

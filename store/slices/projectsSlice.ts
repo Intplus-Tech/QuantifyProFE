@@ -45,12 +45,14 @@ interface ProjectsState {
   projects: Project[];
   pagination: Pagination | null;
   selectedProject: Project | null;
+  newProjectDraft: Record<string, any> | null;
 }
 
 const initialState: ProjectsState = {
   projects: [],
   pagination: null,
   selectedProject: null,
+  newProjectDraft: null,
 };
 
 const projectsSlice = createSlice({
@@ -88,6 +90,9 @@ const projectsSlice = createSlice({
         state.selectedProject = null;
       }
     },
+    setNewProjectDraft(state, action: PayloadAction<Record<string, any> | null>) {
+      state.newProjectDraft = action.payload;
+    },
   },
 });
 
@@ -97,5 +102,6 @@ export const {
   addProject,
   updateProjectInState,
   removeProject,
+  setNewProjectDraft,
 } = projectsSlice.actions;
 export default projectsSlice.reducer;

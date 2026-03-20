@@ -121,6 +121,24 @@ export const projects = {
   archive: (id: string) => `/projects/${id}/archive`,
 };
 
+export const bim = {
+  upload: "/bim/upload",
+  status: (urn: string) => `/bim/status/${urn}`,
+  jobs: "/bim/jobs",
+  jobDetails: (jobId: string) => `/bim/jobs/${jobId}`,
+  updateJob: (jobId: string) => `/bim/jobs/${jobId}`,
+  jobPdf: (jobId: string) => `/bim/jobs/${jobId}/pdf`,
+};
+
+export const pdfBoq = {
+  generate: "/pdf-boq/generate",
+  jobs: "/pdf-boq/jobs",
+  jobDetails: (jobId: string) => `/pdf-boq/jobs/${jobId}`,
+  updateJob: (jobId: string) => `/pdf-boq/jobs/${jobId}`,
+  jobPdf: (jobId: string) => `/pdf-boq/jobs/${jobId}/pdf`,
+  createProject: (jobId: string) => `/pdf-boq/jobs/${jobId}/create-project`,
+};
+
 export const ApiEndpoints = {
   baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL!,
   auth,
@@ -133,4 +151,6 @@ export const ApiEndpoints = {
   support,
   clients,
   projects,
+  bim,
+  pdfBoq,
 };
