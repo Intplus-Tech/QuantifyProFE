@@ -102,6 +102,25 @@ export const support = {
   ticketDetails: (id: string) => `/support/tickets/${id}`,
 };
 
+export const clients = {
+  list: "/clients",
+  stats: "/clients/stats",
+  details: (id: string) => `/clients/${id}`,
+  create: "/clients",
+  update: (id: string) => `/clients/${id}`,
+  delete: (id: string) => `/clients/${id}`,
+  projects: (id: string) => `/v1/clients/${id}/projects`,
+};
+
+export const projects = {
+  list: "/projects",
+  create: "/projects",
+  details: (id: string) => `/projects/${id}`,
+  update: (id: string) => `/projects/${id}`,
+  delete: (id: string) => `/projects/${id}`,
+  archive: (id: string) => `/projects/${id}/archive`,
+};
+
 export const ApiEndpoints = {
   baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL!,
   auth,
@@ -112,4 +131,6 @@ export const ApiEndpoints = {
   company,
   library,
   support,
+  clients,
+  projects,
 };

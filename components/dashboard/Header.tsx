@@ -59,7 +59,7 @@ export function Header() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               placeholder="Search projects, clients..."
-              className="pl-10 bg-muted h-9 text-sm"
+              className="pl-10 bg-muted h-12 text-sm"
             />
           </div>
         </div>

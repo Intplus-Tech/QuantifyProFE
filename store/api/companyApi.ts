@@ -1,4 +1,5 @@
 import { baseApi } from "./baseApi";
+import { ApiMethods } from "@/utils/apiMethods";
 import { company as companyEndpoints } from "@/utils/endpoints";
 import {
   ApiResponse,
@@ -29,7 +30,7 @@ export const companyApi = baseApi.injectEndpoints({
     >({
       query: (data) => ({
         url: companyEndpoints.updateProfile,
-        method: "PUT",
+        method: ApiMethods.PUT,
         body: data,
       }),
       invalidatesTags: ["User"],
@@ -60,7 +61,7 @@ export const companyApi = baseApi.injectEndpoints({
     >({
       query: (data) => ({
         url: companyEndpoints.team.invite,
-        method: "POST",
+        method: ApiMethods.POST,
         body: data,
       }),
       invalidatesTags: ["User"],

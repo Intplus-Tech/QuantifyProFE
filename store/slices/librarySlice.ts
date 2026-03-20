@@ -20,6 +20,9 @@ const librarySlice = createSlice({
     setCategories: (state, action: PayloadAction<LibraryCategory[]>) => {
       state.categories = action.payload;
     },
+    addCategory: (state, action: PayloadAction<LibraryCategory>) => {
+      state.categories.unshift(action.payload);
+    },
     setItems: (
       state,
       action: PayloadAction<PaginatedResponse<LibraryItem>>,
@@ -30,5 +33,5 @@ const librarySlice = createSlice({
   },
 });
 
-export const { setCategories, setItems } = librarySlice.actions;
+export const { setCategories, setItems, addCategory } = librarySlice.actions;
 export default librarySlice.reducer;

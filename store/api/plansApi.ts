@@ -1,4 +1,5 @@
 import { baseApi } from "./baseApi";
+import { ApiMethods } from "@/utils/apiMethods";
 import { plans as plansEndpoints } from "@/utils/endpoints";
 import { ApiResponse, Plan, CreatePlanInput } from "@/types/api";
 import { setPlans, setActivePlan } from "../slices/plansSlice";
@@ -28,7 +29,7 @@ export const plansApi = baseApi.injectEndpoints({
     createPlan: builder.mutation<ApiResponse<Plan>, CreatePlanInput>({
       query: (data) => ({
         url: plansEndpoints.create,
-        method: "POST",
+        method: ApiMethods.POST,
         body: data,
       }),
       invalidatesTags: ["Plans"],

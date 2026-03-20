@@ -171,7 +171,7 @@ function LoginForm() {
                 href="/auth/register"
                 className="font-medium text-primary hover:underline"
               >
-                Sign In
+                Sign Up
               </Link>
             </p>
           </div>

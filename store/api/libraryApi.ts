@@ -1,4 +1,5 @@
 import { baseApi } from "./baseApi";
+import { ApiMethods } from "@/utils/apiMethods";
 import { library as libraryEndpoints } from "@/utils/endpoints";
 import {
   ApiResponse,
@@ -8,12 +9,16 @@ import {
   CreateCategoryInput,
   CreateLibraryItemInput,
 } from "@/types/api";
-import { setCategories, setItems } from "../slices/librarySlice";
+import { setCategories, setItems, addCategory } from "../slices/librarySlice";
 
 export const libraryApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
-    getLibraryCategories: builder.query<ApiResponse<LibraryCategory[]>, void>({
-      query: () => libraryEndpoints.categories.list,
+    getLibraryCategories: builder.query<ApiResponse<LibraryCategory[]>, { companyId?: string, search?: string, activeOnly?: boolean } | void>({
+      query: (params) => ({
+        url: libraryEndpoints.categories.list,
+        method: ApiMethods.GET,
+        ...(params ? { params } : {}),
+      }),
       providesTags: ["Documents"],
       async onQueryStarted(arg, { dispatch, queryFulfilled }) {
         try {
@@ -28,10 +33,18 @@ export const libraryApi = baseApi.injectEndpoints({
     >({
       query: (data) => ({
         url: libraryEndpoints.categories.create,
-        method: "POST",
+        method: ApiMethods.POST,
         body: data,
       }),
       invalidatesTags: ["Documents"],
+      async onQueryStarted(arg, { dispatch, queryFulfilled }) {
+        try {
+          const { data } = await queryFulfilled;
+          if (data.success && data.data) {
+            dispatch(addCategory(data.data));
+          }
+        } catch {}
+      },
     }),
     getLibraryItems: builder.query<PaginatedResponse<LibraryItem>, any>({
       query: (params) => ({
@@ -52,7 +65,7 @@ export const libraryApi = baseApi.injectEndpoints({
     >({
       query: (data) => ({
         url: libraryEndpoints.items.create,
-        method: "POST",
+        method: ApiMethods.POST,
         body: data,
       }),
       invalidatesTags: ["Documents"],

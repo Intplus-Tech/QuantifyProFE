@@ -7,6 +7,8 @@ import libraryReducer from "./slices/librarySlice";
 import creditsReducer from "./slices/creditsSlice";
 import documentReducer from "./slices/documentSlice";
 import plansReducer from "./slices/plansSlice";
+import clientsReducer from "./slices/clientsSlice";
+import projectsReducer from "./slices/projectsSlice";
 
 // Import API slices to ensure they are registered
 import "./api/authApi";
@@ -17,6 +19,8 @@ import "./api/documentApi";
 import "./api/creditsApi";
 import "./api/supportApi";
 import "./api/plansApi";
+import "./api/clientsApi";
+import "./api/projectsApi";
 
 export const store = configureStore({
   reducer: {
@@ -27,6 +31,8 @@ export const store = configureStore({
     credits: creditsReducer,
     document: documentReducer,
     plans: plansReducer,
+    clients: clientsReducer,
+    projects: projectsReducer,
   },
   middleware: (getDefaultMiddleware: any) =>
     getDefaultMiddleware().concat(baseApi.middleware),

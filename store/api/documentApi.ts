@@ -1,4 +1,5 @@
 import { baseApi } from "./baseApi";
+import { ApiMethods } from "@/utils/apiMethods";
 import { documents as docEndpoints } from "@/utils/endpoints";
 import {
   ApiResponse,
@@ -13,14 +14,14 @@ export const documentApi = baseApi.injectEndpoints({
     processDocument: builder.mutation<ApiResponse<any>, ProcessDocumentInput>({
       query: (data) => ({
         url: docEndpoints.process,
-        method: "POST",
+        method: ApiMethods.POST,
         body: data,
       }),
     }),
     generateBoq: builder.mutation<ApiResponse<BoqResponse>, BoqRequest>({
       query: (data) => ({
         url: docEndpoints.jobDetails(data.urn),
-        method: "POST",
+        method: ApiMethods.POST,
         body: data,
       }),
     }),

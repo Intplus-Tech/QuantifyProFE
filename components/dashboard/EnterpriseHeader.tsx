@@ -7,12 +7,15 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { usePathname } from "next/navigation";
+import { useSelector } from "react-redux";
+import { RootState } from "@/store";
 
 export function EnterpriseHeader() {
   const pathname = usePathname() || "";
+  const user = useSelector((state: RootState) => state.auth.user);
 
   let title = "Enterprise Dashboard";
-  let subtitle = "Hi, Adebayo";
+  let subtitle = `Hi, ${user?.firstName},${user?.lastName}`;
 
   if (pathname.includes("/projects")) {
     title = "Projects";
@@ -41,9 +44,7 @@ export function EnterpriseHeader() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <p className="text-muted-foreground mt-1">{subtitle}</p>
-          <h1 className="text-3xl font-bold text-foreground">
-            {title}
-          </h1>
+          <h1 className="text-3xl font-bold text-foreground">{title}</h1>
         </div>
       </div>
 
@@ -55,7 +56,7 @@ export function EnterpriseHeader() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               placeholder="Search projects, clients..."
-              className="pl-10 bg-muted h-9 text-sm"
+              className="pl-10 bg-muted h-12 text-sm"
             />
           </div>
         </div>

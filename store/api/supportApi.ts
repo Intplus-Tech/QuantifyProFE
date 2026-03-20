@@ -1,4 +1,5 @@
 import { baseApi } from "./baseApi";
+import { ApiMethods } from "@/utils/apiMethods";
 import { support as supportEndpoints } from "@/utils/endpoints";
 import { ApiResponse, SupportTicket, CreateTicketInput } from "@/types/api";
 
@@ -16,7 +17,7 @@ export const supportApi = baseApi.injectEndpoints({
     >({
       query: (data) => ({
         url: supportEndpoints.createTicket,
-        method: "POST",
+        method: ApiMethods.POST,
         body: data,
       }),
     }),

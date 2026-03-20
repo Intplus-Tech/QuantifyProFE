@@ -1,4 +1,5 @@
 import { baseApi } from "./baseApi";
+import { ApiMethods } from "@/utils/apiMethods";
 import { user as userEndpoints } from "@/utils/endpoints";
 import { ApiResponse, UpdateUserInput } from "@/types/api";
 import { GetUserProfileResponse, User } from "@/types/auth";
@@ -24,7 +25,7 @@ export const userApi = baseApi.injectEndpoints({
     >({
       query: ({ id, data }) => ({
         url: userEndpoints.updateProfile(id),
-        method: "PUT",
+        method: ApiMethods.PUT,
         body: data,
       }),
       invalidatesTags: ["User"],

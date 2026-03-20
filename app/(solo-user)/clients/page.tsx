@@ -6,16 +6,18 @@ import { Card, CardContent } from "@/components/ui/card";
 import { UserPlus } from "lucide-react";
 import { ClientsTable } from "@/components/clients/ClientsTable";
 import { AddClientDialog } from "@/components/clients/AddClientDialog";
-import { mockClients, formatValue } from "@/components/clients/mockData";
-
-const totalClients = mockClients.length;
-const totalValue = mockClients.reduce((sum, c) => sum + c.valueRaw, 0);
+import { formatValue } from "@/components/clients/mockData";
+import { useGetClientsQuery, useGetClientsStatsQuery } from "@/store/api/clientsApi";
 
 export default function ClientsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
+  const { data: statsRes } = useGetClientsStatsQuery();
+
+  const totalClients = statsRes?.data?.totalClients ?? 0;
+  const totalValue = statsRes?.data?.totalBoqValue ?? 0;
 
   return (
-    <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
+    <div className=" space-y-6">
       {/* Top Stats & Action */}
       <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
         <div className="flex flex-col sm:flex-row gap-4 w-full lg:w-auto">
@@ -56,7 +58,7 @@ export default function ClientsPage() {
         </Button>
       </div>
 
-      <ClientsTable data={mockClients} />
+      <ClientsTable />
 
       <AddClientDialog open={dialogOpen} onOpenChange={setDialogOpen} />
     </div>

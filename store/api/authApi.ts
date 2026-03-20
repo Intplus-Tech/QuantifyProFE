@@ -1,4 +1,5 @@
 import { baseApi } from "./baseApi";
+import { ApiMethods } from "@/utils/apiMethods";
 import { auth as authEndpoints } from "@/utils/endpoints";
 import { LoginResponse, RegistrationResponse } from "@/types/auth";
 import {
@@ -16,14 +17,14 @@ export const authApi = baseApi.injectEndpoints({
     register: builder.mutation<RegistrationResponse, RegisterInput>({
       query: (userData) => ({
         url: authEndpoints.register,
-        method: "POST",
+        method: ApiMethods.POST,
         body: userData,
       }),
     }),
     logout: builder.mutation<void, void>({
       query: () => ({
         url: authEndpoints.logout,
-        method: "POST",
+        method: ApiMethods.POST,
       }),
       async onQueryStarted(arg, { dispatch, queryFulfilled }) {
         try {
@@ -35,49 +36,49 @@ export const authApi = baseApi.injectEndpoints({
     refreshToken: builder.mutation<any, RefreshTokenInput>({
       query: (body) => ({
         url: authEndpoints.refresh,
-        method: "POST",
+        method: ApiMethods.POST,
         body,
       }),
     }),
     forgotPassword: builder.mutation<any, ForgotPasswordInput>({
       query: (body) => ({
         url: authEndpoints.forgotPassword,
-        method: "POST",
+        method: ApiMethods.POST,
         body,
       }),
     }),
     resetPassword: builder.mutation<any, ResetPasswordInput>({
       query: (body) => ({
         url: authEndpoints.resetPassword,
-        method: "POST",
+        method: ApiMethods.POST,
         body,
       }),
     }),
     changePassword: builder.mutation<any, ChangePasswordInput>({
       query: (body) => ({
         url: authEndpoints.changePassword,
-        method: "POST",
+        method: ApiMethods.POST,
         body,
       }),
     }),
     verifyEmail: builder.mutation<any, { token: string }>({
       query: (body) => ({
         url: authEndpoints.verifyEmail,
-        method: "POST",
+        method: ApiMethods.POST,
         body,
       }),
     }),
     verifyOtp: builder.mutation<any, { email: string; otp: string }>({
       query: (body) => ({
         url: authEndpoints.verifyEmail, // Assuming OTP uses same endpoint or similar
-        method: "POST",
+        method: ApiMethods.POST,
         body,
       }),
     }),
     resendVerificationEmail: builder.mutation<any, { email: string }>({
       query: (body) => ({
         url: authEndpoints.resendVerificationEmail,
-        method: "POST",
+        method: ApiMethods.POST,
         body,
       }),
     }),

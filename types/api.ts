@@ -209,6 +209,11 @@ export interface LibraryCategory {
   _id: string;
   name: string;
   icon?: string;
+  description?: string;
+  companyId?: string | null;
+  isGlobal?: boolean;
+  isActive?: boolean;
+  sortOrder?: number;
 }
 
 export interface LibraryItem {

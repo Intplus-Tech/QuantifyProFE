@@ -1,4 +1,5 @@
 import { baseApi } from "./baseApi";
+import { ApiMethods } from "@/utils/apiMethods";
 import { Credits as creditsEndpoints } from "@/utils/endpoints";
 import {
   ApiResponse,
@@ -32,7 +33,7 @@ export const creditsApi = baseApi.injectEndpoints({
     addCredits: builder.mutation<ApiResponse<any>, AddCreditsInput>({
       query: (data) => ({
         url: creditsEndpoints.addCredits,
-        method: "POST",
+        method: ApiMethods.POST,
         body: data,
       }),
     }),
