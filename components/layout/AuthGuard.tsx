@@ -3,7 +3,7 @@ import { RootState } from "@/store";
 import { useGetProfileQuery } from "@/store/api/userApi";
 import { setAuth } from "@/store/slices/authSlice";
 import { LoginResponse } from "@/types/auth";
-import { Loader } from "lucide-react";
+import { Loader, Loader2 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
@@ -41,7 +41,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [status, data, dispatch]);
 
   useEffect(() => {
-    if (data?.user?.role === "company") {
+    if ((data as any)?.user?.role === "company") {
       router.push("/enterprise/dashboard");
     }
   }, [data]);
@@ -61,7 +61,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   if (status === "loading" || isProfileLoading || !currentUser) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <Loader className="animate-spin" />
+        <Loader2 size={60} className="animate-spin text-amber-500" />
       </div>
     );
   }
