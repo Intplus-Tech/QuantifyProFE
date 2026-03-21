@@ -103,7 +103,7 @@ export default function ProjectsPage() {
   const router = useRouter();
 
   return (
-    <div className="p-6 md:p-8 max-w-7xl mx-auto">
+    <div className=" mx-auto">
       {/* Top Bar */}
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-8">
         <div className="relative w-full sm:w-96">
@@ -121,7 +121,10 @@ export default function ProjectsPage() {
             <ArrowUpDown className="w-4 h-4 mr-2" />
             Sort by: Recent
           </Button>
-          <Button className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm" onClick={() => setDialogOpen(true)}>
+          <Button
+            className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+            onClick={() => setDialogOpen(true)}
+          >
             <Plus className="w-4 h-4 mr-2" />
             New Project
           </Button>

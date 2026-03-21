@@ -21,6 +21,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { Logo } from "./Logo";
+import { signOut } from "next-auth/react";
 
 const navItems = [
   {
@@ -59,10 +60,10 @@ export function EnterpriseSidebar() {
   const pathname = usePathname();
 
   return (
-    <SidebarComponent collapsible="icon" variant="sidebar">
+    <SidebarComponent collapsible="icon" variant="sidebar" className="max-w-md">
       {/* Logo Header */}
-      {/* <SidebarHeader className="pb-4">
-        <Link href="/enterprise" className="flex flex-col gap-1">
+      <SidebarHeader className="pb-4">
+        <Link href="/" className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
             <Logo variant="contained" size="md" />
             <span className="font-bold text-lg text-foreground group-data-[collapsible=icon]:hidden">
@@ -70,10 +71,10 @@ export function EnterpriseSidebar() {
             </span>
           </div>
         </Link>
-      </SidebarHeader> */}
+      </SidebarHeader>
 
       {/* Navigation Content */}
-      <SidebarContent className="px-0 mt-20">
+      <SidebarContent className="px-0 mt-20 ">
         <SidebarMenu className="gap-1 px-2">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -81,16 +82,16 @@ export function EnterpriseSidebar() {
               pathname === item.href || pathname.startsWith(item.href + "/");
 
             return (
-              <SidebarMenuItem key={item.href}>
+              <SidebarMenuItem key={item.href} className="w-full">
                 <SidebarMenuButton
                   asChild
                   isActive={isActive}
                   tooltip={item.label}
-                  className={
+                  className={`my-2  ${
                     isActive
-                      ? "bg-primary! text-white! [&_svg]:text-white! hover:bg-primary/90!"
-                      : ""
-                  }
+                      ? "bg-primary! text-white! font-semibold hover:bg-primary/90! [&_svg]:text-white! py-1.5!"
+                      : "text-[#A3AED0] hover:text-[#2B3674] [&_svg]:text-[#A3AED0] hover:[&_svg]:text-[#2B3674] py-1.5!"
+                  }`}
                 >
                   <Link href={item.href}>
                     <Icon className="w-4 h-4" />
@@ -108,7 +109,10 @@ export function EnterpriseSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild tooltip="Logout">
-              <button className="cursor-pointer">
+              <button
+                onClick={() => signOut({ callbackUrl: "/auth/login" })}
+                className="cursor-pointer"
+              >
                 <LogOut className="w-4 h-4" />
                 <span>Logout</span>
               </button>

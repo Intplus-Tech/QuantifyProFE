@@ -3,6 +3,7 @@
 import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { signIn } from "next-auth/react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -70,20 +71,18 @@ function LoginForm() {
   });
 
   async function onSubmit(data: LoginFormData) {
-    setLoginError(null);
+    const result = await signIn("credentials", {
+      email: data.email,
+      password: data.password,
+      redirect: false,
+    });
 
-    // Mock login — simulate API latency
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    console.log(result, "result");
 
-    if (
-      data.email === MOCK_USER.email &&
-      data.password === MOCK_USER.password
-    ) {
+    if (result?.ok) {
       router.push("/");
     } else {
-      setLoginError(
-        "Invalid email or password. Try demo@quantifypro.com / Password1",
-      );
+      setLoginError(result?.error || "Invalid email or password.");
     }
   }
 
@@ -172,7 +171,7 @@ function LoginForm() {
                 href="/auth/register"
                 className="font-medium text-primary hover:underline"
               >
-                Sign In
+                Sign Up
               </Link>
             </p>
           </div>
