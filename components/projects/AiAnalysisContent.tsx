@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
 import { useDispatch } from "react-redux";
 import { setNewProjectDraft } from "@/store/slices/projectsSlice";
+import { 
+  useUploadBimFileMutation, 
+  useUploadPdfBoqMutation 
+} from "@/store/api/projectsApi";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useDropzone } from "react-dropzone";
@@ -40,6 +44,11 @@ import {
   FieldError,
 } from "@/components/ui/field";
 
+const SUPPORTED_FORMATS = {
+  "3D_BIM": [".rvt", ".ifc", ".nwd", ".skp", ".fbx", ".obj"],
+  "2D_CAD": [".dwg", ".dxf", ".dgn"],
+};
+
 const aiFormSchema = z.object({
   projectTitle: z.string().min(1, "Project Title is required"),
   projectCode: z.string().optional(),
@@ -49,7 +58,9 @@ const aiFormSchema = z.object({
   source: z.string().min(1, "Source is required"),
   description: z.string().optional(),
   drawingType: z.string().min(1, "Drawing Type is required"),
-  drawings: z.array(z.any()).min(1, "Please upload at least one drawing"),
+  drawings: z.array(z.any()).min(1, "Please upload a drawing").max(1, "Only one drawing is allowed"),
+  sourceJobId: z.string().optional(),
+  uploadedFileType: z.string().optional(),
 });
 
 type AiFormValues = z.infer<typeof aiFormSchema>;
@@ -88,29 +99,63 @@ export function AiAnalysisContent({
       description: "",
       drawingType: "",
       drawings: [],
+      sourceJobId: "",
+      uploadedFileType: "",
     },
   });
+
+  const [uploadBimFile] = useUploadBimFileMutation();
+  const [uploadPdfBoq] = useUploadPdfBoqMutation();
+  const [isUploading, setIsUploading] = useState(false);
 
   const drawings = watch("drawings");
 
   const onDrop = useCallback(
-    (acceptedFiles: File[]) => {
-      setValue("drawings", [...drawings, ...acceptedFiles], {
-        shouldValidate: true,
-      });
+    async (acceptedFiles: File[]) => {
+      if (acceptedFiles.length === 0) return;
+      const file = acceptedFiles[0];
+      setValue("drawings", [file], { shouldValidate: true });
+
+      setIsUploading(true);
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const extension = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
+        const isBimOrCad = 
+          SUPPORTED_FORMATS["3D_BIM"].includes(extension) || 
+          SUPPORTED_FORMATS["2D_CAD"].includes(extension);
+
+        if (isBimOrCad) {
+          setValue("uploadedFileType", "bim");
+          const response = await uploadBimFile(formData).unwrap();
+          if (response.success && response.data?.urn) {
+            setValue("sourceJobId", response.data.urn);
+          }
+        } else if (extension === ".pdf") {
+          setValue("uploadedFileType", "pdf");
+          const response = await uploadPdfBoq(formData).unwrap();
+          if (response.success && response.data?.jobId) {
+            setValue("sourceJobId", response.data.jobId);
+          }
+        }
+      } catch (error) {
+        console.error("Upload failed", error);
+      } finally {
+        setIsUploading(false);
+      }
     },
-    [drawings, setValue],
+    [setValue, uploadBimFile, uploadPdfBoq],
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
+    multiple: false,
     accept: {
       "application/pdf": [".pdf"],
-      "image/jpeg": [".jpg", ".jpeg"],
-      "image/png": [".png"],
-      // CAD formats can go here
+      "application/octet-stream": [...SUPPORTED_FORMATS["3D_BIM"], ...SUPPORTED_FORMATS["2D_CAD"]]
     },
-    maxSize: 50 * 1024 * 1024, // 50MB
+    maxSize: 30 * 1024 * 1024, // 30MB
   });
 
   const removeFile = (indexToRemove: number) => {
@@ -356,19 +401,23 @@ export function AiAnalysisContent({
                 </div>
 
                 <h4 className="text-xl font-bold text-foreground mb-1.5 drop-shadow-sm">
-                  Drag and drop your drawings here
+                  {isUploading ? "Uploading file..." : "Drag and drop your drawing here"}
                 </h4>
                 <p className="text-sm text-muted-foreground mb-8">
-                  Or{" "}
-                  <span className="text-amber-500 font-semibold hover:text-amber-600 transition-colors">
-                    browse files
-                  </span>{" "}
-                  from your computer
+                  {isUploading ? "Please wait while we process the upload." : (
+                    <>
+                      Or{" "}
+                      <span className="text-amber-500 font-semibold hover:text-amber-600 transition-colors">
+                        browse files
+                      </span>{" "}
+                      from your computer
+                    </>
+                  )}
                 </p>
 
                 <div className="inline-flex items-center justify-center bg-background/70 backdrop-blur-md border rounded-full px-5 py-2 text-xs text-foreground font-medium shadow-xs">
                   <Sparkles className="w-4 h-4 mr-2 text-amber-500 shrink-0" />
-                  Supported formats: .cad, .pdf (Max 50MB per file)
+                  Supported formats: .cad, .pdf, .rvt (Max 30MB)
                 </div>
               </div>
             </div>
@@ -479,7 +528,7 @@ export function AiAnalysisContent({
           <Button
             type="submit"
             form="ai-analysis-form"
-            disabled={isSubmitting}
+            disabled={isSubmitting || isUploading}
             className="bg-amber-500 hover:bg-amber-600 text-white shadow-sm border border-amber-600/20"
           >
             <Zap className="w-4 h-4 mr-2 fill-current" />
