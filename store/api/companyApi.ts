@@ -8,7 +8,8 @@ import {
   UpdateCompanyInput,
   InviteMemberInput,
 } from "@/types/api";
-import { setCompany, setTeamMembers } from "../slices/companySlice";
+import { setCompany as setCompanyInCompanySlice, setTeamMembers } from "../slices/companySlice";
+import { setCompany as setCompanyInAuthSlice } from "../slices/authSlice";
 
 export const companyApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -19,7 +20,8 @@ export const companyApi = baseApi.injectEndpoints({
         try {
           const { data } = await queryFulfilled;
           if (data.success && data.data) {
-            dispatch(setCompany(data.data));
+            dispatch(setCompanyInCompanySlice(data.data));
+            dispatch(setCompanyInAuthSlice(data.data));
           }
         } catch {}
       },
@@ -38,7 +40,28 @@ export const companyApi = baseApi.injectEndpoints({
         try {
           const { data } = await queryFulfilled;
           if (data.success && data.data) {
-            dispatch(setCompany(data.data));
+            dispatch(setCompanyInCompanySlice(data.data));
+            dispatch(setCompanyInAuthSlice(data.data));
+          }
+        } catch {}
+      },
+    }),
+    createCompanyProfile: builder.mutation<
+      ApiResponse<CompanyProfile>,
+      UpdateCompanyInput
+    >({
+      query: (data) => ({
+        url: companyEndpoints.profile,
+        method: ApiMethods.POST,
+        body: data,
+      }),
+      invalidatesTags: ["User"],
+      async onQueryStarted(arg, { dispatch, queryFulfilled }) {
+        try {
+          const { data } = await queryFulfilled;
+          if (data.success && data.data) {
+            dispatch(setCompanyInCompanySlice(data.data));
+            dispatch(setCompanyInAuthSlice(data.data));
           }
         } catch {}
       },
@@ -72,6 +95,7 @@ export const companyApi = baseApi.injectEndpoints({
 export const {
   useGetCompanyProfileQuery,
   useUpdateCompanyProfileMutation,
+  useCreateCompanyProfileMutation,
   useGetTeamMembersQuery,
   useInviteTeamMemberMutation,
 } = companyApi;

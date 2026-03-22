@@ -58,23 +58,29 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  console.log(pathname.split("/"), "pathname");
 
   return (
     <SidebarComponent collapsible="icon" variant="sidebar" className="max-w-md">
       {/* Logo Header */}
-      <SidebarHeader className="pb-4">
+      <SidebarHeader className="w-[90%] mx-auto mt-10">
         <Link href="/" className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
-            <Logo variant="contained" size="md" />
-            <span className="font-bold text-lg text-foreground group-data-[collapsible=icon]:hidden">
-              Quantify Pro
-            </span>
+            <Logo variant="contained" size="xl" />
+            <p>
+              <span className="font-bold text-xl text-primary group-data-[collapsible=icon]:hidden whitespace-nowrap inline-block">
+                Quantify Pro
+              </span>
+              <span className="text-lg text-primary font-bold  capitalize">
+                {pathname.split("/")?.[1]}
+              </span>
+            </p>
           </div>
         </Link>
       </SidebarHeader>
 
       {/* Navigation Content */}
-      <SidebarContent className="px-0 mt-20 ">
+      <SidebarContent className="px-0 mt-4 ">
         <SidebarMenu className="gap-1 px-2">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -82,19 +88,22 @@ export function Sidebar() {
               pathname === item.href || pathname.startsWith(item.href + "/");
 
             return (
-              <SidebarMenuItem key={item.href} className="w-full">
+              <SidebarMenuItem key={item.href} className="w-[90%] mx-auto">
                 <SidebarMenuButton
                   asChild
                   isActive={isActive}
                   tooltip={item.label}
-                  className={`my-2  ${
+                  className={`my-2 px-8 py-6 ${
                     isActive
-                      ? "bg-primary! text-white! font-semibold hover:bg-primary/90! [&_svg]:text-white! py-1.5!"
-                      : "text-[#A3AED0] hover:text-[#2B3674] [&_svg]:text-[#A3AED0] hover:[&_svg]:text-[#2B3674] py-1.5!"
+                      ? "bg-primary! text-white! hover:bg-primary/90 [&_svg]:text-white!"
+                      : "text-[A3A#D0] [&_svg]:text-[#A3AED0] hover:[&_svg]:text-[#2B3674]"
+                    // isActive
+                    //   ? "bg-primary! text-white! font-semibold hover:bg-primary/90! [&_svg]:text-white! py-3!"
+                    //   : "text-[#A3AED0] hover:text-[#2B3674] [&_svg]:text-[#A3AED0] hover:[&_svg]:text-[#2B3674] py-1.5!"
                   }`}
                 >
                   <Link href={item.href}>
-                    <Icon className="w-4 h-4" />
+                    <Icon className="w-6 h-6" />
                     <span>{item.label}</span>
                   </Link>
                 </SidebarMenuButton>

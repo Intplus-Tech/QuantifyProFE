@@ -50,7 +50,7 @@ export interface ResetPasswordInput {
 }
 
 export interface ChangePasswordInput {
-  oldPassword: string;
+  currentPassword: string;
   newPassword: string;
 }
 
@@ -58,6 +58,39 @@ export interface UpdateUserInput {
   firstName?: string;
   lastName?: string;
   email?: string;
+  phone?: string;
+  address?: string;
+  title?: string;
+}
+
+export interface Certification {
+  name: string;
+  membershipNumber: string;
+}
+
+export interface ProfessionalDetails {
+  professionalTitle: string;
+  certifications: Certification[];
+  yearsOfExperience: number;
+  industrySpecialization: string;
+  specializedSkills: string[];
+}
+
+export interface UpdateProfessionalDetailsInput {
+  certifications: Certification[];
+  yearsOfExperience: number;
+  industrySpecialization: string;
+  specializedSkills: string[];
+}
+
+export interface SecurityPreferences {
+  emailAlertsEnabled: boolean;
+  sessionTimeoutEnabled: boolean;
+}
+
+export interface UpdateSecurityPreferencesInput {
+  emailAlertsEnabled: boolean;
+  sessionTimeoutEnabled: boolean;
 }
 
 // --- Credits ---
@@ -112,10 +145,14 @@ export interface BoqResponse {
 // --- Company ---
 export interface UpdateCompanyInput {
   name?: string;
+  legalName?: string;
   email?: string;
   phone?: string;
   address?: string;
   logo?: string;
+  type?: string;
+  industry?: string;
+  companySize?: string;
 }
 
 export interface InviteMemberInput {
@@ -143,13 +180,95 @@ export interface AddPaymentMethodInput {
   last4: string;
   label: string;
   expiryDate?: string;
+  providerRef?: string;
+}
+
+export interface BillingPlan {
+  _id: string;
+  name: string;
+  slug: string;
+  monthlyPrice: number;
+  yearlyPrice: number;
+}
+
+export interface BillingPaymentMethod {
+  _id: string;
+  type: string;
+  last4: string;
+  label: string;
+  isPrimary: boolean;
+  expiryDate?: string;
+}
+
+export interface BillingInvoice {
+  invoiceId: string;
+  amount: number;
+  currency: string;
+  status: string;
+  paidAt: string;
+  description?: string;
+  billingInterval?: string;
+  createdAt?: string;
+}
+
+export interface BillingInfo {
+  plan: BillingPlan;
+  subscriptionStatus: string;
+  billingInterval: string;
+  nextBillingDate: string;
+  totalSeats: number;
+  usedSeats: number;
+  paymentMethods: BillingPaymentMethod[];
+  recentInvoices: BillingInvoice[];
+}
+
+export interface SubscribeInput {
+  planId: string;
+  billingInterval: "monthly" | "annually";
+}
+
+export interface SubscribeResponse {
+  authorizationUrl: string;
+  reference: string;
+  invoiceId: string;
+}
+
+export interface VerifySubscriptionInput {
+  reference: string;
+}
+
+export interface UsageStats {
+  activeProjects: {
+    used: number;
+    limit: number;
+  };
+  boqExtractions: {
+    used: number;
+    limit: number;
+  };
+  plan: {
+    name: string;
+    slug: string;
+  };
+  subscriptionStatus: string;
+  nextBillingDate: string;
+  billingInterval: string;
 }
 
 export interface CompanyProfile {
   id: string;
-  name: string;
+  _id?: string;
+  name?: string;
+  legalName?: string;
   email: string;
   ownerId: string;
+  type?: string;
+  industry?: string;
+  companySize?: string;
+  address?: string;
+  addresses?: any[];
+  phone?: string;
+  logo?: string;
   [key: string]: any;
 }
 

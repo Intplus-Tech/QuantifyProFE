@@ -14,7 +14,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const { data, status } = useSession();
   const { currentUser } = useSelector((state: RootState) => state.auth);
   const router = useRouter();
-
+  console.log(data, "userData");
   const {
     data: profileResponse,
     isLoading: isProfileLoading,
@@ -34,7 +34,8 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
         setAuth({
           accessToken: Data.accessToken,
           currentUser: Data.user,
-          user: null, // Initial placeholder for the full user profile
+          user: null,
+          company: null,
         }),
       );
     }

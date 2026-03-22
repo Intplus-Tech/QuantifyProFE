@@ -1,9 +1,31 @@
+export interface Tokens {
+  accessToken: string;
+  refreshToken: string;
+}
+
 export interface User {
   id: string;
+  _id?: string;
   firstName: string;
   lastName: string;
   email: string;
+  phoneNumber?: string;
+  phone?: string;
+  address?: string;
+  title?: string;
+  professionalTitle?: string;
+  certifications?: Array<{ name: string; membershipNumber: string }>;
+  yearsOfExperience?: number;
+  industrySpecialization?: string;
+  specializedSkills?: string[];
+  emailAlertsEnabled?: boolean;
+  sessionTimeoutEnabled?: boolean;
   role: string;
+  status: string;
+  emailVerified: boolean;
+  authProvider: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface RegistrationData {
@@ -18,33 +40,16 @@ export interface RegistrationResponse {
   timestamp: string;
 }
 
+export interface LoginData {
+  user: User;
+  tokens: Tokens;
+}
+
 export interface LoginResponse {
   success: boolean;
   message: string;
   data: LoginData;
   timestamp: string;
-}
-export interface LoginData {
-  user: User;
-  tokens: Tokens;
-}
-export interface Tokens {
-  accessToken: string;
-  refreshToken: string;
-}
-
-export interface User {
-  _id: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  phoneNumber: string;
-  role: string;
-  status: string;
-  emailVerified: boolean;
-  authProvider: string;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export interface GetUserProfileResponse {
