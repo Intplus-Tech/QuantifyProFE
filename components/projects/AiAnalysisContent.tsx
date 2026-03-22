@@ -12,6 +12,7 @@ import {
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useDropzone } from "react-dropzone";
+import { toast } from "sonner";
 import {
   Upload,
   FileType,
@@ -131,16 +132,19 @@ export function AiAnalysisContent({
           const response = await uploadBimFile(formData).unwrap();
           if (response.success && response.data?.urn) {
             setValue("sourceJobId", response.data.urn);
+            toast.success(response.message || "BIM file uploaded and translation started.");
           }
         } else if (extension === ".pdf") {
           setValue("uploadedFileType", "pdf");
           const response = await uploadPdfBoq(formData).unwrap();
           if (response.success && response.data?.jobId) {
             setValue("sourceJobId", response.data.jobId);
+            toast.success(response.message || "PDF BOQ job submitted successfully.");
           }
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error("Upload failed", error);
+        toast.error(error?.data?.message || "File upload failed. Please try again.");
       } finally {
         setIsUploading(false);
       }
@@ -170,6 +174,7 @@ export function AiAnalysisContent({
     // API integration: replace this with a real POST that returns a projectId
     console.log("Form Data:", data);
     dispatch(setNewProjectDraft(data));
+    toast.success("Project information saved as draft.");
     const mockProjectId = crypto.randomUUID();
     onSubmitSuccess?.(data);
     // Navigate to the processing page
