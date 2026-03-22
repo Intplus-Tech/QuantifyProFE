@@ -1,7 +1,14 @@
 import { baseApi } from "./baseApi";
 import { ApiMethods } from "@/utils/apiMethods";
 import { user as userEndpoints } from "@/utils/endpoints";
-import { ApiResponse, UpdateUserInput } from "@/types/api";
+import {
+  ApiResponse,
+  UpdateUserInput,
+  ProfessionalDetails,
+  UpdateProfessionalDetailsInput,
+  SecurityPreferences,
+  UpdateSecurityPreferencesInput,
+} from "@/types/api";
 import { GetUserProfileResponse, User } from "@/types/auth";
 import { setUser } from "../slices/authSlice";
 
@@ -30,7 +37,50 @@ export const userApi = baseApi.injectEndpoints({
       }),
       invalidatesTags: ["User"],
     }),
+    getProfessionalDetails: builder.query<
+      ApiResponse<ProfessionalDetails>,
+      void
+    >({
+      query: () => userEndpoints.professionalDetails,
+      providesTags: ["User"],
+    }),
+    updateProfessionalDetails: builder.mutation<
+      ApiResponse<User>,
+      UpdateProfessionalDetailsInput
+    >({
+      query: (data) => ({
+        url: userEndpoints.professionalDetails,
+        method: ApiMethods.PUT,
+        body: data,
+      }),
+      invalidatesTags: ["User"],
+    }),
+    getSecurityPreferences: builder.query<
+      ApiResponse<SecurityPreferences>,
+      void
+    >({
+      query: () => userEndpoints.securityPreferences,
+      providesTags: ["User"],
+    }),
+    updateSecurityPreferences: builder.mutation<
+      ApiResponse<User>,
+      UpdateSecurityPreferencesInput
+    >({
+      query: (data) => ({
+        url: userEndpoints.securityPreferences,
+        method: ApiMethods.PUT,
+        body: data,
+      }),
+      invalidatesTags: ["User"],
+    }),
   }),
 });
 
-export const { useUpdateProfileMutation, useGetProfileQuery } = userApi;
+export const {
+  useUpdateProfileMutation,
+  useGetProfileQuery,
+  useGetProfessionalDetailsQuery,
+  useUpdateProfessionalDetailsMutation,
+  useGetSecurityPreferencesQuery,
+  useUpdateSecurityPreferencesMutation,
+} = userApi;

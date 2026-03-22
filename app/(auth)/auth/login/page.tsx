@@ -30,15 +30,6 @@ const loginSchema = z.object({
 
 type LoginFormData = z.infer<typeof loginSchema>;
 
-// ── Mock Credentials ───────────────────────────────────
-
-const MOCK_USER = {
-  email: "demo@quantifypro.com",
-  password: "Password1",
-};
-
-// ── Page Wrapper (Suspense boundary for useSearchParams) ──
-
 export default function LoginPage() {
   return (
     <Suspense>

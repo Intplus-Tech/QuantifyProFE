@@ -9,6 +9,7 @@ import {
   ForgotPasswordInput,
   ResetPasswordInput,
   ChangePasswordInput,
+  ApiResponse,
 } from "@/types/api";
 import { logout } from "../slices/authSlice";
 
@@ -54,7 +55,7 @@ export const authApi = baseApi.injectEndpoints({
         body,
       }),
     }),
-    changePassword: builder.mutation<any, ChangePasswordInput>({
+    changePassword: builder.mutation<ApiResponse<{ message: string }>, ChangePasswordInput>({
       query: (body) => ({
         url: authEndpoints.changePassword,
         method: ApiMethods.POST,

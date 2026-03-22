@@ -13,8 +13,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, FieldLabel, FieldError } from "@/components/ui/field";
 
-// ── Schema ─────────────────────────────────────────────
-
 const forgotPasswordSchema = z.object({
   email: z.string().email("Enter a valid email address"),
 });

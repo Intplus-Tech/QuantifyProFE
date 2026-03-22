@@ -16,6 +16,7 @@ import { DetectionLog } from "./DetectionLog";
 import { ProcessingFooter } from "./ProcessingFooter";
 import { useMockProcessing } from "./mock-data";
 import { RootState } from "@/store";
+import { toast } from "sonner";
 
 interface ProcessingViewProps {
   projectId: string;
@@ -53,12 +54,19 @@ export function ProcessingView({
   });
 
   useEffect(() => {
-    if (bimQuery.data?.data?.status === "completed") setBimPollStr(0);
+    if (
+      bimQuery.data?.data?.status === "completed" ||
+      bimQuery.data?.data?.status === "failed"
+    )
+      setBimPollStr(0);
   }, [bimQuery.data?.data?.status]);
 
   useEffect(() => {
-    // Both user response samples mention "success" is conditionally true/false based on completion
-    if (pdfQuery.data?.data?.status === "completed") setPdfPollStr(0);
+    if (
+      pdfQuery.data?.data?.status === "completed" ||
+      pdfQuery.data?.data?.status === "failed"
+    )
+      setPdfPollStr(0);
   }, [pdfQuery.data?.data?.status]);
 
   const realStatus = pdfQuery.data?.data?.status || bimQuery.data?.data?.status;
@@ -91,13 +99,19 @@ export function ProcessingView({
         }).unwrap();
         if (response.success && response.data?._id) {
           setCreatedProjectId(response.data._id);
+          toast.success(
+            response.message || "Project created successfully from PDF BOQ!",
+          );
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Failed to create PDF Boq Project", err);
+        toast.error(
+          err?.data?.message || "Failed to create project. Please try again.",
+        );
       }
     } else if (uploadedFileType === "bim" && bimQuery.data?.success) {
-      // Pending BIM specific create-project API execution
       console.log("BIM Project Creation to be hooked up!");
+      toast.info("BIM Project creation is coming soon.");
     }
   };
 

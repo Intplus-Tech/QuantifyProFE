@@ -12,7 +12,9 @@ export const auth = {
 
 export const user = {
   profile: "/users/me",
-  updateProfile: (id: string) => `/user/me/${id}`,
+  updateProfile: (id: string) => `/users/${id}`,
+  professionalDetails: "/users/me/professional-details",
+  securityPreferences: "/users/me/security-preferences",
 };
 
 export const Credits = {
@@ -63,21 +65,26 @@ export const company = {
     list: "/company/role-permissions",
     update: "/company/role-permissions",
   },
-  billing: {
-    info: "/company/billing",
-    changePlan: "/company/billing/plan",
-    history: "/company/billing/history",
-    paymentMethods: "/company/billing/payment-methods",
-    addPaymentMethod: "/company/billing/payment-methods",
-    setPrimaryPaymentMethod: (id: string) =>
-      `/company/billing/payment-methods/${id}/primary`,
-    removePaymentMethod: (id: string) =>
-      `/company/billing/payment-methods/${id}`,
-  },
-  sessions: {
-    list: "/company/sessions",
-    terminate: (id: string) => `/company/sessions/${id}`,
-  },
+    billing: {
+      info: "/company/billing",
+      changePlan: "/company/billing/plan",
+      history: "/company/billing/history",
+      paymentMethods: "/company/billing/payment-methods",
+      addPaymentMethod: "/company/billing/payment-methods",
+      setPrimaryPaymentMethod: (id: string) =>
+        `/company/billing/payment-methods/${id}/primary`,
+      removePaymentMethod: (id: string) =>
+        `/company/billing/payment-methods/${id}`,
+      subscribe: "/company/billing/subscribe",
+      verify: "/company/billing/verify",
+      cancel: "/company/billing/cancel",
+      usage: "/company/billing/usage",
+      invoicePdf: (id: string) => `/company/billing/invoices/${id}/pdf`,
+    },
+    sessions: {
+      list: "/company/sessions",
+      terminate: (id: string) => `/company/sessions/${id}`,
+    },
 };
 
 export const library = {
