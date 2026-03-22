@@ -23,8 +23,11 @@ interface NewProjectDialogProps {
 
 type Step = "modeSelection" | "ai";
 
-export function NewProjectDialog({ open: controlledOpen, onOpenChange, basePath = "/projects" }: NewProjectDialogProps = {}) {
-  const router = useRouter();
+export function NewProjectDialog({
+  open: controlledOpen,
+  onOpenChange,
+  basePath = "/projects",
+}: NewProjectDialogProps = {}) {
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = onOpenChange ?? setInternalOpen;
@@ -69,8 +72,8 @@ export function NewProjectDialog({ open: controlledOpen, onOpenChange, basePath 
               Select Processing Mode
             </DialogTitle>
             <DialogDescription className="text-center">
-              Choose how you&apos;d like to initiate your cost estimation project
-              for maximum efficiency.
+              Choose how you&apos;d like to initiate your cost estimation
+              project for maximum efficiency.
             </DialogDescription>
           </DialogHeader>
 
@@ -124,8 +127,8 @@ export function NewProjectDialog({ open: controlledOpen, onOpenChange, basePath 
               </p>
 
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Input measurements and line items manually using our step-by-step
-                wizard for maximum precision and control.
+                Input measurements and line items manually using our
+                step-by-step wizard for maximum precision and control.
               </p>
 
               <a
@@ -141,21 +144,15 @@ export function NewProjectDialog({ open: controlledOpen, onOpenChange, basePath 
           <div className="flex gap-3 sm:justify-start mt-1">
             <Button
               size="lg"
-              className="flex-1"
-              onClick={() => {
-                if (selectedMode === "manual") {
-                  handleOpenChange(false);
-                  router.push(`${basePath}/new`);
-                } else {
-                  setStep(selectedMode);
-                }
-              }}
+              className="flex-1 h-12"
+              onClick={() => setStep(selectedMode)}
             >
               Select and Continue
             </Button>
             <Button
               variant="outline"
               size="lg"
+              className="h-12"
               onClick={() => handleOpenChange(false)}
             >
               Cancel
@@ -169,18 +166,33 @@ export function NewProjectDialog({ open: controlledOpen, onOpenChange, basePath 
       )}
 
       {step === "ai" && (
-        <AiAnalysisContent 
-          onCancel={() => handleOpenChange(false)} 
+        <AiAnalysisContent
+          onCancel={() => handleOpenChange(false)}
           onSwitchMode={() => setStep("manual")}
           basePath={basePath}
           onSubmitSuccess={(data) => {
             console.log("Success", data);
             handleOpenChange(false);
-          }} 
+          }}
         />
       )}
 
+      {step === "manual" && (
+        <DialogContent className="sm:max-w-lg gap-5">
+          <DialogHeader>
+            <DialogTitle>Manual Entry</DialogTitle>
+            <DialogDescription>
+              This mode is still under development.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-3 mt-4">
+            <Button variant="outline" onClick={() => setStep("modeSelection")}>
+              Back
+            </Button>
+            <Button onClick={() => handleOpenChange(false)}>Close</Button>
+          </div>
+        </DialogContent>
+      )}
     </Dialog>
   );
 }
-

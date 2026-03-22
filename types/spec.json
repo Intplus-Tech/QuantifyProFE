@@ -1,0 +1,4973 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "QuantifyPro API",
+    "version": "1.0.0",
+    "description": "QuantifyPro Backend REST API. All responses follow a consistent envelope format with `success`, `message`, `data`, and `timestamp` fields. Protected endpoints require a Bearer JWT token in the Authorization header."
+  },
+  "servers": [
+    {
+      "url": "https://quantifyprobe.onrender.com",
+      "description": "Live"
+    },
+    {
+      "url": "http://localhost:5000",
+      "description": "Development"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Server health and status"
+    },
+    {
+      "name": "Auth",
+      "description": "Authentication — register, login, token refresh"
+    },
+    {
+      "name": "Users",
+      "description": "User profile management (CRUD)"
+    },
+    {
+      "name": "Uploads",
+      "description": "File upload and retrieval"
+    },
+    {
+      "name": "AI Credits",
+      "description": "AI credit balance, history, and management."
+    },
+    {
+      "name": "BIM / BOQ Pipeline",
+      "description": "Autodesk Platform Services (APS) + Claude AI pipeline for reading CAD/BIM\nbuilding plans and generating a professional Bill of Quantities (BOQ).\n\n**Three-step flow:**\n1. `POST /upload`       — Upload a CAD/BIM file; APS returns a URN and starts SVF2 translation.\n2. `GET /status/:urn`   — Poll until `status === \"success\"` (typically 30 s – 5 min).\n3. `POST /boq/:urn`     — Extract element properties, clean them, and send to Claude for BOQ generation.\n\n**Supported formats:** RVT (Revit), DWG, DXF, IFC, NWD, PDF (vector), DGN, SKP, OBJ, FBX.\n\n**Note:** PDF \"scanned\" drawings (raster images) will not contain BIM properties and may produce\nempty BOQs — only vector/intelligent PDFs carry extractable element data.\n"
+    },
+    {
+      "name": "Document Processing",
+      "description": "AI-powered document analysis for quantity surveying."
+    },
+    {
+      "name": "Plans",
+      "description": "Subscription plan management (CRUD for admins, read for all)."
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Enter your JWT access token (without the \"Bearer \" prefix)."
+      }
+    },
+    "schemas": {
+      "RegisterInput": {
+        "type": "object",
+        "properties": {
+          "firstName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "lastName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128
+          },
+          "phoneNumber": {
+            "type": "string",
+            "minLength": 7,
+            "maxLength": 20
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "user",
+              "company"
+            ],
+            "default": "user"
+          },
+          "companyName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "firstName",
+          "lastName",
+          "email",
+          "password",
+          "phoneNumber"
+        ],
+        "additionalProperties": false
+      },
+      "LoginInput": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "additionalProperties": false
+      },
+      "RefreshTokenInput": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "refreshToken"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateUserInput": {
+        "type": "object",
+        "properties": {
+          "firstName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "lastName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          }
+        },
+        "additionalProperties": false
+      },
+      "UploadFileInput": {
+        "type": "object",
+        "properties": {
+          "folder": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AuthSuccessResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string",
+            "example": "Registration successful"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "user": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "example": "65a1b2c3d4e5f6a7b8c9d0e1"
+                  },
+                  "firstName": {
+                    "type": "string",
+                    "example": "John"
+                  },
+                  "lastName": {
+                    "type": "string",
+                    "example": "Doe"
+                  },
+                  "email": {
+                    "type": "string",
+                    "example": "john.doe@example.com"
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "admin",
+                      "user",
+                      "company"
+                    ],
+                    "example": "user"
+                  }
+                }
+              },
+              "tokens": {
+                "type": "object",
+                "properties": {
+                  "accessToken": {
+                    "type": "string",
+                    "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  },
+                  "refreshToken": {
+                    "type": "string",
+                    "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  }
+                }
+              }
+            }
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": false
+          },
+          "message": {
+            "type": "string",
+            "example": "An error occurred"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              }
+            },
+            "nullable": true
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PaginatedResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "pagination": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer",
+                "example": 42
+              },
+              "page": {
+                "type": "integer",
+                "example": 1
+              },
+              "limit": {
+                "type": "integer",
+                "example": 20
+              },
+              "pages": {
+                "type": "integer",
+                "example": 3
+              }
+            }
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "LibraryCategory": {
+        "type": "object",
+        "properties": {
+          "_id": {
+            "type": "string",
+            "example": "665f4a2b8e4d3c001f2a3b4c"
+          },
+          "name": {
+            "type": "string",
+            "example": "Earthworks"
+          },
+          "icon": {
+            "type": "string",
+            "example": "Layers",
+            "description": "Lucide icon name or Font Awesome class (e.g. \"Layers\", \"fa-hard-hat\")"
+          },
+          "description": {
+            "type": "string",
+            "example": "Rates for excavation, soil disposal, and specialised machinery."
+          },
+          "companyId": {
+            "type": "string",
+            "nullable": true,
+            "example": null,
+            "description": "null for global categories; ObjectId for company-scoped ones."
+          },
+          "isGlobal": {
+            "type": "boolean",
+            "example": true
+          },
+          "isActive": {
+            "type": "boolean",
+            "example": true
+          },
+          "sortOrder": {
+            "type": "integer",
+            "example": 3
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "LibraryItemBreakdown": {
+        "type": "object",
+        "properties": {
+          "machinery": {
+            "type": "number",
+            "example": 7500.5
+          },
+          "labour": {
+            "type": "number",
+            "example": 2500.5
+          },
+          "material": {
+            "type": "number",
+            "example": 1000
+          }
+        }
+      },
+      "LibraryItem": {
+        "type": "object",
+        "properties": {
+          "_id": {
+            "type": "string",
+            "example": "665f4a2b8e4d3c001f2a3b4d"
+          },
+          "companyId": {
+            "type": "string",
+            "example": "665f4a2b8e4d3c001f2a3b4e"
+          },
+          "categoryId": {
+            "$ref": "#/components/schemas/LibraryCategory"
+          },
+          "description": {
+            "type": "string",
+            "example": "Bulk Excavation"
+          },
+          "unit": {
+            "type": "string",
+            "example": "m³"
+          },
+          "baseRate": {
+            "type": "number",
+            "example": 4500.5
+          },
+          "markupPercentage": {
+            "type": "number",
+            "example": 15
+          },
+          "finalRate": {
+            "type": "number",
+            "example": 5175.58,
+            "description": "Auto-computed as baseRate × (1 + markupPercentage / 100)."
+          },
+          "state": {
+            "type": "string",
+            "example": "Lagos"
+          },
+          "country": {
+            "type": "string",
+            "example": "Nigeria"
+          },
+          "breakdown": {
+            "$ref": "#/components/schemas/LibraryItemBreakdown"
+          },
+          "createdBy": {
+            "type": "string",
+            "example": "665f4a2b8e4d3c001f2a3b4f"
+          },
+          "updatedBy": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PaginatedLibraryItems": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string",
+            "example": "Library items fetched successfully"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryItem"
+            }
+          },
+          "pagination": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer",
+                "example": 42
+              },
+              "page": {
+                "type": "integer",
+                "example": 1
+              },
+              "limit": {
+                "type": "integer",
+                "example": 20
+              },
+              "pages": {
+                "type": "integer",
+                "example": 3
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/api/v1/credits/pricing": {
+      "get": {
+        "summary": "Get credit pricing table",
+        "description": "Returns the credit cost per AI operation type and size multipliers. Public endpoint.",
+        "tags": [
+          "AI Credits"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Credit pricing fetched successfully."
+          }
+        }
+      }
+    },
+    "/api/v1/credits/balance": {
+      "get": {
+        "summary": "Get credit balance",
+        "description": "Returns the authenticated user's current credit balance (total, used, reserved, available).",
+        "tags": [
+          "AI Credits"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Credit balance fetched successfully.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Credit balance fetched successfully",
+                  "data": {
+                    "totalCredits": 500,
+                    "usedCredits": 120,
+                    "reservedCredits": 30,
+                    "availableCredits": 350
+                  },
+                  "timestamp": "2026-02-22T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized."
+          }
+        }
+      }
+    },
+    "/api/v1/credits/history": {
+      "get": {
+        "summary": "Get credit transaction history",
+        "description": "Returns paginated transaction history for the authenticated user.",
+        "tags": [
+          "AI Credits"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transaction history fetched."
+          }
+        }
+      }
+    },
+    "/api/v1/credits/usage": {
+      "get": {
+        "summary": "Get usage summary by operation type",
+        "description": "Aggregated credit usage grouped by AI operation type.",
+        "tags": [
+          "AI Credits"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "startDate",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "endDate",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Usage summary fetched."
+          }
+        }
+      }
+    },
+    "/api/v1/credits/usage/providers": {
+      "get": {
+        "summary": "Get usage summary by AI provider",
+        "description": "Aggregated credit usage grouped by AI provider (OpenAI, Anthropic, etc.).",
+        "tags": [
+          "AI Credits"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider usage summary fetched."
+          }
+        }
+      }
+    },
+    "/api/v1/credits/add": {
+      "post": {
+        "summary": "Add credits to a user (admin)",
+        "description": "Admin endpoint to allocate, refund, or bonus credits to a user's account.",
+        "tags": [
+          "AI Credits"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "userId",
+                  "amount"
+                ],
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "description": "Target user's ID."
+                  },
+                  "amount": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Number of credits to add."
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "allocation",
+                      "bonus",
+                      "adjustment"
+                    ],
+                    "default": "allocation"
+                  },
+                  "description": {
+                    "type": "string",
+                    "default": "Admin credit allocation"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Credits added successfully."
+          },
+          "400": {
+            "description": "Validation failed."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "403": {
+            "description": "Forbidden — admin role required."
+          }
+        }
+      }
+    },
+    "/api/v1/auth/register": {
+      "post": {
+        "summary": "Register a new user",
+        "description": "Creates a new user account with the provided details. Passwords are hashed using bcrypt\nbefore storage. On success, a 6-digit OTP is sent to the user's email address for\nverification. **No auth tokens are returned** — the user must verify their email first\nvia the `/verify-email` endpoint. If the role is `company`, the `companyName` field is required.\n",
+        "tags": [
+          "Auth"
+        ],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterInput"
+              },
+              "examples": {
+                "userRegistration": {
+                  "summary": "Register as a regular user",
+                  "value": {
+                    "firstName": "John",
+                    "lastName": "Doe",
+                    "email": "john.doe@mailinator.com",
+                    "password": "SecureP@ss123",
+                    "phoneNumber": "+2348012345678"
+                  }
+                },
+                "companyRegistration": {
+                  "summary": "Register as a company",
+                  "value": {
+                    "firstName": "Jane",
+                    "lastName": "Smith",
+                    "email": "jane@mailinator.com",
+                    "password": "SecureP@ss123",
+                    "phoneNumber": "+2348098765432",
+                    "role": "company",
+                    "companyName": "Acme Inc"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Registration successful — OTP sent to the provided email for verification.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Registration successful",
+                  "data": {
+                    "user": {
+                      "id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                      "firstName": "John",
+                      "lastName": "Doe",
+                      "email": "john.doe@mailinator.com",
+                      "role": "user"
+                    },
+                    "message": "OTP sent to your email address"
+                  },
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed — one or more fields are invalid.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Validation failed",
+                  "errors": [
+                    {
+                      "field": "email",
+                      "message": "Invalid email address"
+                    }
+                  ],
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict — email already exists.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Email already exists",
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/verify-email": {
+      "post": {
+        "summary": "Verify email address with OTP",
+        "description": "Verifies a user's email address using the 6-digit OTP sent during registration.\nOn success, the user's `emailVerified` flag is set to `true`, all existing OTPs\nare invalidated, and JWT access and refresh tokens are returned so the user is\nimmediately logged in.\n\nThe OTP expires after **15 minutes**. If it has expired, use the\n`/resend-otp` endpoint to request a new one.\n",
+        "tags": [
+          "Auth"
+        ],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email",
+                  "otp"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "description": "The registered email address."
+                  },
+                  "otp": {
+                    "type": "string",
+                    "pattern": "^\\d{6}$",
+                    "description": "The 6-digit verification code sent to the email."
+                  }
+                }
+              },
+              "example": {
+                "email": "john.doe@mailinator.com",
+                "otp": "482916"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Email verified — returns user profile and JWT tokens.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthSuccessResponse"
+                },
+                "example": {
+                  "success": true,
+                  "message": "Email verified successfully",
+                  "data": {
+                    "user": {
+                      "id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                      "firstName": "John",
+                      "lastName": "Doe",
+                      "email": "john.doe@mailinator.com",
+                      "role": "user"
+                    },
+                    "tokens": {
+                      "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                      "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    }
+                  },
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed — invalid email or OTP format.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Validation failed",
+                  "errors": [
+                    {
+                      "field": "otp",
+                      "message": "OTP must be exactly 6 digits"
+                    }
+                  ],
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized — OTP is invalid or expired.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Invalid or expired OTP",
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found — no user with the given email.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "User not found",
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict — email is already verified.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Email is already verified",
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/resend-otp": {
+      "post": {
+        "summary": "Resend email verification OTP",
+        "description": "Invalidates any previously issued OTP for the given email and sends a fresh\n6-digit verification code. Use this if the original OTP has expired or was not\nreceived.\n\nReturns 409 if the email is already verified. Returns 404 if the email is not\nregistered.\n",
+        "tags": [
+          "Auth"
+        ],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "description": "The registered email address to resend the OTP to."
+                  }
+                }
+              },
+              "example": {
+                "email": "john.doe@mailinator.com"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "A new OTP has been sent to the email address.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "A new OTP has been sent to your email address",
+                  "data": {
+                    "message": "A new OTP has been sent to your email address"
+                  },
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found — no user with the given email.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "User not found",
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict — email is already verified.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Email is already verified",
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "summary": "Login with email and password",
+        "description": "Authenticates a user with their email and password. On success, returns the user\nprofile along with new JWT access and refresh tokens. The user's `lastLoginAt`\ntimestamp is updated and any cached user data is invalidated.\n\n**Important:** The user's email must be verified before they can log in.\nIf the email is unverified, a `403` error is returned. Use the `/resend-otp`\nendpoint to request a new verification code if needed.\n",
+        "tags": [
+          "Auth"
+        ],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginInput"
+              },
+              "example": {
+                "email": "john.doe@mailinator.com",
+                "password": "SecureP@ss123"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful — returns user profile and JWT tokens.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthSuccessResponse"
+                },
+                "example": {
+                  "success": true,
+                  "message": "Login successful",
+                  "data": {
+                    "user": {
+                      "id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                      "firstName": "John",
+                      "lastName": "Doe",
+                      "email": "john.doe@mailinator.com",
+                      "role": "user"
+                    },
+                    "tokens": {
+                      "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                      "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    }
+                  },
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized — invalid email or password.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Invalid email or password",
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — email is not verified.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Please verify your email address before logging in",
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/refresh-token": {
+      "post": {
+        "summary": "Refresh access token",
+        "description": "Exchanges a valid refresh token for a new pair of access and refresh tokens.\nThe previous refresh token is invalidated (rotated). If the provided refresh\ntoken is expired, tampered with, or does not match the stored token, the\nrequest is rejected with a 401.\n",
+        "tags": [
+          "Auth"
+        ],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshTokenInput"
+              },
+              "example": {
+                "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Token refreshed successfully — returns new access and refresh tokens.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Token refreshed successfully",
+                  "data": {
+                    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                    "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  },
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized — refresh token is invalid or expired.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Invalid refresh token",
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/change-password": {
+      "post": {
+        "summary": "Change password (authenticated)",
+        "description": "Changes the password for the currently authenticated user. Requires the\ncurrent password for verification. On success, a \"password changed\"\nnotification email is sent to the user.\n\n**Requires:** Bearer token in the `Authorization` header.\n",
+        "tags": [
+          "Auth"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "currentPassword",
+                  "newPassword"
+                ],
+                "properties": {
+                  "currentPassword": {
+                    "type": "string",
+                    "description": "The user's current password."
+                  },
+                  "newPassword": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 128,
+                    "description": "The desired new password (min 8 chars)."
+                  }
+                }
+              },
+              "example": {
+                "currentPassword": "OldP@ssword123",
+                "newPassword": "NewSecureP@ss456"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Password changed successfully.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Password changed successfully",
+                  "data": {
+                    "message": "Password changed successfully"
+                  },
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized — invalid token or current password is incorrect.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Current password is incorrect",
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found — user not found.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "User not found",
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/forgot-password": {
+      "post": {
+        "summary": "Request password reset OTP",
+        "description": "Sends a 6-digit OTP to the provided email address for password reset.\nA generic success message is always returned regardless of whether the\nemail exists — this prevents email enumeration attacks.\n\nThe OTP expires after **15 minutes**. Use the `/reset-password` endpoint\nto verify the OTP and set a new password.\n",
+        "tags": [
+          "Auth"
+        ],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "description": "The registered email address."
+                  }
+                }
+              },
+              "example": {
+                "email": "john.doe@mailinator.com"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Password reset OTP sent (or generic success for non-existent emails).",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Password reset OTP sent to your email address",
+                  "data": {
+                    "message": "Password reset OTP sent to your email address"
+                  },
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/reset-password": {
+      "post": {
+        "summary": "Reset password with OTP",
+        "description": "Resets the user's password using the 6-digit OTP received via the\n`/forgot-password` endpoint. On success the password is updated,\nall OTPs are invalidated, the refresh token is revoked, and a\n\"password changed\" notification email is sent.\n\nThe user will need to log in again after a successful reset.\n",
+        "tags": [
+          "Auth"
+        ],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email",
+                  "otp",
+                  "newPassword"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "description": "The registered email address."
+                  },
+                  "otp": {
+                    "type": "string",
+                    "pattern": "^\\d{6}$",
+                    "description": "The 6-digit OTP code from the reset email."
+                  },
+                  "newPassword": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 128,
+                    "description": "The desired new password (min 8 chars)."
+                  }
+                }
+              },
+              "example": {
+                "email": "john.doe@mailinator.com",
+                "otp": "482916",
+                "newPassword": "NewSecureP@ss456"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Password reset successful.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Password has been reset successfully",
+                  "data": {
+                    "message": "Password has been reset successfully"
+                  },
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized — OTP is invalid or expired.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Invalid or expired OTP",
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found — no user with the given email.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "User not found",
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/bim/upload": {
+      "post": {
+        "summary": "Upload a CAD/BIM file and start APS translation",
+        "description": "Accepts a multipart file upload (CAD: RVT, DWG, IFC, DXF, NWD / vector PDF).\n\n**What happens internally:**\n1. The file is uploaded to the Autodesk OSS (Object Storage Service) transient bucket.\n2. A Model Derivative translation job is immediately submitted, requesting SVF2 output\n   with both 2D and 3D views. This makes the element properties queryable.\n3. The Base64 URL-safe URN of the file is returned. **Store this URN** — you need it\n   for the status and BOQ endpoints.\n\nTranslation is asynchronous and typically takes 30 seconds to several minutes depending\non file size and complexity. Poll `GET /status/:urn` to know when it's ready.\n\n**File size limit:** 200 MB.\n",
+        "tags": [
+          "BIM / BOQ Pipeline"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "CAD/BIM or vector PDF file (max 200 MB). Supported formats — RVT, DWG, DXF, IFC, NWD, PDF, DGN, SKP, OBJ, FBX."
+                  },
+                  "documentHint": {
+                    "type": "string",
+                    "maxLength": 300,
+                    "description": "Optional free-text context about the drawing (e.g. \"15-storey residential tower, Sydney\"). Passed to Claude at BOQ generation time.",
+                    "example": "10-storey commercial office block, Lagos, Nigeria"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "File uploaded and translation job started successfully.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "File uploaded to APS and translation job started",
+                  "data": {
+                    "urn": "dXJuOmFkc2sub2JqZWN0czpvcy5vYmplY3Q6...",
+                    "objectKey": "1709808000000-GroundFloorPlan.rvt",
+                    "bucketKey": "quantifypro-boq-transient",
+                    "translationStatus": "created"
+                  },
+                  "timestamp": "2026-03-07T12:00:00.000Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No file provided or unsupported file extension.",
+            "content": {
+              "application/json": {
+                "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication token.",
+            "content": {
+              "application/json": {
+                "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
+          },
+          "502": {
+            "description": "APS authentication or OSS upload failed.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Failed to upload file to Autodesk OSS.",
+                  "timestamp": "2026-03-07T12:00:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/bim/status/{urn}": {
+      "get": {
+        "summary": "Get APS translation status for a URN",
+        "description": "Polls the APS Model Derivative manifest and returns the current translation status.\n\n**Statuses:**\n| Status       | Meaning                                              |\n|--------------|------------------------------------------------------|\n| `pending`    | Job queued but processing hasn't started yet.        |\n| `inprogress` | Translation is running. Progress % is shown.         |\n| `success`    | Translation complete — ready for BOQ generation.     |\n| `failed`     | Translation error. Re-upload the file to try again.  |\n| `timeout`    | Job exceeded the APS timeout threshold.              |\n\n**Recommended polling interval:** every 5–10 seconds.\nStop polling once `status === \"success\"` or `status === \"failed\"`.\n",
+        "tags": [
+          "BIM / BOQ Pipeline"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "urn",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Base64 URL-safe encoded APS URN returned by the upload endpoint.",
+            "example": "dXJuOmFkc2sub2JqZWN0czpvcy5vYmplY3Q6..."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Translation status retrieved successfully.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Translation status fetched successfully",
+                  "data": {
+                    "urn": "dXJuOmFkc2sub2JqZWN0czpvcy5vYmplY3Q6...",
+                    "status": "inprogress",
+                    "progress": "71% complete",
+                    "derivatives": []
+                  },
+                  "timestamp": "2026-03-07T12:01:00.000Z"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "No manifest found for this URN (file may not have been uploaded or has expired).",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "No manifest found for this URN. Ensure the file was translated.",
+                  "timestamp": "2026-03-07T12:01:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/bim/boq/{urn}": {
+      "post": {
+        "summary": "Generate a Bill of Quantities from a translated BIM model",
+        "description": "Runs the full property-extraction and Claude AI reasoning pipeline:\n\n1. **Guard check** — Verifies translation status is `success`. Returns `202` if still in progress.\n2. **View selection** — Retrieves the model views (e.g. 3D Structural View, Ground Floor Plan).\n   The `viewIndex` parameter selects which view to use (default: 0 = first view).\n3. **Property extraction** — Calls `getAllProperties` on the selected view GUID to retrieve\n   every element and its attributes (Category, Dimensions, Volume, Area, Length, etc.).\n4. **Filtering** — Discards elements with no dimensional data (pure annotation, tags, etc.).\n   Only walls, slabs, columns, beams, doors, windows, MEP etc. with measurable properties pass.\n5. **Claude reasoning** — Sends the cleaned JSON to `claude-sonnet-4` with a professional\n   quantity-surveyor system prompt. Claude groups items by category, aggregates totals,\n   and returns a formatted Markdown BOQ table.\n\n**Response includes:**\n- `boq` — Markdown-formatted BOQ table ready to display or export.\n- `boqData` — Structured JSON, grouped by category, for programmatic use.\n- `rawItemCount` / `filteredItemCount` — Transparency on how many elements were processed.\n\n**Important:** Only call this endpoint once `GET /status/:urn` returns `status === \"success\"`.\n",
+        "tags": [
+          "BIM / BOQ Pipeline"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "urn",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Base64 URL-safe encoded APS URN returned by the upload endpoint.",
+            "example": "dXJuOmFkc2sub2JqZWN0czpvcy5vYmplY3Q6..."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "documentHint": {
+                    "type": "string",
+                    "maxLength": 300,
+                    "description": "Free-text project context passed to Claude (e.g. project type, region, scale). Improves BOQ accuracy for Claude.",
+                    "example": "10-storey commercial tower, Lagos, Nigeria. Concrete frame with curtain wall facade."
+                  },
+                  "viewIndex": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "default": 0,
+                    "description": "Index of the model view to extract properties from. 0 = first available view (usually the primary 3D view)."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "BOQ generated successfully.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Bill of Quantities generated successfully",
+                  "data": {
+                    "urn": "dXJuOmFkc2sub2JqZWN0czpvcy5vYmplY3Q6...",
+                    "modelGuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                    "viewName": "3D View {3D}",
+                    "rawItemCount": 847,
+                    "filteredItemCount": 312,
+                    "boq": "| Category | Item Description | Mark | Qty / Count | Area (m²) | Volume (m³) | Length (m) | Unit |\n|...|",
+                    "boqData": {
+                      "Walls": [
+                        {
+                          "category": "Walls",
+                          "name": "Basic Wall: 200mm Concrete",
+                          "count": null,
+                          "area": 142.5,
+                          "volume": 28.5,
+                          "length": null,
+                          "unit": "m³",
+                          "mark": "W-01"
+                        }
+                      ]
+                    },
+                    "generatedAt": "2026-03-07T12:05:00.000Z"
+                  },
+                  "timestamp": "2026-03-07T12:05:00.000Z"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Translation is still in progress. Keep polling `/status/:urn`.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Translation is still in progress. Poll /status/:urn to check.",
+                  "timestamp": "2026-03-07T12:02:00.000Z"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "No manifest found for this URN.",
+            "content": {
+              "application/json": {
+                "$ref": "#/components/schemas/ErrorResponse"
+              }
+            }
+          },
+          "422": {
+            "description": "Translation failed or no views found in the derivative.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "APS translation job failed. Please re-upload the file.",
+                  "timestamp": "2026-03-07T12:02:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/company": {
+      "post": {
+        "summary": "Create a company profile",
+        "description": "Creates a new company for the authenticated user and seeds default role permissions and team membership.",
+        "tags": [
+          "Company"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "legalName"
+                ],
+                "properties": {
+                  "legalName": {
+                    "type": "string",
+                    "example": "Quantify Pro Enterprise Ltd"
+                  },
+                  "industry": {
+                    "type": "string",
+                    "example": "Quantity Surveying"
+                  },
+                  "companySize": {
+                    "type": "string",
+                    "example": "1-10"
+                  },
+                  "registrationNumber": {
+                    "type": "string",
+                    "example": "12345678"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Company created successfully."
+          },
+          "409": {
+            "description": "You already have a company account."
+          }
+        }
+      },
+      "get": {
+        "summary": "Get company profile",
+        "description": "Returns the company profile owned by the authenticated user, including addresses and plan details.",
+        "tags": [
+          "Company"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Company profile fetched successfully."
+          },
+          "404": {
+            "description": "Company not found."
+          }
+        }
+      },
+      "put": {
+        "summary": "Update company profile",
+        "description": "Updates the authenticated user's company information (legal name, industry, size, registration number).",
+        "tags": [
+          "Company"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "legalName": {
+                    "type": "string"
+                  },
+                  "industry": {
+                    "type": "string"
+                  },
+                  "companySize": {
+                    "type": "string"
+                  },
+                  "registrationNumber": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Company profile updated successfully."
+          }
+        }
+      }
+    },
+    "/api/v1/company/locations": {
+      "post": {
+        "summary": "Add an office location",
+        "description": "Creates a new address and links it to the company.",
+        "tags": [
+          "Company - Locations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "label",
+                  "country"
+                ],
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "example": "Headquarters"
+                  },
+                  "street": {
+                    "type": "string",
+                    "example": "123 Victoria Island"
+                  },
+                  "city": {
+                    "type": "string",
+                    "example": "Lagos"
+                  },
+                  "state": {
+                    "type": "string"
+                  },
+                  "postalCode": {
+                    "type": "string"
+                  },
+                  "country": {
+                    "type": "string",
+                    "example": "Nigeria"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Office location added successfully."
+          }
+        }
+      }
+    },
+    "/api/v1/company/locations/{locationId}": {
+      "put": {
+        "summary": "Update an office location",
+        "tags": [
+          "Company - Locations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "locationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "street": {
+                    "type": "string"
+                  },
+                  "city": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string"
+                  },
+                  "country": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Office location updated successfully."
+          },
+          "404": {
+            "description": "Location not found."
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete an office location",
+        "tags": [
+          "Company - Locations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "locationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Office location removed successfully."
+          },
+          "404": {
+            "description": "Location not found."
+          }
+        }
+      }
+    },
+    "/api/v1/company/team": {
+      "get": {
+        "summary": "List team members",
+        "description": "Returns a paginated list of the company's team members with optional status/search filters.",
+        "tags": [
+          "Company - Team"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "offline",
+                "invited"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Team members fetched successfully."
+          }
+        }
+      }
+    },
+    "/api/v1/company/team/invite": {
+      "post": {
+        "summary": "Invite a team member",
+        "description": "Sends an invitation to join the company. Checks seat limits before sending.",
+        "tags": [
+          "Company - Team"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "fullName",
+                  "email"
+                ],
+                "properties": {
+                  "fullName": {
+                    "type": "string",
+                    "example": "Alex Johnson"
+                  },
+                  "email": {
+                    "type": "string",
+                    "example": "alex@company.com"
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "owner",
+                      "admin",
+                      "lead_surveyor",
+                      "member"
+                    ],
+                    "default": "member"
+                  },
+                  "permissions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "read_access",
+                        "write_access",
+                        "full_access",
+                        "invite_others"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Invitation sent successfully."
+          },
+          "409": {
+            "description": "User is already a member."
+          }
+        }
+      }
+    },
+    "/api/v1/company/team/invitations/{invitationId}/resend": {
+      "post": {
+        "summary": "Resend a team invitation",
+        "tags": [
+          "Company - Team"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invitationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Invitation resent successfully."
+          }
+        }
+      }
+    },
+    "/api/v1/company/team/{memberId}": {
+      "put": {
+        "summary": "Update a team member's role or permissions",
+        "tags": [
+          "Company - Team"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "memberId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "type": "string"
+                  },
+                  "permissions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Team member updated successfully."
+          }
+        }
+      },
+      "delete": {
+        "summary": "Remove a team member",
+        "tags": [
+          "Company - Team"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "memberId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Team member removed successfully."
+          }
+        }
+      }
+    },
+    "/api/v1/company/transfer-ownership": {
+      "post": {
+        "summary": "Transfer company ownership",
+        "description": "Transfers the company owner role to another active team member.\nRequires typing the company legal name to confirm.\n",
+        "tags": [
+          "Company"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "newOwnerId",
+                  "confirmName"
+                ],
+                "properties": {
+                  "newOwnerId": {
+                    "type": "string",
+                    "description": "The user ID of the new owner (must be an active team member)"
+                  },
+                  "confirmName": {
+                    "type": "string",
+                    "description": "Must match the company legal name exactly"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Ownership transferred successfully."
+          },
+          "400": {
+            "description": "Confirmation name does not match."
+          },
+          "403": {
+            "description": "New owner is not an active team member."
+          }
+        }
+      }
+    },
+    "/api/v1/company/role-permissions": {
+      "get": {
+        "summary": "Get role permissions for all roles",
+        "tags": [
+          "Company - Role Permissions"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role permissions fetched successfully."
+          }
+        }
+      },
+      "put": {
+        "summary": "Update role permissions",
+        "description": "Updates the permission matrix for a given role. Owner permissions cannot be modified.",
+        "tags": [
+          "Company - Role Permissions"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "role"
+                ],
+                "properties": {
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "admin",
+                      "lead_surveyor",
+                      "member"
+                    ]
+                  },
+                  "createDeleteProjects": {
+                    "type": "boolean"
+                  },
+                  "editProjectDetails": {
+                    "type": "boolean"
+                  },
+                  "viewInvoicesBilling": {
+                    "type": "boolean"
+                  },
+                  "exportBudgetReports": {
+                    "type": "boolean"
+                  },
+                  "inviteNewMembers": {
+                    "type": "boolean"
+                  },
+                  "manageRolePermissions": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Role permissions updated successfully."
+          },
+          "403": {
+            "description": "Owner permissions are locked."
+          }
+        }
+      }
+    },
+    "/api/v1/company/billing": {
+      "get": {
+        "summary": "Get billing and subscription info",
+        "description": "Returns current plan, subscription status, seats, payment methods, and recent invoices.",
+        "tags": [
+          "Company - Billing"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Billing information fetched successfully."
+          }
+        }
+      }
+    },
+    "/api/v1/company/billing/plan": {
+      "put": {
+        "summary": "Change subscription plan",
+        "tags": [
+          "Company - Billing"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "planId",
+                  "billingInterval"
+                ],
+                "properties": {
+                  "planId": {
+                    "type": "string"
+                  },
+                  "billingInterval": {
+                    "type": "string",
+                    "enum": [
+                      "monthly",
+                      "annually"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Subscription plan changed successfully."
+          }
+        }
+      }
+    },
+    "/api/v1/company/billing/history": {
+      "get": {
+        "summary": "Get billing history",
+        "tags": [
+          "Company - Billing"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Billing history fetched successfully."
+          }
+        }
+      }
+    },
+    "/api/v1/company/billing/payment-methods": {
+      "get": {
+        "summary": "List payment methods",
+        "tags": [
+          "Company - Billing"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Payment methods fetched successfully."
+          }
+        }
+      },
+      "post": {
+        "summary": "Add a payment method",
+        "tags": [
+          "Company - Billing"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "type",
+                  "last4",
+                  "label"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "card",
+                      "bank_account"
+                    ]
+                  },
+                  "last4": {
+                    "type": "string",
+                    "example": "4242"
+                  },
+                  "label": {
+                    "type": "string",
+                    "example": "Mastercard"
+                  },
+                  "expiryDate": {
+                    "type": "string",
+                    "example": "12/26"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Payment method added successfully."
+          }
+        }
+      }
+    },
+    "/api/v1/company/billing/payment-methods/{paymentMethodId}/primary": {
+      "put": {
+        "summary": "Set a payment method as primary",
+        "tags": [
+          "Company - Billing"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "paymentMethodId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Payment method set as primary."
+          }
+        }
+      }
+    },
+    "/api/v1/company/billing/payment-methods/{paymentMethodId}": {
+      "delete": {
+        "summary": "Remove a payment method",
+        "tags": [
+          "Company - Billing"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "paymentMethodId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Payment method removed."
+          },
+          "403": {
+            "description": "Cannot delete the primary payment method."
+          }
+        }
+      }
+    },
+    "/api/v1/company/sessions": {
+      "get": {
+        "summary": "List active sessions (Security & Access)",
+        "description": "Returns all device sessions for the authenticated user.",
+        "tags": [
+          "Company - Sessions"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Active sessions fetched successfully."
+          }
+        }
+      }
+    },
+    "/api/v1/company/sessions/{sessionId}": {
+      "delete": {
+        "summary": "Log out a specific session (device)",
+        "tags": [
+          "Company - Sessions"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session logged out successfully."
+          },
+          "404": {
+            "description": "Session not found."
+          }
+        }
+      }
+    },
+    "/api/v1/documents/process": {
+      "post": {
+        "summary": "Submit a document for AI processing",
+        "description": "Uploads a previously-uploaded document for AI analysis. The system will:\n1. Validate the uploaded file exists\n2. Estimate and reserve credits\n3. Process the document with the selected AI provider\n4. Return extracted dimensions, quantities, materials, and symbols\n\nSupported document types: floor plans, elevations, sections, structural drawings,\nMEP drawings, schedules, and full skyscraper plan sets (up to 2000 pages).\n",
+        "tags": [
+          "Document Processing"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "uploadedFileId",
+                  "documentType",
+                  "operationTypes"
+                ],
+                "properties": {
+                  "uploadedFileId": {
+                    "type": "string",
+                    "description": "The ID of a previously uploaded file."
+                  },
+                  "documentType": {
+                    "type": "string",
+                    "enum": [
+                      "floor_plan",
+                      "elevation",
+                      "section",
+                      "detail_drawing",
+                      "site_plan",
+                      "structural",
+                      "mep",
+                      "schedule",
+                      "specification",
+                      "boq_existing",
+                      "mixed"
+                    ],
+                    "description": "Type of construction document."
+                  },
+                  "operationTypes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "ocr_extraction",
+                        "vision_analysis",
+                        "symbol_recognition",
+                        "dimension_extraction",
+                        "quantity_takeoff",
+                        "cost_estimation",
+                        "boq_generation",
+                        "material_identification",
+                        "document_classification"
+                      ]
+                    },
+                    "description": "AI operations to perform."
+                  },
+                  "preferredProvider": {
+                    "type": "string",
+                    "enum": [
+                      "openai",
+                      "anthropic",
+                      "google_document_ai",
+                      "aws_textract"
+                    ],
+                    "description": "Optional preferred AI provider."
+                  },
+                  "documentHint": {
+                    "type": "string",
+                    "description": "Optional hint about the document (e.g., \"20-storey residential tower\")."
+                  }
+                }
+              },
+              "example": {
+                "uploadedFileId": "65a1b2c3d4e5f6a7b8c9d0e1",
+                "documentType": "floor_plan",
+                "operationTypes": [
+                  "vision_analysis",
+                  "dimension_extraction",
+                  "quantity_takeoff"
+                ],
+                "preferredProvider": "openai",
+                "documentHint": "Ground floor plan for a 15-storey commercial building"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Processing job submitted successfully.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Document processing job submitted",
+                  "data": {
+                    "_id": "65a1b2c3d4e5f6a7b8c9d0e2",
+                    "status": "pending",
+                    "documentType": "floor_plan",
+                    "estimatedCredits": 45,
+                    "primaryProvider": "openai"
+                  },
+                  "timestamp": "2026-02-22T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed."
+          },
+          "401": {
+            "description": "Unauthorized."
+          },
+          "402": {
+            "description": "Insufficient credits."
+          },
+          "404": {
+            "description": "Uploaded file not found."
+          }
+        }
+      }
+    },
+    "/api/v1/documents/estimate": {
+      "post": {
+        "summary": "Estimate processing cost",
+        "description": "Returns the estimated credit cost for a set of AI operations without\nactually processing anything. Use this for pre-flight checks before\nsubmitting a job.\n",
+        "tags": [
+          "Document Processing"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "operationTypes",
+                  "pageCount"
+                ],
+                "properties": {
+                  "operationTypes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "pageCount": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2000
+                  }
+                }
+              },
+              "example": {
+                "operationTypes": [
+                  "vision_analysis",
+                  "dimension_extraction"
+                ],
+                "pageCount": 25
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Cost estimated successfully.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Cost estimated successfully",
+                  "data": {
+                    "estimatedCost": 150,
+                    "currentBalance": 500,
+                    "sufficient": true
+                  },
+                  "timestamp": "2026-02-22T10:30:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/documents/jobs": {
+      "get": {
+        "summary": "List processing jobs",
+        "description": "Returns the authenticated user's document processing jobs with optional status filter.",
+        "tags": [
+          "Document Processing"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "validating",
+                "preprocessing",
+                "processing",
+                "post_processing",
+                "completed",
+                "failed",
+                "cancelled"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Jobs listed successfully."
+          }
+        }
+      }
+    },
+    "/api/v1/documents/jobs/{id}": {
+      "get": {
+        "summary": "Get a processing job",
+        "description": "Returns details of a specific processing job, including extracted data when completed.",
+        "tags": [
+          "Document Processing"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job details fetched."
+          },
+          "404": {
+            "description": "Job not found."
+          }
+        }
+      }
+    },
+    "/api/v1/documents/jobs/{id}/cancel": {
+      "post": {
+        "summary": "Cancel a processing job",
+        "description": "Cancels a pending or processing job and releases reserved credits.",
+        "tags": [
+          "Document Processing"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job cancelled successfully."
+          },
+          "400": {
+            "description": "Job cannot be cancelled (already completed/cancelled)."
+          }
+        }
+      }
+    },
+    "/api/v1/documents/jobs/{id}/retry": {
+      "post": {
+        "summary": "Retry a failed processing job",
+        "description": "Retries a failed job with the same parameters. Re-reserves credits.",
+        "tags": [
+          "Document Processing"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job retried successfully."
+          },
+          "400": {
+            "description": "Job is not retryable or max retries exceeded."
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health check endpoint",
+        "description": "Returns the current health status of the server including uptime in seconds.\nThis endpoint does not require authentication and is useful for load balancer\nhealth probes or monitoring tools.\n",
+        "tags": [
+          "Health"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Server is healthy and operational.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Server is healthy",
+                  "data": {
+                    "uptime": 3456.789
+                  },
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/library/categories": {
+      "get": {
+        "summary": "List library categories",
+        "description": "Returns all global categories plus any categories created by the caller's company. Pass `companyId` as a query param for team members who are not the company owner.\n",
+        "tags": [
+          "Library - Categories"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "companyId",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Required for team members who are not the company owner."
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "activeOnly",
+            "schema": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Library categories fetched successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Library categories fetched successfully"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/LibraryCategory"
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "message": "Library categories fetched successfully",
+                  "data": [
+                    {
+                      "_id": "665f4a2b8e4d3c001f2a3b4c",
+                      "name": "Earthworks",
+                      "icon": "Layers",
+                      "description": "Rates for excavation, soil disposal, and specialised machinery.",
+                      "companyId": null,
+                      "isGlobal": true,
+                      "isActive": true,
+                      "sortOrder": 3
+                    },
+                    {
+                      "_id": "665f4a2b8e4d3c001f2a3b4d",
+                      "name": "MEP",
+                      "icon": "Zap",
+                      "description": "Mechanical, Electrical, and Plumbing assemblies.",
+                      "companyId": "665f4a2b8e4d3c001f2a3b4e",
+                      "isGlobal": false,
+                      "isActive": true,
+                      "sortOrder": 7
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated."
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a library category",
+        "description": "Company owners and members with write/full access can create company-scoped categories. Admins can create global categories by setting `isGlobal: true`.\n",
+        "tags": [
+          "Library - Categories"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "companyId",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Required for team members who are not the company owner."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "example": "MEP"
+                  },
+                  "icon": {
+                    "type": "string",
+                    "example": "Zap"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "sortOrder": {
+                    "type": "integer",
+                    "example": 7
+                  },
+                  "isGlobal": {
+                    "type": "boolean",
+                    "description": "Admin-only. Creates a system-level global category."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Library category created successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Library category created successfully"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/LibraryCategory"
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "message": "Library category created successfully",
+                  "data": {
+                    "_id": "665f4a2b8e4d3c001f2a3b4d",
+                    "name": "MEP",
+                    "icon": "Zap",
+                    "description": "Mechanical, Electrical, and Plumbing assemblies.",
+                    "companyId": "665f4a2b8e4d3c001f2a3b4e",
+                    "isGlobal": false,
+                    "isActive": true,
+                    "sortOrder": 7
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed."
+          },
+          "401": {
+            "description": "Unauthenticated."
+          },
+          "403": {
+            "description": "Insufficient permissions."
+          },
+          "409": {
+            "description": "A category with this name already exists in this scope."
+          }
+        }
+      }
+    },
+    "/api/v1/library/categories/{categoryId}": {
+      "patch": {
+        "summary": "Update a library category",
+        "description": "Admins can update global categories. Company owners / write-access members can update their company-scoped categories.\n",
+        "tags": [
+          "Library - Categories"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "categoryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "companyId",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "icon": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "sortOrder": {
+                    "type": "integer"
+                  },
+                  "isActive": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Library category updated successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Library category updated successfully"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/LibraryCategory"
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "message": "Library category updated successfully",
+                  "data": {
+                    "_id": "665f4a2b8e4d3c001f2a3b4d",
+                    "name": "MEP",
+                    "icon": "Zap",
+                    "isActive": true,
+                    "sortOrder": 7
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed."
+          },
+          "401": {
+            "description": "Unauthenticated."
+          },
+          "403": {
+            "description": "Insufficient permissions."
+          },
+          "404": {
+            "description": "Library category not found."
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a library category",
+        "description": "Fails with 409 if any library items are still associated with the category. Admins can delete global categories.\n",
+        "tags": [
+          "Library - Categories"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "categoryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "companyId",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Library category deleted successfully.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Library category deleted successfully",
+                  "data": null
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated."
+          },
+          "403": {
+            "description": "Insufficient permissions."
+          },
+          "404": {
+            "description": "Library category not found."
+          },
+          "409": {
+            "description": "Category is still in use — reassign or delete items first.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Cannot delete a category that has library items associated with it"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/library/items": {
+      "get": {
+        "summary": "List library items",
+        "description": "Returns paginated library items for the caller's company. Filter by `categoryId`, `state`, `country`, or full-text `search`.\n",
+        "tags": [
+          "Library - Items"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "companyId",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Required for team members who are not the company owner."
+          },
+          {
+            "in": "query",
+            "name": "categoryId",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "schema": {
+              "type": "string"
+            },
+            "example": "Lagos"
+          },
+          {
+            "in": "query",
+            "name": "country",
+            "schema": {
+              "type": "string"
+            },
+            "example": "Nigeria"
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Library items fetched successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedLibraryItems"
+                },
+                "example": {
+                  "success": true,
+                  "message": "Library items fetched successfully",
+                  "data": [
+                    {
+                      "_id": "665f4a2b8e4d3c001f2a3b4d",
+                      "description": "Bulk Excavation",
+                      "unit": "m³",
+                      "baseRate": 4500.5,
+                      "markupPercentage": 15,
+                      "finalRate": 5175.58,
+                      "state": "Lagos",
+                      "country": "Nigeria",
+                      "categoryId": {
+                        "_id": "665f4a2b8e4d3c001f2a3b4c",
+                        "name": "Earthworks",
+                        "icon": "Layers"
+                      }
+                    }
+                  ],
+                  "pagination": {
+                    "total": 42,
+                    "page": 1,
+                    "limit": 20,
+                    "pages": 3
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated."
+          },
+          "404": {
+            "description": "Company not found."
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a library item (rate)",
+        "description": "Requires write or full access. `finalRate` is auto-computed from `baseRate × (1 + markupPercentage / 100)`.\n",
+        "tags": [
+          "Library - Items"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "companyId",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "categoryId",
+                  "description",
+                  "baseRate"
+                ],
+                "properties": {
+                  "categoryId": {
+                    "type": "string",
+                    "example": "665f4a2b8e4d3c001f2a3b4c"
+                  },
+                  "description": {
+                    "type": "string",
+                    "example": "Bulk Excavation"
+                  },
+                  "unit": {
+                    "type": "string",
+                    "example": "m³"
+                  },
+                  "baseRate": {
+                    "type": "number",
+                    "example": 4500.5
+                  },
+                  "markupPercentage": {
+                    "type": "number",
+                    "example": 15
+                  },
+                  "state": {
+                    "type": "string",
+                    "example": "Lagos"
+                  },
+                  "country": {
+                    "type": "string",
+                    "example": "Nigeria"
+                  },
+                  "breakdown": {
+                    "type": "object",
+                    "properties": {
+                      "machinery": {
+                        "type": "number"
+                      },
+                      "labour": {
+                        "type": "number"
+                      },
+                      "material": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Library item created successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Library item created successfully"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/LibraryItem"
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "message": "Library item created successfully",
+                  "data": {
+                    "_id": "665f4a2b8e4d3c001f2a3b4d",
+                    "description": "Bulk Excavation",
+                    "unit": "m³",
+                    "baseRate": 4500.5,
+                    "markupPercentage": 15,
+                    "finalRate": 5175.58,
+                    "state": "Lagos",
+                    "country": "Nigeria",
+                    "categoryId": {
+                      "_id": "665f4a2b8e4d3c001f2a3b4c",
+                      "name": "Earthworks",
+                      "icon": "Layers"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed."
+          },
+          "401": {
+            "description": "Unauthenticated."
+          },
+          "403": {
+            "description": "Insufficient write permissions."
+          },
+          "404": {
+            "description": "Company or category not found."
+          }
+        }
+      }
+    },
+    "/api/v1/library/items/{itemId}": {
+      "get": {
+        "summary": "Get a single library item",
+        "tags": [
+          "Library - Items"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "itemId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "companyId",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Library item fetched successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Library item fetched successfully"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/LibraryItem"
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "message": "Library item fetched successfully",
+                  "data": {
+                    "_id": "665f4a2b8e4d3c001f2a3b4d",
+                    "description": "Bulk Excavation",
+                    "unit": "m³",
+                    "baseRate": 4500.5,
+                    "markupPercentage": 15,
+                    "finalRate": 5175.58,
+                    "state": "Lagos",
+                    "country": "Nigeria",
+                    "breakdown": {
+                      "machinery": 7500.5,
+                      "labour": 2500.5
+                    },
+                    "categoryId": {
+                      "_id": "665f4a2b8e4d3c001f2a3b4c",
+                      "name": "Earthworks",
+                      "icon": "Layers"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated."
+          },
+          "404": {
+            "description": "Library item not found."
+          }
+        }
+      },
+      "patch": {
+        "summary": "Update a library item (rate)",
+        "description": "Partial update. `finalRate` is recomputed automatically if `baseRate` or `markupPercentage` change.\n",
+        "tags": [
+          "Library - Items"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "itemId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "companyId",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "categoryId": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "unit": {
+                    "type": "string"
+                  },
+                  "baseRate": {
+                    "type": "number"
+                  },
+                  "markupPercentage": {
+                    "type": "number"
+                  },
+                  "state": {
+                    "type": "string"
+                  },
+                  "country": {
+                    "type": "string"
+                  },
+                  "breakdown": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Library item updated successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Library item updated successfully"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/LibraryItem"
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "message": "Library item updated successfully",
+                  "data": {
+                    "_id": "665f4a2b8e4d3c001f2a3b4d",
+                    "description": "Bulk Excavation",
+                    "unit": "m³",
+                    "baseRate": 31115,
+                    "markupPercentage": 15,
+                    "finalRate": 35782.25,
+                    "state": "Lagos",
+                    "country": "Nigeria"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed."
+          },
+          "401": {
+            "description": "Unauthenticated."
+          },
+          "403": {
+            "description": "Insufficient write permissions."
+          },
+          "404": {
+            "description": "Library item not found."
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a library item (rate)",
+        "tags": [
+          "Library - Items"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "itemId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "companyId",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Library item deleted successfully.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Library item deleted successfully",
+                  "data": null
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated."
+          },
+          "403": {
+            "description": "Insufficient write permissions."
+          },
+          "404": {
+            "description": "Library item not found."
+          }
+        }
+      }
+    },
+    "/api/v1/plans": {
+      "get": {
+        "summary": "List active plans",
+        "description": "Returns all active subscription plans, sorted by `sortOrder`. This is a public\nendpoint — no authentication required. Inactive plans are excluded.\n",
+        "tags": [
+          "Plans"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Active plans fetched successfully.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Plans fetched successfully",
+                  "data": [
+                    {
+                      "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                      "name": "Basic",
+                      "slug": "basic",
+                      "description": "Best for early career QS residential projects",
+                      "monthlyPrice": 120000,
+                      "yearlyPrice": 1000000,
+                      "currency": "NGN",
+                      "benefits": [
+                        "Up to 5 seats",
+                        "AI Processing — 50 drawings per month",
+                        "Basic project sharing — Read & View Permissions",
+                        "5GB Cloud storage"
+                      ],
+                      "isPopular": false,
+                      "isActive": true,
+                      "sortOrder": 0
+                    },
+                    {
+                      "_id": "65a1b2c3d4e5f6a7b8c9d0e2",
+                      "name": "Standard",
+                      "slug": "standard",
+                      "description": "Best for Medium QS residential projects",
+                      "monthlyPrice": 350000,
+                      "yearlyPrice": 3000000,
+                      "currency": "NGN",
+                      "benefits": [
+                        "Unlimited Seats",
+                        "Unlimited AI Processing",
+                        "Full Team Workflow",
+                        "Unlimited Storage"
+                      ],
+                      "isPopular": true,
+                      "isActive": true,
+                      "sortOrder": 1
+                    }
+                  ],
+                  "timestamp": "2026-02-20T10:30:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a new plan (admin)",
+        "description": "Creates a new subscription plan. Requires admin authentication. The `slug` must be\nunique and URL-friendly. The `benefits` field is an array of feature strings that\nwill be displayed on the pricing card.\n",
+        "tags": [
+          "Plans"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "slug",
+                  "description",
+                  "monthlyPrice",
+                  "yearlyPrice",
+                  "benefits"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Display name for the plan.",
+                    "example": "Basic"
+                  },
+                  "slug": {
+                    "type": "string",
+                    "description": "URL-friendly unique identifier.",
+                    "example": "basic"
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "Short description of the plan.",
+                    "example": "Best for early career QS residential projects"
+                  },
+                  "monthlyPrice": {
+                    "type": "number",
+                    "description": "Monthly price in the smallest currency unit.",
+                    "example": 120000
+                  },
+                  "yearlyPrice": {
+                    "type": "number",
+                    "description": "Yearly price in the smallest currency unit.",
+                    "example": 1000000
+                  },
+                  "currency": {
+                    "type": "string",
+                    "description": "ISO 4217 currency code (defaults to NGN).",
+                    "example": "NGN"
+                  },
+                  "benefits": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "List of plan features/benefits.",
+                    "example": [
+                      "Up to 5 seats",
+                      "AI Processing — 50 drawings per month",
+                      "Basic project sharing — Read & View Permissions",
+                      "5GB Cloud storage"
+                    ]
+                  },
+                  "isPopular": {
+                    "type": "boolean",
+                    "description": "Whether to show the \"Most Popular\" badge.",
+                    "example": false
+                  },
+                  "isActive": {
+                    "type": "boolean",
+                    "description": "Whether the plan is active and visible publicly.",
+                    "example": true
+                  },
+                  "sortOrder": {
+                    "type": "integer",
+                    "description": "Display order (lower = displayed first).",
+                    "example": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Plan created successfully.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Plan created successfully",
+                  "data": {
+                    "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                    "name": "Basic",
+                    "slug": "basic",
+                    "description": "Best for early career QS residential projects",
+                    "monthlyPrice": 120000,
+                    "yearlyPrice": 1000000,
+                    "currency": "NGN",
+                    "benefits": [
+                      "Up to 5 seats",
+                      "AI Processing — 50 drawings per month",
+                      "Basic project sharing — Read & View Permissions",
+                      "5GB Cloud storage"
+                    ],
+                    "isPopular": false,
+                    "isActive": true,
+                    "sortOrder": 0
+                  },
+                  "timestamp": "2026-02-20T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed."
+          },
+          "401": {
+            "description": "Unauthorized — missing or invalid token."
+          },
+          "403": {
+            "description": "Forbidden — admin role required."
+          },
+          "409": {
+            "description": "Conflict — a plan with this slug already exists.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "A plan with this slug already exists",
+                  "timestamp": "2026-02-20T10:30:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plans/category/{category}": {
+      "get": {
+        "summary": "List active plans by category",
+        "description": "Returns all active subscription plans for the given category (`individual` or `company`),\nsorted by `sortOrder`. This is a public endpoint — no authentication required.\n",
+        "tags": [
+          "Plans"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "category",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "individual",
+                "company"
+              ]
+            },
+            "description": "The plan category to filter by."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Plans for the requested category fetched successfully.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Plans fetched successfully",
+                  "data": [
+                    {
+                      "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                      "name": "Basic",
+                      "slug": "basic",
+                      "description": "Best for early career QS residential projects",
+                      "category": "individual",
+                      "monthlyPrice": 120000,
+                      "yearlyPrice": 1000000,
+                      "currency": "NGN",
+                      "benefits": [
+                        "Up to 5 seats",
+                        "AI Processing — 50 drawings per month",
+                        "Basic project sharing — Read & View Permissions",
+                        "5GB Cloud storage"
+                      ],
+                      "isPopular": false,
+                      "isActive": true,
+                      "sortOrder": 0
+                    }
+                  ],
+                  "timestamp": "2026-02-20T10:30:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plans/all": {
+      "get": {
+        "summary": "List all plans (admin)",
+        "description": "Returns all subscription plans including inactive ones. Requires admin authentication.\n",
+        "tags": [
+          "Plans"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "All plans fetched successfully.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Plans fetched successfully",
+                  "data": [],
+                  "timestamp": "2026-02-20T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized — missing or invalid token."
+          },
+          "403": {
+            "description": "Forbidden — admin role required."
+          }
+        }
+      }
+    },
+    "/api/v1/plans/{id}": {
+      "get": {
+        "summary": "Get a plan by ID",
+        "description": "Returns a single subscription plan by its ID.",
+        "tags": [
+          "Plans"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The plan's MongoDB ObjectId."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Plan fetched successfully.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Plan fetched successfully",
+                  "data": {
+                    "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                    "name": "Basic",
+                    "slug": "basic",
+                    "description": "Best for early career QS residential projects",
+                    "monthlyPrice": 120000,
+                    "yearlyPrice": 1000000,
+                    "currency": "NGN",
+                    "benefits": [
+                      "Up to 5 seats",
+                      "AI Processing — 50 drawings per month",
+                      "Basic project sharing — Read & View Permissions",
+                      "5GB Cloud storage"
+                    ],
+                    "isPopular": false,
+                    "isActive": true,
+                    "sortOrder": 0
+                  },
+                  "timestamp": "2026-02-20T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Plan not found.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Plan not found",
+                  "timestamp": "2026-02-20T10:30:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "summary": "Update a plan (admin)",
+        "description": "Partially updates a subscription plan by its ID. Only the fields provided in the\nrequest body will be changed. Requires admin authentication.\n",
+        "tags": [
+          "Plans"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The plan's MongoDB ObjectId."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "monthlyPrice": 150000,
+                "benefits": [
+                  "Up to 10 seats",
+                  "AI Processing — 100 drawings per month",
+                  "Full project sharing",
+                  "10GB Cloud storage"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Plan updated successfully.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Plan updated successfully",
+                  "data": {
+                    "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                    "name": "Basic",
+                    "slug": "basic",
+                    "description": "Best for early career QS residential projects",
+                    "monthlyPrice": 150000,
+                    "yearlyPrice": 1000000,
+                    "currency": "NGN",
+                    "benefits": [
+                      "Up to 10 seats",
+                      "AI Processing — 100 drawings per month",
+                      "Full project sharing",
+                      "10GB Cloud storage"
+                    ],
+                    "isPopular": false,
+                    "isActive": true,
+                    "sortOrder": 0
+                  },
+                  "timestamp": "2026-02-20T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed."
+          },
+          "401": {
+            "description": "Unauthorized — missing or invalid token."
+          },
+          "403": {
+            "description": "Forbidden — admin role required."
+          },
+          "404": {
+            "description": "Plan not found."
+          },
+          "409": {
+            "description": "Conflict — a plan with this slug already exists."
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a plan (admin)",
+        "description": "Permanently deletes a subscription plan by its ID. Requires admin authentication.",
+        "tags": [
+          "Plans"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The plan's MongoDB ObjectId."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Plan deleted successfully.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Plan deleted successfully",
+                  "data": null,
+                  "timestamp": "2026-02-20T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized — missing or invalid token."
+          },
+          "403": {
+            "description": "Forbidden — admin role required."
+          },
+          "404": {
+            "description": "Plan not found."
+          }
+        }
+      }
+    },
+    "/api/v1/support/tickets": {
+      "post": {
+        "summary": "Open a new support ticket",
+        "description": "Creates a support ticket on behalf of the authenticated user.",
+        "tags": [
+          "Support"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "fullName",
+                  "email",
+                  "subject",
+                  "description"
+                ],
+                "properties": {
+                  "fullName": {
+                    "type": "string",
+                    "example": "Alex Johnson"
+                  },
+                  "email": {
+                    "type": "string",
+                    "example": "alex@company.com"
+                  },
+                  "subject": {
+                    "type": "string",
+                    "example": "Bulk export failed on large datasets"
+                  },
+                  "category": {
+                    "type": "string",
+                    "enum": [
+                      "Technical Support",
+                      "Account & Billing",
+                      "Feature Request",
+                      "Automation",
+                      "Other"
+                    ],
+                    "default": "Technical Support"
+                  },
+                  "description": {
+                    "type": "string",
+                    "example": "Help us understand your query better..."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Support ticket created successfully.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Support ticket created successfully",
+                  "data": {
+                    "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                    "ticketId": "TK-2026-00001",
+                    "subject": "Bulk export failed on large datasets",
+                    "category": "Technical Support",
+                    "status": "open",
+                    "createdAt": "2026-02-27T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "List my support tickets",
+        "description": "Returns a paginated list of support tickets for the authenticated user.",
+        "tags": [
+          "Support"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "description": "Filter by ticket status.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "open",
+                "in_progress",
+                "resolved",
+                "closed"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Support tickets fetched successfully.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Support tickets fetched successfully",
+                  "data": [
+                    {
+                      "ticketId": "TK-2026-00001",
+                      "subject": "Bulk export failed on large datasets",
+                      "category": "Technical Support",
+                      "status": "in_progress",
+                      "createdAt": "2026-10-24T10:30:00.000Z"
+                    }
+                  ],
+                  "pagination": {
+                    "total": 3,
+                    "page": 1,
+                    "limit": 20,
+                    "pages": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/support/tickets/{ticketId}": {
+      "get": {
+        "summary": "Get a single support ticket",
+        "tags": [
+          "Support"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticketId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Support ticket fetched successfully."
+          },
+          "404": {
+            "description": "Support ticket not found."
+          }
+        }
+      }
+    },
+    "/api/v1/uploads": {
+      "post": {
+        "summary": "Upload a file",
+        "description": "Uploads a single file to the configured cloud storage provider (Cloudinary or S3).\nThe file is stored in a subfolder under the application's root folder. On success,\nreturns the uploaded file record including the public URL, cloud provider, cloud ID,\nand metadata (format, dimensions, size). An audit log entry is created. Maximum\nfile size is 10 MB.\n",
+        "tags": [
+          "Uploads"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "The file to upload (max 10 MB)."
+                  },
+                  "folder": {
+                    "type": "string",
+                    "description": "Optional subfolder name within the app's root folder (default is \"uploads\").",
+                    "example": "avatars"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "File uploaded successfully.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "File uploaded successfully",
+                  "data": {
+                    "_id": "65a1b2c3d4e5f6a7b8c9d0f1",
+                    "originalName": "profile-photo.jpg",
+                    "mimeType": "image/jpeg",
+                    "size": 245760,
+                    "url": "https://res.cloudinary.com/demo/image/upload/v1/quantify-pro-be/avatars/abc123.jpg",
+                    "provider": "cloudinary",
+                    "cloudId": "quantify-pro-be/avatars/abc123",
+                    "uploadedBy": "65a1b2c3d4e5f6a7b8c9d0e1",
+                    "metadata": {
+                      "format": "jpg",
+                      "width": 800,
+                      "height": 600,
+                      "bytes": 245760
+                    },
+                    "createdAt": "2026-02-19T10:30:00.000Z",
+                    "updatedAt": "2026-02-19T10:30:00.000Z"
+                  },
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request — no file was provided in the request.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "No file provided",
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized — missing or invalid JWT token.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Authentication token is required",
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/uploads/{id}": {
+      "get": {
+        "summary": "Get upload by ID",
+        "description": "Retrieves the metadata and URL of a previously uploaded file by its MongoDB ObjectId.\nThe result is cached for performance. Requires authentication.\n",
+        "tags": [
+          "Uploads"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "description": "The 24-character MongoDB ObjectId of the upload.",
+            "schema": {
+              "type": "string",
+              "example": "65a1b2c3d4e5f6a7b8c9d0f1"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Upload fetched successfully.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Upload fetched successfully",
+                  "data": {
+                    "_id": "65a1b2c3d4e5f6a7b8c9d0f1",
+                    "originalName": "profile-photo.jpg",
+                    "mimeType": "image/jpeg",
+                    "size": 245760,
+                    "url": "https://res.cloudinary.com/demo/image/upload/v1/quantify-pro-be/avatars/abc123.jpg",
+                    "provider": "cloudinary",
+                    "cloudId": "quantify-pro-be/avatars/abc123",
+                    "uploadedBy": "65a1b2c3d4e5f6a7b8c9d0e1",
+                    "metadata": {
+                      "format": "jpg",
+                      "width": 800,
+                      "height": 600,
+                      "bytes": 245760
+                    },
+                    "createdAt": "2026-02-19T10:30:00.000Z",
+                    "updatedAt": "2026-02-19T10:30:00.000Z"
+                  },
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized — missing or invalid JWT token."
+          },
+          "404": {
+            "description": "Upload not found.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Upload not found",
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/me": {
+      "get": {
+        "summary": "Get current authenticated user profile",
+        "description": "Returns the full profile of the currently authenticated user based on the\nJWT token in the Authorization header. Does not require a user ID parameter.\n",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User profile fetched successfully.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "User fetched successfully",
+                  "data": {
+                    "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                    "firstName": "John",
+                    "lastName": "Doe",
+                    "email": "john.doe@example.com",
+                    "phoneNumber": "+2348012345678",
+                    "role": "user",
+                    "status": "active",
+                    "emailVerified": false,
+                    "authProvider": "local",
+                    "createdAt": "2026-02-19T10:30:00.000Z",
+                    "updatedAt": "2026-02-19T10:30:00.000Z"
+                  },
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized — missing or invalid JWT token.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Authentication token is required",
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users": {
+      "get": {
+        "summary": "List all users (admin only)",
+        "description": "Returns a paginated list of all users. Only accessible by users with the `admin` role.\nSupports filtering by role, status, and free-text search (matches first name, last name,\nor email). Results are sorted by most recently created.\n",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "description": "Page number (1-based).",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "description": "Number of users per page (max 100).",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "in": "query",
+            "name": "role",
+            "description": "Filter by user role.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "admin",
+                "user",
+                "company"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "description": "Filter by user status.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "inactive",
+                "suspended"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "description": "Free-text search across first name, last name, and email.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of users.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Users fetched successfully",
+                  "data": [
+                    {
+                      "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                      "firstName": "John",
+                      "lastName": "Doe",
+                      "email": "john.doe@example.com",
+                      "phoneNumber": "+2348012345678",
+                      "role": "user",
+                      "status": "active",
+                      "emailVerified": true,
+                      "authProvider": "local",
+                      "createdAt": "2026-01-15T08:00:00.000Z",
+                      "updatedAt": "2026-02-19T10:30:00.000Z"
+                    },
+                    {
+                      "_id": "65a1b2c3d4e5f6a7b8c9d0e2",
+                      "firstName": "Jane",
+                      "lastName": "Smith",
+                      "email": "jane@acme.com",
+                      "phoneNumber": "+2348098765432",
+                      "role": "company",
+                      "status": "active",
+                      "companyName": "Acme Inc",
+                      "emailVerified": true,
+                      "authProvider": "local",
+                      "createdAt": "2026-01-20T12:00:00.000Z",
+                      "updatedAt": "2026-02-18T09:00:00.000Z"
+                    }
+                  ],
+                  "pagination": {
+                    "total": 42,
+                    "page": 1,
+                    "limit": 20,
+                    "pages": 3
+                  },
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized — missing or invalid JWT token.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Authentication token is required",
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden — user does not have admin privileges.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "You do not have permission to perform this action",
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{id}": {
+      "get": {
+        "summary": "Get user by ID",
+        "description": "Returns the full profile of a specific user by their MongoDB ObjectId.\nRequires authentication. Any authenticated user can fetch any user profile.\n",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "description": "The 24-character MongoDB ObjectId of the user.",
+            "schema": {
+              "type": "string",
+              "example": "65a1b2c3d4e5f6a7b8c9d0e1"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User fetched successfully.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "User fetched successfully",
+                  "data": {
+                    "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                    "firstName": "John",
+                    "lastName": "Doe",
+                    "email": "john.doe@example.com",
+                    "phoneNumber": "+2348012345678",
+                    "role": "user",
+                    "status": "active",
+                    "emailVerified": true,
+                    "authProvider": "local",
+                    "createdAt": "2026-01-15T08:00:00.000Z",
+                    "updatedAt": "2026-02-19T10:30:00.000Z"
+                  },
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized — missing or invalid JWT token."
+          },
+          "404": {
+            "description": "User not found.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "User not found",
+                  "timestamp": "2026-02-19T10:30:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Update user profile",
+        "description": "Updates one or more fields of a user's profile. All fields in the request body\nare optional — only the provided fields will be updated. An audit log entry is\ncreated for every successful update. Cached user data is invalidated.\n",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "description": "The 24-character MongoDB ObjectId of the user to update.",
+            "schema": {
+              "type": "string",
+              "example": "65a1b2c3d4e5f6a7b8c9d0e1"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserInput"
+              },
+              "example": {
+                "firstName": "Jonathan",
+                "email": "jonathan.doe@example.com"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "User updated successfully.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "User updated successfully",
+                  "data": {
+                    "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                    "firstName": "Jonathan",
+                    "lastName": "Doe",
+                    "email": "jonathan.doe@example.com",
+                    "phoneNumber": "+2348012345678",
+                    "role": "user",
+                    "status": "active",
+                    "emailVerified": true,
+                    "authProvider": "local",
+                    "createdAt": "2026-01-15T08:00:00.000Z",
+                    "updatedAt": "2026-02-19T10:35:00.000Z"
+                  },
+                  "timestamp": "2026-02-19T10:35:00.000Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation failed.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Validation failed",
+                  "errors": [
+                    {
+                      "field": "email",
+                      "message": "Invalid email address"
+                    }
+                  ],
+                  "timestamp": "2026-02-19T10:35:00.000Z"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized — missing or invalid JWT token."
+          },
+          "404": {
+            "description": "User not found.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "User not found",
+                  "timestamp": "2026-02-19T10:35:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

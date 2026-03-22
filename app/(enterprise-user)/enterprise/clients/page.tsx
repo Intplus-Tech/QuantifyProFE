@@ -6,16 +6,18 @@ import { Card, CardContent } from "@/components/ui/card";
 import { UserPlus } from "lucide-react";
 import { ClientsTable } from "@/components/clients/ClientsTable";
 import { AddClientDialog } from "@/components/clients/AddClientDialog";
-import { mockClients, formatValue } from "@/components/clients/mockData";
-
-const totalClients = mockClients.length;
-const totalValue = mockClients.reduce((sum, c) => sum + c.valueRaw, 0);
+import { formatValue } from "@/components/clients/mockData";
+import { useGetClientsQuery, useGetClientsStatsQuery } from "@/store/api/clientsApi";
 
 export default function ClientsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
+  const { data: statsRes } = useGetClientsStatsQuery();
+
+  const totalClients = statsRes?.data?.totalClients ?? 0;
+  const totalValue = statsRes?.data?.totalBoqValue ?? 0;
 
   return (
-    <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
+    <div className="space-y-6">
       {/* Top Stats & Action */}
       <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
         <div className="flex flex-col sm:flex-row gap-4 w-full lg:w-auto">
@@ -25,8 +27,12 @@ export default function ClientsPage() {
                 TOTAL MANAGED CLIENTS
               </p>
               <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-bold text-foreground">{totalClients}</span>
-                <span className="text-xs font-medium text-green-600">+4 this month</span>
+                <span className="text-3xl font-bold text-foreground">
+                  {totalClients}
+                </span>
+                <span className="text-xs font-medium text-green-600">
+                  +4 this month
+                </span>
               </div>
             </CardContent>
           </Card>
@@ -43,16 +49,16 @@ export default function ClientsPage() {
           </Card>
         </div>
 
-        <Button
-          className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm h-12 px-6 w-full lg:w-auto"
+        <button
+          className="flex items-center justify-center bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm h-12 px-6 w-full lg:w-auto rounded-md font-medium"
           onClick={() => setDialogOpen(true)}
         >
           <UserPlus className="w-4 h-4 mr-2" />
           Add New Client
-        </Button>
+        </button>
       </div>
 
-      <ClientsTable data={mockClients} />
+      <ClientsTable />
 
       <AddClientDialog open={dialogOpen} onOpenChange={setDialogOpen} />
     </div>

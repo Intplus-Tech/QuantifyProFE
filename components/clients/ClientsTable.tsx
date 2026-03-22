@@ -48,16 +48,23 @@ import {
   FolderOpen,
   Trash2,
   X,
+  Loader2,
 } from "lucide-react";
-import {
-  type Client,
-  INDUSTRY_COLORS,
-  STATUS_COLORS,
-  formatValue,
-} from "./mockData";
+import { INDUSTRY_COLORS, STATUS_COLORS, formatValue } from "./mockData";
+import { Client } from "@/store/slices/clientsSlice";
+import { useGetClientsQuery } from "@/store/api/clientsApi";
+import { useEffect } from "react";
+
+// We extend the client with UI fields on the fly
+type UIClient = Client & {
+  initials: string;
+  avatarBg: string;
+  projects?: number;
+  valueRaw?: number;
+};
 
 // Defined outside component — stable reference, no closure over component state
-const columns: ColumnDef<Client>[] = [
+const columns: ColumnDef<UIClient>[] = [
   {
     accessorKey: "name",
     header: "CLIENT & COMPANY",
@@ -71,8 +78,12 @@ const columns: ColumnDef<Client>[] = [
             </AvatarFallback>
           </Avatar>
           <div>
-            <p className="font-semibold text-foreground text-sm">{client.name}</p>
-            <p className="text-xs text-muted-foreground">{client.company}</p>
+            <p className="font-semibold text-foreground text-sm">
+              {client.name}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {client.clientCompanyName}
+            </p>
           </div>
         </div>
       );
@@ -82,11 +93,14 @@ const columns: ColumnDef<Client>[] = [
     accessorKey: "industry",
     header: "INDUSTRY",
     cell: ({ getValue }) => {
-      const industry = getValue<Client["industry"]>();
+      const industry = getValue<string>();
+      const colorClass =
+        (INDUSTRY_COLORS as Record<string, string>)[industry] ||
+        "bg-gray-100 text-gray-700";
       return (
         <Badge
           variant="secondary"
-          className={`border-0 font-medium ${INDUSTRY_COLORS[industry]}`}
+          className={`border-0 font-medium ${colorClass}`}
         >
           {industry}
         </Badge>
@@ -97,11 +111,16 @@ const columns: ColumnDef<Client>[] = [
     accessorKey: "status",
     header: "STATUS",
     cell: ({ getValue }) => {
-      const status = getValue<Client["status"]>();
+      const status = getValue<string>() || "active";
+      const statusColor =
+        (STATUS_COLORS as Record<string, string>)[status] ||
+        STATUS_COLORS["Active"];
       return (
         <div className="flex items-center gap-2">
-          <span className={`w-2 h-2 rounded-full shrink-0 ${STATUS_COLORS[status]}`} />
-          <span className="font-medium text-foreground text-sm">{status}</span>
+          <span className={`w-2 h-2 rounded-full shrink-0 ${statusColor}`} />
+          <span className="font-medium text-foreground text-sm flex capitalize">
+            {status}
+          </span>
         </div>
       );
     },
@@ -111,7 +130,7 @@ const columns: ColumnDef<Client>[] = [
     header: "PROJECTS",
     cell: ({ getValue }) => (
       <div className="text-center font-medium text-foreground text-sm">
-        {getValue<number>()}
+        {getValue<number>() || 0}
       </div>
     ),
   },
@@ -120,7 +139,7 @@ const columns: ColumnDef<Client>[] = [
     header: "TOTAL BOQ VALUE",
     cell: ({ getValue }) => (
       <div className="text-right font-bold text-foreground text-sm">
-        {formatValue(getValue<number>())}
+        {formatValue(getValue<number>() || 0)}
       </div>
     ),
   },
@@ -165,59 +184,83 @@ const columns: ColumnDef<Client>[] = [
 ];
 
 function SortIcon({ isSorted }: { isSorted: false | "asc" | "desc" }) {
-  if (isSorted === "asc") return <ChevronUp className="w-3.5 h-3.5 ml-1 inline" />;
-  if (isSorted === "desc") return <ChevronDown className="w-3.5 h-3.5 ml-1 inline" />;
+  if (isSorted === "asc")
+    return <ChevronUp className="w-3.5 h-3.5 ml-1 inline" />;
+  if (isSorted === "desc")
+    return <ChevronDown className="w-3.5 h-3.5 ml-1 inline" />;
   return <ChevronsUpDown className="w-3.5 h-3.5 ml-1 inline opacity-40" />;
 }
 
-interface ClientsTableProps {
-  data: Client[];
-}
+interface ClientsTableProps {}
 
-export function ClientsTable({ data: allData }: ClientsTableProps) {
+export function ClientsTable({}: ClientsTableProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
+  const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 8 });
   const [globalFilter, setGlobalFilter] = useState("");
   const [industryFilter, setIndustryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
 
-  const hasFilters = globalFilter !== "" || industryFilter !== "all" || statusFilter !== "all";
+  const hasFilters =
+    globalFilter !== "" || industryFilter !== "all" || statusFilter !== "all";
+
+  const {
+    data: clientsRes,
+    isLoading,
+    isFetching,
+  } = useGetClientsQuery({
+    page: pagination.pageIndex + 1,
+    limit: pagination.pageSize,
+    search: globalFilter || undefined,
+    industry: industryFilter !== "all" ? industryFilter : undefined,
+    status: statusFilter !== "all" ? statusFilter : undefined,
+  });
+
+  const allData = clientsRes?.data || [];
+  const totalRows = clientsRes?.pagination?.total || 0;
+  const pageCount =
+    clientsRes?.pagination?.pages || Math.ceil(totalRows / pagination.pageSize);
 
   function clearFilters() {
     setGlobalFilter("");
     setIndustryFilter("all");
     setStatusFilter("all");
+    setPagination((prev) => ({ ...prev, pageIndex: 0 }));
   }
 
-  // Memoized so useReactTable receives a stable reference — only changes when
-  // filter values actually change, preventing infinite re-render loops.
+  // Memoized so useReactTable receives a stable reference
   const data = useMemo(
     () =>
-      allData.filter((c) => {
-        if (industryFilter !== "all" && c.industry !== industryFilter) return false;
-        if (statusFilter !== "all" && c.status !== statusFilter) return false;
-        return true;
-      }),
-    [allData, industryFilter, statusFilter],
+      allData.map((c: any) => ({
+        ...c,
+        initials:
+          c.initials || typeof c.name === "string"
+            ? c.name
+                .split(" ")
+                .map((n: string) => n[0])
+                .join("")
+                .substring(0, 2)
+                .toUpperCase()
+            : "NA",
+        avatarBg: c.avatarBg || "bg-blue-100 text-blue-700",
+      })),
+    [allData],
   );
 
   const table = useReactTable({
     data,
     columns,
-    state: { sorting, globalFilter },
+    state: { sorting, pagination },
     onSortingChange: setSorting,
-    onGlobalFilterChange: setGlobalFilter,
+    onPaginationChange: setPagination,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    initialState: { pagination: { pageSize: 8 } },
+    manualPagination: true,
+    pageCount,
   });
 
   const { pageIndex, pageSize } = table.getState().pagination;
-  const totalRows = table.getFilteredRowModel().rows.length;
   const from = totalRows === 0 ? 0 : pageIndex * pageSize + 1;
   const to = Math.min((pageIndex + 1) * pageSize, totalRows);
-  const pageCount = table.getPageCount();
 
   return (
     <div className="space-y-4">
@@ -230,13 +273,13 @@ export function ClientsTable({ data: allData }: ClientsTableProps) {
               placeholder="Search by client or company name..."
               value={globalFilter}
               onChange={(e) => setGlobalFilter(e.target.value)}
-              className="pl-9 bg-muted/30 border-border/50"
+              className="pl-9 bg-muted/30 border-border/50 h-12"
             />
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto items-center">
             <Select value={industryFilter} onValueChange={setIndustryFilter}>
-              <SelectTrigger className="w-full sm:w-44 bg-primary/5 border-primary/20 text-primary font-medium">
+              <SelectTrigger className="w-full sm:w-44 bg-primary/5 border-primary/20 text-primary font-medium h-12! py-3">
                 <SelectValue placeholder="All Sectors" />
               </SelectTrigger>
               <SelectContent>
@@ -251,14 +294,14 @@ export function ClientsTable({ data: allData }: ClientsTableProps) {
             </Select>
 
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full sm:w-40 bg-primary/5 border-primary/20 text-primary font-medium">
+              <SelectTrigger className="w-full sm:w-40 bg-primary/5 border-primary/20 text-primary font-medium h-12! py-3">
                 <SelectValue placeholder="All Statuses" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Statuses</SelectItem>
-                <SelectItem value="Active">Active</SelectItem>
-                <SelectItem value="Pending Review">Pending Review</SelectItem>
-                <SelectItem value="Inactive">Inactive</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="pending_review">Pending Review</SelectItem>
+                <SelectItem value="inactive">Inactive</SelectItem>
               </SelectContent>
             </Select>
 
@@ -282,7 +325,10 @@ export function ClientsTable({ data: allData }: ClientsTableProps) {
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((hg) => (
-              <TableRow key={hg.id} className="bg-muted/10 hover:bg-muted/10 border-b border-border/50">
+              <TableRow
+                key={hg.id}
+                className="bg-muted/10 hover:bg-muted/10 border-b border-border/50"
+              >
                 {hg.headers.map((header) => {
                   const canSort = header.column.getCanSort();
                   const isSorted = header.column.getIsSorted();
@@ -291,15 +337,26 @@ export function ClientsTable({ data: allData }: ClientsTableProps) {
                   return (
                     <TableHead
                       key={id}
-                      onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
+                      onClick={
+                        canSort
+                          ? header.column.getToggleSortingHandler()
+                          : undefined
+                      }
                       className={[
                         "py-3 px-6 text-xs font-semibold text-muted-foreground uppercase tracking-wider",
-                        id === "actions" || id === "projects" ? "text-center" : "",
+                        id === "actions" || id === "projects"
+                          ? "text-center"
+                          : "",
                         id === "valueRaw" ? "text-right" : "",
-                        canSort ? "cursor-pointer select-none hover:text-foreground transition-colors" : "",
+                        canSort
+                          ? "cursor-pointer select-none hover:text-foreground transition-colors"
+                          : "",
                       ].join(" ")}
                     >
-                      {flexRender(header.column.columnDef.header, header.getContext())}
+                      {flexRender(
+                        header.column.columnDef.header,
+                        header.getContext(),
+                      )}
                       {canSort && <SortIcon isSorted={isSorted} />}
                     </TableHead>
                   );
@@ -309,7 +366,19 @@ export function ClientsTable({ data: allData }: ClientsTableProps) {
           </TableHeader>
 
           <TableBody>
-            {table.getRowModel().rows.length === 0 ? (
+            {isLoading || isFetching ? (
+              <TableRow>
+                <TableCell
+                  colSpan={columns.length}
+                  className="py-16 text-center text-muted-foreground"
+                >
+                  <div className="flex justify-center flex-col items-center gap-2">
+                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                    <p className="text-sm">Loading clients...</p>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : table.getRowModel().rows.length === 0 ? (
               <TableRow>
                 <TableCell
                   colSpan={columns.length}
@@ -326,7 +395,10 @@ export function ClientsTable({ data: allData }: ClientsTableProps) {
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id} className="py-4 px-6">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext(),
+                      )}
                     </TableCell>
                   ))}
                 </TableRow>

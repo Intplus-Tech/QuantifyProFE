@@ -1,9 +1,13 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, CheckCircle2, Loader2 } from "lucide-react";
+import {
+  useVerifyOtpMutation,
+  useResendVerificationEmailMutation,
+} from "@/store/api/authApi";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,19 +34,83 @@ function VerificationContent() {
 
   const [code, setCode] = useState(["", "", "", "", "", ""]);
   const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [resent, setResent] = useState(false);
 
-  function updateDigit(index: number, value: string) {
-    const digit = value.replace(/\D/g, "").slice(0, 1);
+  const [verifyOtp, { isLoading: isSubmitting }] = useVerifyOtpMutation();
+  const [resendOtp, { isLoading: isResending }] =
+    useResendVerificationEmailMutation();
+
+  const [countdown, setCountdown] = useState(30);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (countdown > 0) {
+      timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [countdown]);
+
+  function handleChange(index: number, value: string) {
+    // Handle autofill/paste natively if sent to a single input
+    if (value.length > 1) {
+      const pastedData = value.replace(/\D/g, "").slice(0, 6);
+      if (pastedData.length > 0) {
+        const next = [...code];
+        for (let i = 0; i < pastedData.length; i++) {
+          if (index + i < 6) {
+            next[index + i] = pastedData[i];
+          }
+        }
+        setCode(next);
+        const nextIndex = Math.min(index + pastedData.length, 5);
+        document
+          .getElementById(`otp-${nextIndex === 6 ? 5 : nextIndex}`)
+          ?.focus();
+      }
+      return;
+    }
+
+    const digit = value.replace(/\D/g, "").slice(-1);
     const next = [...code];
     next[index] = digit;
     setCode(next);
 
     if (digit && index < 5) {
-      const nextInput = document.getElementById(`otp-${index + 1}`);
-      nextInput?.focus();
+      document.getElementById(`otp-${index + 1}`)?.focus();
     }
+  }
+
+  function handleKeyDown(
+    index: number,
+    e: React.KeyboardEvent<HTMLInputElement>,
+  ) {
+    if (e.key === "Backspace") {
+      if (!code[index] && index > 0) {
+        document.getElementById(`otp-${index - 1}`)?.focus();
+      }
+    } else if (e.key === "ArrowLeft" && index > 0) {
+      document.getElementById(`otp-${index - 1}`)?.focus();
+    } else if (e.key === "ArrowRight" && index < 5) {
+      document.getElementById(`otp-${index + 1}`)?.focus();
+    }
+  }
+
+  function handlePaste(e: React.ClipboardEvent<HTMLInputElement>) {
+    e.preventDefault();
+    const pastedData = e.clipboardData
+      .getData("text")
+      .replace(/\D/g, "")
+      .slice(0, 6);
+    if (!pastedData) return;
+
+    const nextCode = ["", "", "", "", "", ""];
+    for (let i = 0; i < pastedData.length; i++) {
+      nextCode[i] = pastedData[i];
+    }
+    setCode(nextCode);
+
+    const nextIndex = Math.min(pastedData.length, 5);
+    document.getElementById(`otp-${nextIndex === 6 ? 5 : nextIndex}`)?.focus();
   }
 
   async function verifyCode() {
@@ -54,22 +122,33 @@ function VerificationContent() {
       return;
     }
 
-    setIsSubmitting(true);
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+    try {
+      const response = await verifyOtp({
+        email,
+        otp: joined,
+      }).unwrap();
 
-    if (joined === "444444") {
-      router.push("/auth/reset-password");
-      return;
+      if (response.success) {
+        router.push("/auth/login");
+      }
+    } catch (err: any) {
+      setError(err.data?.message || err.message || "Invalid code.");
     }
-
-    setIsSubmitting(false);
-    setError("Invalid code. Try 444444 for this mock flow.");
   }
 
   async function resendCode() {
+    if (countdown > 0 || isResending) return;
     setResent(false);
-    await new Promise((resolve) => setTimeout(resolve, 700));
-    setResent(true);
+    setError(null);
+    try {
+      const response = await resendOtp({ email }).unwrap();
+      if (response.success) {
+        setResent(true);
+        setCountdown(30);
+      }
+    } catch (err: any) {
+      setError(err.data?.message || err.message || "Failed to resend code.");
+    }
   }
 
   return (
@@ -102,9 +181,15 @@ function VerificationContent() {
                     key={index}
                     id={`otp-${index}`}
                     value={digit}
-                    onChange={(event) => updateDigit(index, event.target.value)}
-                    className="h-10 text-center text-base"
+                    onChange={(event) =>
+                      handleChange(index, event.target.value)
+                    }
+                    onKeyDown={(event) => handleKeyDown(index, event)}
+                    onPaste={handlePaste}
+                    className="h-12 text-center text-base"
                     inputMode="numeric"
+                    autoComplete={index === 0 ? "one-time-code" : "off"}
+                    maxLength={6}
                   />
                 ))}
               </div>
@@ -130,9 +215,14 @@ function VerificationContent() {
                 <button
                   type="button"
                   onClick={resendCode}
-                  className="font-medium text-primary hover:underline"
+                  disabled={countdown > 0 || isResending}
+                  className="font-medium text-primary hover:underline disabled:opacity-50 disabled:hover:no-underline"
                 >
-                  Resend (30s)
+                  {isResending
+                    ? "Resending..."
+                    : countdown > 0
+                      ? `Resend in ${countdown}s`
+                      : "Resend Code"}
                 </button>
               </p>
             </div>

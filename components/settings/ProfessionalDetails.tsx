@@ -30,20 +30,30 @@ import {
   CheckCircle,
   Lightbulb,
   Camera,
+  Trash2,
 } from "lucide-react";
+import { useFieldArray } from "react-hook-form";
+import { useSelector } from "react-redux";
+import { RootState } from "@/store";
+import {
+  useGetProfessionalDetailsQuery,
+  useUpdateProfessionalDetailsMutation,
+} from "@/store/api/userApi";
+import { useEffect } from "react";
 
 // ─── Schemas ─────────────────────────────────────────────────────────────────
 
-const certSchema = z.object({
-  primaryCertification: z
-    .string()
-    .min(2, "Certification name must be at least 2 characters"),
-  membershipNumber: z
-    .string()
-    .min(3, "Membership number must be at least 3 characters"),
-});
-
-const experienceSchema = z.object({
+const professionalSchema = z.object({
+  certifications: z.array(
+    z.object({
+      name: z
+        .string()
+        .min(2, "Certification name must be at least 2 characters"),
+      membershipNumber: z
+        .string()
+        .min(3, "Membership number must be at least 3 characters"),
+    }),
+  ),
   yearsOfExperience: z
     .string()
     .min(1, "Years of experience is required")
@@ -53,32 +63,9 @@ const experienceSchema = z.object({
     .min(1, "Select an industry specialization"),
 });
 
-type CertFormValues = z.infer<typeof certSchema>;
-type ExperienceFormValues = z.infer<typeof experienceSchema>;
+type ProfessionalFormValues = z.infer<typeof professionalSchema>;
 
-// ─── Dummy API handlers ───────────────────────────────────────────────────────
-
-async function updateCertifications(
-  data: CertFormValues
-): Promise<void> {
-  // TODO: Replace with real API call e.g. await api.patch("/user/certifications", data)
-  await new Promise((r) => setTimeout(r, 800));
-  console.log("[API] updateCertifications →", data);
-}
-
-async function updateWorkExperience(
-  data: ExperienceFormValues
-): Promise<void> {
-  // TODO: Replace with real API call e.g. await api.patch("/user/experience", data)
-  await new Promise((r) => setTimeout(r, 800));
-  console.log("[API] updateWorkExperience →", data);
-}
-
-async function updateSkills(skills: string[]): Promise<void> {
-  // TODO: Replace with real API call e.g. await api.patch("/user/skills", { skills })
-  await new Promise((r) => setTimeout(r, 800));
-  console.log("[API] updateSkills →", skills);
-}
+// API handlers removed, using RTK Query directly
 
 // ─── Field error helper ───────────────────────────────────────────────────────
 
@@ -97,11 +84,82 @@ const defaultSkills = [
 ];
 
 export default function ProfessionalDetails() {
-  // ── Skills tag state ──
-  const [skills, setSkills] = useState<string[]>(defaultSkills);
-  const [skillInput, setSkillInput] = useState("");
-  const [savingSkills, setSavingSkills] = useState(false);
+  const { user: currentUser } = useSelector((state: RootState) => state.auth);
+  const { data: professionalResponse, isLoading: isFetching } =
+    useGetProfessionalDetailsQuery();
+  const [updateProfessionalDetails, { isLoading: isUpdating }] =
+    useUpdateProfessionalDetailsMutation();
 
+  const professionalData = professionalResponse?.data;
+
+  // ── Skills tag state ──
+  const [skills, setSkills] = useState<string[]>([]);
+  const [skillInput, setSkillInput] = useState("");
+
+  const {
+    register,
+    control,
+    handleSubmit,
+    reset,
+    getValues,
+    formState: { errors, isSubmitting },
+  } = useForm<ProfessionalFormValues>({
+    resolver: zodResolver(professionalSchema),
+    defaultValues: {
+      certifications: [{ name: "", membershipNumber: "" }],
+      yearsOfExperience: "",
+      industrySpecialization: "",
+    },
+  });
+
+  const { fields, append, remove } = useFieldArray({
+    control,
+    name: "certifications",
+  });
+
+  useEffect(() => {
+    if (professionalData) {
+      reset({
+        certifications: professionalData.certifications || [
+          { name: "", membershipNumber: "" },
+        ],
+        yearsOfExperience: String(professionalData.yearsOfExperience || ""),
+        industrySpecialization: professionalData.industrySpecialization || "",
+      });
+      setSkills(professionalData.specializedSkills || []);
+    }
+  }, [professionalData, reset]);
+
+  async function onSave(data: ProfessionalFormValues) {
+    try {
+      await updateProfessionalDetails({
+        certifications: data.certifications,
+        yearsOfExperience: Number(data.yearsOfExperience),
+        industrySpecialization: data.industrySpecialization,
+        specializedSkills: skills,
+      }).unwrap();
+      toast.success("Professional details updated successfully.");
+    } catch (err: any) {
+      toast.error(
+        err?.data?.message || "Failed to update professional details.",
+      );
+    }
+  }
+
+  async function onSkillsSave() {
+    const data = getValues();
+    try {
+      await updateProfessionalDetails({
+        certifications: data.certifications,
+        yearsOfExperience: Number(data.yearsOfExperience),
+        industrySpecialization: data.industrySpecialization,
+        specializedSkills: skills,
+      }).unwrap();
+      toast.success("Skills saved.");
+    } catch (err: any) {
+      toast.error(err?.data?.message || "Failed to save skills.");
+    }
+  }
   function addSkill() {
     const trimmed = skillInput.trim();
     if (!trimmed || skills.includes(trimmed)) return;
@@ -119,65 +177,6 @@ export default function ProfessionalDetails() {
       addSkill();
     }
   }
-
-  async function onSkillsSave() {
-    setSavingSkills(true);
-    try {
-      await updateSkills(skills);
-      toast.success("Skills saved.");
-    } catch {
-      toast.error("Failed to save skills.");
-    } finally {
-      setSavingSkills(false);
-    }
-  }
-
-  // ── Certifications form ──
-  const {
-    register: regCert,
-    handleSubmit: handleCert,
-    formState: { errors: errCert, isSubmitting: submittingCert },
-  } = useForm<CertFormValues>({
-    resolver: zodResolver(certSchema),
-    defaultValues: {
-      primaryCertification:
-        "RICS (Royal Institution of Chartered Surveyors)",
-      membershipNumber: "6822451",
-    },
-  });
-
-  async function onCertSubmit(data: CertFormValues) {
-    try {
-      await updateCertifications(data);
-      toast.success("Certifications saved.");
-    } catch {
-      toast.error("Failed to save certifications.");
-    }
-  }
-
-  // ── Work Experience form ──
-  const {
-    register: regExp,
-    control: controlExp,
-    handleSubmit: handleExp,
-    formState: { errors: errExp, isSubmitting: submittingExp },
-  } = useForm<ExperienceFormValues>({
-    resolver: zodResolver(experienceSchema),
-    defaultValues: {
-      yearsOfExperience: "12",
-      industrySpecialization: "residential",
-    },
-  });
-
-  async function onExperienceSubmit(data: ExperienceFormValues) {
-    try {
-      await updateWorkExperience(data);
-      toast.success("Work experience saved.");
-    } catch {
-      toast.error("Failed to save work experience.");
-    }
-  }
-
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       {/* Left Column */}
@@ -193,40 +192,69 @@ export default function ProfessionalDetails() {
             </div>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleCert(onCertSubmit)} className="space-y-5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                <div className="space-y-2">
-                  <Label className="text-xs font-medium text-muted-foreground">
-                    Primary Certification
-                  </Label>
-                  <Input
-                    {...regCert("primaryCertification")}
-                    className="bg-white border-border/50"
-                  />
-                  <FieldError message={errCert.primaryCertification?.message} />
+            <form onSubmit={handleSubmit(onSave)} className="space-y-6">
+              {fields.map((field, index) => (
+                <div key={field.id} className="relative pt-6 first:pt-0">
+                  {index > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => remove(index)}
+                      className="absolute top-0 right-0 p-1 text-muted-foreground hover:text-red-500 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                    <div className="space-y-2">
+                      <Label className="text-xs font-medium text-muted-foreground">
+                        Certification Name
+                      </Label>
+                      <Input
+                        {...register(`certifications.${index}.name` as const)}
+                        placeholder="e.g. RICS"
+                        className="bg-white border-border/50 h-12"
+                      />
+                      <FieldError
+                        message={errors.certifications?.[index]?.name?.message}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-medium text-muted-foreground">
+                        Membership Number
+                      </Label>
+                      <Input
+                        {...register(
+                          `certifications.${index}.membershipNumber` as const,
+                        )}
+                        placeholder="e.g. 6822451"
+                        className="bg-white border-border/50 h-12"
+                      />
+                      <FieldError
+                        message={
+                          errors.certifications?.[index]?.membershipNumber
+                            ?.message
+                        }
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label className="text-xs font-medium text-muted-foreground">
-                    Membership Number
-                  </Label>
-                  <Input
-                    {...regCert("membershipNumber")}
-                    className="bg-white border-border/50"
-                  />
-                  <FieldError message={errCert.membershipNumber?.message} />
-                </div>
-              </div>
+              ))}
 
               <div className="flex items-center justify-between">
                 <button
                   type="button"
-                  className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => append({ name: "", membershipNumber: "" })}
+                  className="flex items-center gap-2 text-sm text-primary hover:text-primary/80 transition-colors font-medium h-12"
                 >
                   <PlusCircle className="w-4 h-4" />
                   Add another certification
                 </button>
-                <Button type="submit" disabled={submittingCert}>
-                  {submittingCert ? "Saving..." : "Save Certifications"}
+                <Button
+                  type="submit"
+                  className="h-12"
+                  disabled={isSubmitting || isUpdating}
+                >
+                  {isUpdating ? "Saving..." : "Save Certifications"}
                 </Button>
               </div>
             </form>
@@ -244,54 +272,60 @@ export default function ProfessionalDetails() {
             </div>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleExp(onExperienceSubmit)} className="space-y-5">
+            <form onSubmit={handleSubmit(onSave)} className="space-y-5">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                 <div className="space-y-2">
                   <Label className="text-xs font-medium text-muted-foreground">
                     Years of Experience
                   </Label>
                   <Input
-                    {...regExp("yearsOfExperience")}
-                    className="bg-white border-border/50"
+                    {...register("yearsOfExperience")}
+                    className="bg-white border-border/50 h-12"
                   />
-                  <FieldError message={errExp.yearsOfExperience?.message} />
+                  <FieldError message={errors.yearsOfExperience?.message} />
                 </div>
                 <div className="space-y-2">
                   <Label className="text-xs font-medium text-muted-foreground">
                     Industry Specialization
                   </Label>
                   <Controller
-                    control={controlExp}
+                    control={control}
                     name="industrySpecialization"
                     render={({ field }) => (
                       <Select
                         value={field.value}
                         onValueChange={field.onChange}
                       >
-                        <SelectTrigger className="w-full bg-white border-border/50">
-                          <SelectValue />
+                        <SelectTrigger className="w-full bg-white border-border/50 h-12!">
+                          <SelectValue placeholder="Select specialization" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="residential">
+                          <SelectItem value="Residential Construction">
                             Residential Construction
                           </SelectItem>
-                          <SelectItem value="commercial">
+                          <SelectItem value="Commercial Construction">
                             Commercial Construction
                           </SelectItem>
-                          <SelectItem value="infrastructure">
+                          <SelectItem value="Infrastructure">
                             Infrastructure
                           </SelectItem>
-                          <SelectItem value="industrial">Industrial</SelectItem>
+                          <SelectItem value="Industrial">Industrial</SelectItem>
                         </SelectContent>
                       </Select>
                     )}
                   />
-                  <FieldError message={errExp.industrySpecialization?.message} />
+                  <FieldError
+                    message={errors.industrySpecialization?.message}
+                  />
                 </div>
               </div>
               <div className="flex justify-end">
-                <Button type="submit" disabled={submittingExp}>
-                  {submittingExp ? "Saving..." : "Save Experience"}
+                <Button
+                  type="submit"
+                  className="h-12"
+                  disabled={isSubmitting || isUpdating}
+                >
+                  {isUpdating ? "Saving..." : "Save Experience"}
                 </Button>
               </div>
             </form>
@@ -331,13 +365,13 @@ export default function ProfessionalDetails() {
                 onChange={(e) => setSkillInput(e.target.value)}
                 onKeyDown={handleSkillKeyDown}
                 placeholder="Type to add skills (e.g. Value Engineering, Risk Management)"
-                className="bg-white border-border/50 flex-1"
+                className="bg-white border-border/50 flex-1 h-12"
               />
               <Button
                 type="button"
                 size="icon"
                 onClick={addSkill}
-                className="bg-primary hover:bg-primary/80 text-white shrink-0"
+                className="bg-primary hover:bg-primary/80 text-white shrink-0 h-12"
               >
                 <Plus className="w-4 h-4" />
               </Button>
@@ -347,18 +381,20 @@ export default function ProfessionalDetails() {
               <Button
                 type="button"
                 variant="outline"
-                className="border-border/50 text-muted-foreground font-medium"
-                onClick={() => setSkills(defaultSkills)}
+                className="border-border/50 text-muted-foreground font-medium h-12"
+                onClick={() =>
+                  setSkills(professionalData?.specializedSkills || [])
+                }
               >
                 Reset
               </Button>
               <Button
                 type="button"
-                disabled={savingSkills}
-                className="bg-primary hover:bg-primary/80 text-white font-semibold"
+                disabled={isSubmitting || isUpdating}
+                className="bg-primary hover:bg-primary/80 text-white font-semibold h-12"
                 onClick={onSkillsSave}
               >
-                {savingSkills ? "Saving..." : "Save Changes"}
+                {isUpdating ? "Saving..." : "Save Changes"}
               </Button>
             </div>
           </CardContent>
@@ -379,7 +415,7 @@ export default function ProfessionalDetails() {
               <div className="relative mb-3">
                 <div className="w-20 h-20 rounded-full bg-primary/20 flex items-center justify-center overflow-hidden">
                   <img
-                    src="https://i.pravatar.cc/150?u=adebola"
+                    src={`https://i.pravatar.cc/150?u=${currentUser?._id}`}
                     alt="Profile"
                     className="w-full h-full object-cover"
                   />
@@ -389,10 +425,14 @@ export default function ProfessionalDetails() {
                 </button>
               </div>
               <h3 className="font-bold text-foreground text-lg">
-                Adebola Oladapo
+                {currentUser
+                  ? `${currentUser.firstName} ${currentUser.lastName}`
+                  : "Loading..."}
               </h3>
               <p className="text-sm text-primary font-medium">
-                Senior Quantity Surveyor
+                {professionalData?.professionalTitle ||
+                  currentUser?.title ||
+                  "Professional"}
               </p>
             </div>
 
@@ -406,11 +446,14 @@ export default function ProfessionalDetails() {
                       STATUS
                     </p>
                     <p className="text-sm font-semibold text-foreground">
-                      Chartered (MRICS)
+                      {professionalData?.certifications?.[0]?.name ||
+                        "Uncertified"}
                     </p>
                   </div>
                 </div>
-                <CheckCircle className="w-5 h-5 text-primary" />
+                {professionalData?.certifications?.length ? (
+                  <CheckCircle className="w-5 h-5 text-primary" />
+                ) : null}
               </div>
 
               <div className="flex items-center gap-2 bg-white rounded-lg p-3 border border-border/30">
@@ -420,7 +463,8 @@ export default function ProfessionalDetails() {
                     EXPERIENCE
                   </p>
                   <p className="text-sm font-semibold text-foreground">
-                    12 Years Professional
+                    {professionalData?.yearsOfExperience || 0} Years
+                    Professional
                   </p>
                 </div>
               </div>

@@ -21,32 +21,21 @@ import {
   Star,
   Mail,
   Clock,
+  Eye,
+  EyeOff,
 } from "lucide-react";
+import { useChangePasswordMutation } from "@/store/api/authApi";
 
 // ─── Schema ─────────────────────────────────────────────────────────────────
 
-const passwordSchema = z
-  .object({
-    currentPassword: z.string().min(1, "Current password is required"),
-    newPassword: z
-      .string()
-      .min(8, "New password must be at least 8 characters"),
-    confirmPassword: z.string().min(1, "Please confirm your new password"),
-  })
-  .refine((d) => d.newPassword === d.confirmPassword, {
-    message: "Passwords do not match",
-    path: ["confirmPassword"],
-  });
+const passwordSchema = z.object({
+  currentPassword: z.string().min(1, "Current password is required"),
+  newPassword: z.string().min(8, "New password must be at least 8 characters"),
+});
 
 type PasswordFormValues = z.infer<typeof passwordSchema>;
 
-// ─── Dummy API handler ───────────────────────────────────────────────────────
-
-async function updatePassword(data: PasswordFormValues): Promise<void> {
-  // TODO: Replace with real API call e.g. await api.patch("/user/password", data)
-  await new Promise((r) => setTimeout(r, 800));
-  console.log("[API] updatePassword →", { ...data, currentPassword: "***", newPassword: "***", confirmPassword: "***" });
-}
+// API handler removed, using RTK Query mutation directly in the component
 
 // ─── Field error helper ──────────────────────────────────────────────────────
 
@@ -93,28 +82,37 @@ const loginActivity = [
 export default function SecurityLogin() {
   const [emailAlerts, setEmailAlerts] = useState(true);
   const [sessionTimeout, setSessionTimeout] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
 
   const {
     register,
     handleSubmit,
     reset,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting: isFormSubmitting },
   } = useForm<PasswordFormValues>({
     resolver: zodResolver(passwordSchema),
     defaultValues: {
       currentPassword: "",
       newPassword: "",
-      confirmPassword: "",
     },
   });
+  console.log(errors, "error");
+  const [changePassword, { isLoading: isApiLoading }] =
+    useChangePasswordMutation();
+  const isSubmitting = isFormSubmitting || isApiLoading;
 
   async function onPasswordSubmit(data: PasswordFormValues) {
     try {
-      await updatePassword(data);
-      toast.success("Password updated successfully.");
+      const response = await changePassword({
+        currentPassword: data.currentPassword,
+        newPassword: data.newPassword,
+      }).unwrap();
+
+      toast.success(response.message || "Password changed successfully.");
       reset();
-    } catch {
-      toast.error("Failed to update password.");
+    } catch (err: any) {
+      toast.error(err?.data?.message || "Failed to update password.");
     }
   }
 
@@ -142,50 +140,65 @@ export default function SecurityLogin() {
               </div>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSubmit(onPasswordSubmit)} className="space-y-5">
+              <form
+                onSubmit={handleSubmit(onPasswordSubmit)}
+                className="space-y-5"
+              >
                 <div className="space-y-2">
                   <Label className="text-xs font-medium text-muted-foreground">
                     Current Password
                   </Label>
-                  <Input
-                    {...register("currentPassword")}
-                    type="password"
-                    placeholder="Enter current password"
-                    className="bg-white border-border/50"
-                  />
+                  <div className="relative">
+                    <Input
+                      {...register("currentPassword")}
+                      type={showCurrentPassword ? "text" : "password"}
+                      placeholder="Enter current password"
+                      className="bg-white border-border/50 h-12 pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowCurrentPassword((prev) => !prev)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      {showCurrentPassword ? (
+                        <EyeOff className="size-4" />
+                      ) : (
+                        <Eye className="size-4" />
+                      )}
+                    </button>
+                  </div>
                   <FieldError message={errors.currentPassword?.message} />
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium text-muted-foreground">
-                      New Password
-                    </Label>
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium text-muted-foreground">
+                    New Password
+                  </Label>
+                  <div className="relative">
                     <Input
                       {...register("newPassword")}
-                      type="password"
+                      type={showNewPassword ? "text" : "password"}
                       placeholder="Enter new password"
-                      className="bg-white border-border/50"
+                      className="bg-white border-border/50 h-12 pr-10"
                     />
-                    <FieldError message={errors.newPassword?.message} />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword((prev) => !prev)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      {showNewPassword ? (
+                        <EyeOff className="size-4" />
+                      ) : (
+                        <Eye className="size-4" />
+                      )}
+                    </button>
                   </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs font-medium text-muted-foreground">
-                      Confirm Password
-                    </Label>
-                    <Input
-                      {...register("confirmPassword")}
-                      type="password"
-                      placeholder="Confirm new password"
-                      className="bg-white border-border/50"
-                    />
-                    <FieldError message={errors.confirmPassword?.message} />
-                  </div>
+                  <FieldError message={errors.newPassword?.message} />
                 </div>
                 <div className="flex justify-end">
                   <Button
                     type="submit"
                     disabled={isSubmitting}
-                    className="bg-primary hover:bg-primary/80 text-white font-semibold px-6"
+                    className="bg-primary hover:bg-primary/80 text-white font-semibold px-6 h-12"
                   >
                     {isSubmitting ? "Updating..." : "Update Password"}
                   </Button>
@@ -212,7 +225,11 @@ export default function SecurityLogin() {
                     checked={emailAlerts}
                     onCheckedChange={(val) => {
                       setEmailAlerts(val);
-                      toast.success(val ? "Email alerts enabled." : "Email alerts disabled.");
+                      toast.success(
+                        val
+                          ? "Email alerts enabled."
+                          : "Email alerts disabled.",
+                      );
                     }}
                     className="data-[state=checked]:bg-primary"
                   />
@@ -238,7 +255,11 @@ export default function SecurityLogin() {
                     checked={sessionTimeout}
                     onCheckedChange={(val) => {
                       setSessionTimeout(val);
-                      toast.success(val ? "Session timeout enabled." : "Session timeout disabled.");
+                      toast.success(
+                        val
+                          ? "Session timeout enabled."
+                          : "Session timeout disabled.",
+                      );
                     }}
                     className="data-[state=checked]:bg-primary"
                   />
@@ -309,14 +330,14 @@ export default function SecurityLogin() {
               <div className="w-10 h-10 rounded-full bg-white/30 flex items-center justify-center mb-3">
                 <Star className="w-5 h-5 text-white fill-white" />
               </div>
-              <h3 className="font-bold text-white text-lg mb-1">Quantify Pro+</h3>
+              <h3 className="font-bold text-white text-lg mb-1">
+                Quantify Pro+
+              </h3>
               <p className="text-sm text-white/90 mb-5">
                 Upgrade to get multi-user access and advanced team security
                 features.
               </p>
-              <Button
-                className="bg-white text-amber-500 hover:bg-white/90 hover:text-amber-600 font-semibold border-0 w-full"
-              >
+              <Button className="bg-white text-amber-500 hover:bg-white/90 hover:text-amber-600 font-semibold border-0 w-full">
                 Learn More
               </Button>
             </CardContent>

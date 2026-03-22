@@ -6,6 +6,9 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { ArrowLeft, Eye, EyeOff, Loader2 } from "lucide-react";
+import { useResetPasswordMutation } from "@/store/api/authApi";
+import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,14 +31,24 @@ const resetSchema = z
 type ResetPasswordData = z.infer<typeof resetSchema>;
 
 export default function ResetPasswordPage() {
+  return (
+    <Suspense>
+      <ResetPasswordContent />
+    </Suspense>
+  );
+}
+
+function ResetPasswordContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const token = searchParams.get("token") || "";
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const {
     register,
     handleSubmit,
-    formState: { errors, isSubmitting },
+    formState: { errors },
   } = useForm<ResetPasswordData>({
     resolver: zodResolver(resetSchema),
     defaultValues: {
@@ -44,9 +57,24 @@ export default function ResetPasswordPage() {
     },
   });
 
-  async function onSubmit(): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-    router.push("/auth/login");
+  const [resetPassword, { isLoading: isSubmitting }] =
+    useResetPasswordMutation();
+  const [resetError, setResetError] = useState<string | null>(null);
+
+  async function onSubmit(data: ResetPasswordData): Promise<void> {
+    setResetError(null);
+    try {
+      const response = await resetPassword({
+        token,
+        password: data.password,
+      }).unwrap();
+
+      router.push("/auth/login");
+    } catch (err: any) {
+      setResetError(
+        err.data?.message || err.message || "Failed to reset password.",
+      );
+    }
   }
 
   return (
@@ -75,6 +103,12 @@ export default function ResetPasswordPage() {
               <p className="text-center text-xs text-muted-foreground">
                 Create New Password
               </p>
+
+              {resetError && (
+                <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  {resetError}
+                </p>
+              )}
 
               <Field data-invalid={!!errors.password}>
                 <FieldLabel htmlFor="password">New Password</FieldLabel>

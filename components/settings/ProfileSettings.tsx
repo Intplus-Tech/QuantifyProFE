@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -18,8 +18,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Briefcase, Users } from "lucide-react";
+import { Briefcase, Users, Loader2 } from "lucide-react";
 import { BillingModal } from "./BillingModal";
+import { useSelector } from "react-redux";
+import { RootState } from "@/store";
+import {
+  useGetCompanyProfileQuery,
+  useUpdateCompanyProfileMutation,
+  useCreateCompanyProfileMutation,
+} from "@/store/api/companyApi";
+import { useUpdateProfileMutation } from "@/store/api/userApi";
 
 // ─── Schemas ───────────────────────────────────────────────────────────────
 
@@ -45,19 +53,7 @@ const personalSchema = z.object({
 type CompanyFormValues = z.infer<typeof companySchema>;
 type PersonalFormValues = z.infer<typeof personalSchema>;
 
-// ─── Dummy API handlers ─────────────────────────────────────────────────────
-
-async function updateCompanyInfo(data: CompanyFormValues): Promise<void> {
-  // TODO: Replace with real API call e.g. await api.patch("/user/company", data)
-  await new Promise((r) => setTimeout(r, 800));
-  console.log("[API] updateCompanyInfo →", data);
-}
-
-async function updatePersonalInfo(data: PersonalFormValues): Promise<void> {
-  // TODO: Replace with real API call e.g. await api.patch("/user/profile", data)
-  await new Promise((r) => setTimeout(r, 800));
-  console.log("[API] updatePersonalInfo →", data);
-}
+// API handlers removed, using RTK Query mutations directly in the component
 
 // ─── Field error helper ──────────────────────────────────────────────────────
 
@@ -71,55 +67,137 @@ function FieldError({ message }: { message?: string }) {
 export default function ProfileSettings() {
   const [billingOpen, setBillingOpen] = useState(false);
 
-  // ── Company form ──
+  const { user: currentUser, company: storeCompany } = useSelector(
+    (state: RootState) => state.auth,
+  );
+  console.log(currentUser, "settings");
+  const {
+    data: companyResponse,
+    isLoading: isCompanyLoading,
+    error: companyError,
+  } = useGetCompanyProfileQuery();
+  const [updateCompanyProfile] = useUpdateCompanyProfileMutation();
+  const [createCompanyProfile] = useCreateCompanyProfileMutation();
+  const [updateProfile] = useUpdateProfileMutation();
+
+  const isCompanyNotFoundError = useMemo(() => {
+    return (companyError as any)?.data?.message
+      ?.toLowerCase()
+      .includes("not found");
+  }, [companyError]);
+
+  const companyData = companyResponse?.data || storeCompany;
+
   const {
     register: regC,
     control: controlC,
     handleSubmit: handleC,
+    reset: resetC,
     formState: { errors: errC, isSubmitting: submittingC },
   } = useForm<CompanyFormValues>({
     resolver: zodResolver(companySchema),
     defaultValues: {
-      companyName: "Quantify Pro Enterprise Ltd",
-      companyType: "llc",
-      industry: "qs",
-      companySize: "50-100",
-      primaryAddress: "wht so ever address in the world of Nigeria with a beauty in it",
+      companyName: companyData?.legalName || companyData?.name || "",
+      companyType: companyData?.type || "",
+      industry: companyData?.industry || "",
+      companySize: companyData?.companySize || "",
+      primaryAddress:
+        companyData?.address || companyData?.addresses?.[0]?.address || "",
     },
   });
 
+  useEffect(() => {
+    if (companyData) {
+      resetC({
+        companyName: companyData.legalName || companyData.name || "",
+        companyType: companyData.type || "",
+        industry: companyData.industry || "",
+        companySize: companyData.companySize || "",
+        primaryAddress:
+          companyData.address || companyData.addresses?.[0]?.address || "",
+      });
+    }
+  }, [companyData, resetC]);
+
   async function onCompanySubmit(data: CompanyFormValues) {
     try {
-      await updateCompanyInfo(data);
-      toast.success("Company information saved.");
-    } catch {
-      toast.error("Failed to save company information.");
+      const payload = {
+        legalName: data.companyName,
+        type: data.companyType,
+        industry: data.industry,
+        companySize: data.companySize,
+        address: data.primaryAddress,
+      };
+
+      let response;
+      if (isCompanyNotFoundError || !companyData) {
+        response = await createCompanyProfile(payload).unwrap();
+        toast.success(response.message || "Company information created.");
+      } else {
+        response = await updateCompanyProfile(payload).unwrap();
+        toast.success(response.message || "Company information updated.");
+      }
+    } catch (err: any) {
+      toast.error(err?.data?.message || "Failed to save company information.");
     }
   }
 
-  // ── Personal form ──
   const {
     register: regP,
     control: controlP,
     handleSubmit: handleP,
+    reset: resetP,
     formState: { errors: errP, isSubmitting: submittingP },
   } = useForm<PersonalFormValues>({
     resolver: zodResolver(personalSchema),
     defaultValues: {
-      fullName: "Alex Richard",
-      title: "qs",
-      email: "Alexric.hard@gmail.com",
-      phone: "+234 733 955 4338",
-      address: "wht so ever address in the world of Nigeria with a beauty in it",
+      fullName: currentUser
+        ? `${currentUser.firstName} ${currentUser.lastName}`
+        : "",
+      title: currentUser?.title || "qs",
+      email: currentUser?.email || "",
+      phone: currentUser?.phone || "",
+      address: currentUser?.address || "",
     },
   });
 
+  useEffect(() => {
+    if (currentUser) {
+      resetP({
+        fullName: `${currentUser.firstName} ${currentUser.lastName}`.trim(),
+        title: currentUser.title || "qs",
+        email: currentUser.email || "",
+        phone: currentUser.phone || "",
+        address: currentUser.address || "",
+      });
+    }
+  }, [currentUser, resetP]);
+
   async function onPersonalSubmit(data: PersonalFormValues) {
+    if (!currentUser?._id) {
+      toast.error("User information not found.");
+      return;
+    }
+
     try {
-      await updatePersonalInfo(data);
-      toast.success("Personal information saved.");
-    } catch {
-      toast.error("Failed to save personal information.");
+      const [firstName, ...lastNameParts] = data.fullName.split(" ");
+      const lastName = lastNameParts.join(" ");
+
+      const response = await updateProfile({
+        id: currentUser._id,
+        data: {
+          firstName,
+          lastName,
+          email: data.email,
+          phone: data.phone,
+          address: data.address,
+          title: data.title,
+        },
+      }).unwrap();
+
+      toast.success(response.message || "Personal information saved.");
+    } catch (err: any) {
+      toast.error(err?.data?.message || "Failed to save personal information.");
     }
   }
 
@@ -128,7 +206,6 @@ export default function ProfileSettings() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column */}
         <div className="lg:col-span-2 space-y-6">
-
           {/* Company Information */}
           <Card className="shadow-sm border-border/50">
             <CardHeader className="flex flex-row items-center justify-between pb-4">
@@ -148,7 +225,7 @@ export default function ProfileSettings() {
                     </Label>
                     <Input
                       {...regC("companyName")}
-                      className="bg-white border-border/50"
+                      className="bg-white border-border/50 h-12"
                     />
                     <FieldError message={errC.companyName?.message} />
                   </div>
@@ -160,15 +237,20 @@ export default function ProfileSettings() {
                       control={controlC}
                       name="companyType"
                       render={({ field }) => (
-                        <Select value={field.value} onValueChange={field.onChange}>
-                          <SelectTrigger className="w-full bg-white border-border/50">
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        >
+                          <SelectTrigger className="w-full bg-white border-border/50 h-12!">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="llc">LLC</SelectItem>
                             <SelectItem value="ltd">Ltd</SelectItem>
                             <SelectItem value="plc">PLC</SelectItem>
-                            <SelectItem value="sole">Sole Proprietorship</SelectItem>
+                            <SelectItem value="sole">
+                              Sole Proprietorship
+                            </SelectItem>
                           </SelectContent>
                         </Select>
                       )}
@@ -185,14 +267,23 @@ export default function ProfileSettings() {
                       control={controlC}
                       name="industry"
                       render={({ field }) => (
-                        <Select value={field.value} onValueChange={field.onChange}>
-                          <SelectTrigger className="w-full bg-white border-border/50">
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        >
+                          <SelectTrigger className="w-full bg-white border-border/50 h-12!">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="qs">Quantity Surveying</SelectItem>
-                            <SelectItem value="civil">Civil Engineering</SelectItem>
-                            <SelectItem value="arch">Architecture</SelectItem>
+                            <SelectItem value="Quantity Surveying">
+                              Quantity Surveying
+                            </SelectItem>
+                            <SelectItem value="Civil Engineering">
+                              Civil Engineering
+                            </SelectItem>
+                            <SelectItem value="Architecture">
+                              Architecture
+                            </SelectItem>
                           </SelectContent>
                         </Select>
                       )}
@@ -207,15 +298,19 @@ export default function ProfileSettings() {
                       control={controlC}
                       name="companySize"
                       render={({ field }) => (
-                        <Select value={field.value} onValueChange={field.onChange}>
-                          <SelectTrigger className="w-full bg-white border-border/50">
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        >
+                          <SelectTrigger className="w-full bg-white border-border/50 h-12!">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="1-10">1-10</SelectItem>
-                            <SelectItem value="10-50">10-50</SelectItem>
-                            <SelectItem value="50-100">50-100</SelectItem>
-                            <SelectItem value="100+">100+</SelectItem>
+                            <SelectItem value="11-50">11-50</SelectItem>
+                            <SelectItem value="51-200">51-200</SelectItem>
+                            <SelectItem value="201-500">201-500</SelectItem>
+                            <SelectItem value="501+">500+</SelectItem>
                           </SelectContent>
                         </Select>
                       )}
@@ -234,8 +329,19 @@ export default function ProfileSettings() {
                   <FieldError message={errC.primaryAddress?.message} />
                 </div>
                 <div className="flex justify-end">
-                  <Button type="submit" disabled={submittingC}>
-                    {submittingC ? "Saving..." : "Save Company Info"}
+                  <Button
+                    type="submit"
+                    className="h-12! px-3"
+                    disabled={submittingC || isCompanyLoading}
+                  >
+                    {submittingC ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : null}
+                    {submittingC
+                      ? "Saving..."
+                      : isCompanyNotFoundError || !companyData
+                        ? "Create Company Info"
+                        : "Update Company Info"}
                   </Button>
                 </div>
               </form>
@@ -261,7 +367,7 @@ export default function ProfileSettings() {
                     </Label>
                     <Input
                       {...regP("fullName")}
-                      className="bg-white border-border/50"
+                      className="bg-white border-border/50 h-12"
                     />
                     <FieldError message={errP.fullName?.message} />
                   </div>
@@ -273,12 +379,17 @@ export default function ProfileSettings() {
                       control={controlP}
                       name="title"
                       render={({ field }) => (
-                        <Select value={field.value} onValueChange={field.onChange}>
-                          <SelectTrigger className="w-full bg-white border-border/50">
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        >
+                          <SelectTrigger className="w-full bg-white border-border/50 h-12!">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="qs">Quantity Surveyor</SelectItem>
+                            <SelectItem value="qs">
+                              Quantity Surveyor
+                            </SelectItem>
                             <SelectItem value="pm">Project Manager</SelectItem>
                             <SelectItem value="ce">Civil Engineer</SelectItem>
                           </SelectContent>
@@ -296,7 +407,7 @@ export default function ProfileSettings() {
                     <Input
                       {...regP("email")}
                       type="email"
-                      className="bg-white border-border/50"
+                      className="bg-white border-border/50 h-12"
                     />
                     <FieldError message={errP.email?.message} />
                   </div>
@@ -307,7 +418,7 @@ export default function ProfileSettings() {
                     <Input
                       {...regP("phone")}
                       type="tel"
-                      className="bg-white border-border/50"
+                      className="bg-white border-border/50 h-12"
                     />
                     <FieldError message={errP.phone?.message} />
                   </div>
@@ -323,7 +434,11 @@ export default function ProfileSettings() {
                   <FieldError message={errP.address?.message} />
                 </div>
                 <div className="flex justify-end">
-                  <Button type="submit" disabled={submittingP} className="text-white font-semibold px-6">
+                  <Button
+                    type="submit"
+                    disabled={submittingP}
+                    className="text-white font-semibold px-6 h-12"
+                  >
                     {submittingP ? "Saving..." : "Save Personal Info"}
                   </Button>
                 </div>
@@ -362,8 +477,12 @@ export default function ProfileSettings() {
                       <Briefcase className="w-4 h-4 text-primary" />
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-foreground">Active Projects</p>
-                      <p className="text-xs text-muted-foreground">Unlimited access</p>
+                      <p className="text-sm font-semibold text-foreground">
+                        Active Projects
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Unlimited access
+                      </p>
                     </div>
                   </div>
                   <span className="text-xl font-bold text-foreground">12</span>
@@ -374,8 +493,12 @@ export default function ProfileSettings() {
                       <Users className="w-4 h-4 text-primary" />
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-foreground">Team Members</p>
-                      <p className="text-xs text-muted-foreground">1 / 1 seats used</p>
+                      <p className="text-sm font-semibold text-foreground">
+                        Team Members
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        1 / 1 seats used
+                      </p>
                     </div>
                   </div>
                   <span className="text-xl font-bold text-foreground">1</span>

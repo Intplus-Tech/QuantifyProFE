@@ -5,12 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Search,
-  BookOpen,
-  Building,
-  Plus,
-} from "lucide-react";
+import { Search, BookOpen, Building, Plus } from "lucide-react";
 import { mockTemplates, type Template } from "@/components/templates/mock-data";
 import { TemplateDetailsModal } from "@/components/templates/TemplateDetailsModal";
 import { TemplateCard } from "@/components/templates/TemplateCard";
@@ -22,7 +17,9 @@ export default function TemplatesPage() {
   const [systemSearch, setSystemSearch] = useState("");
   const [organizationSearch, setOrganizationSearch] = useState("");
   const [templates, setTemplates] = useState(mockTemplates);
-  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(
+    null,
+  );
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const handleOpenModal = (template: Template) => {
@@ -56,7 +53,8 @@ export default function TemplatesPage() {
 
   const systemTemplates = templates.filter(
     (template) =>
-      template.badge === "SYSTEM DEFAULT" && matchesSearch(template, systemSearch),
+      template.badge === "SYSTEM DEFAULT" &&
+      matchesSearch(template, systemSearch),
   );
 
   const organizationTemplates = templates.filter(
@@ -66,7 +64,7 @@ export default function TemplatesPage() {
   );
 
   return (
-    <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-8 bg-muted/30 min-h-screen">
+    <div className="space-y-8 bg-muted/30 min-h-screen">
       {/* Header Section */}
       <div>
         <h1 className="text-2xl font-bold text-foreground mb-2">Template</h1>
@@ -102,7 +100,9 @@ export default function TemplatesPage() {
 
         <TabsContent value="system" className="space-y-6">
           <div className="space-y-4">
-            <h2 className="text-xl font-bold text-foreground">System Template</h2>
+            <h2 className="text-xl font-bold text-foreground">
+              System Template
+            </h2>
             <Card className="border-2 border-dashed border-primary/30 bg-primary/5 shadow-none">
               <CardContent className="p-6 flex items-start gap-4">
                 <div className="bg-primary/10 p-3 rounded-lg shrink-0">
@@ -213,7 +213,8 @@ export default function TemplatesPage() {
                   No organization templates yet
                 </h3>
                 <p className="text-sm text-muted-foreground mb-4">
-                  Create your first team template to standardize recurring project workflows.
+                  Create your first team template to standardize recurring
+                  project workflows.
                 </p>
                 <Button>
                   <Plus className="w-4 h-4" />

@@ -7,9 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { usePathname } from "next/navigation";
+import { useSelector } from "react-redux";
+import { RootState } from "@/store";
 
 export function Header() {
   const pathname = usePathname() || "";
+  const { user } = useSelector((state: RootState) => state.auth);
+  console.log(user, "user");
 
   let title = "Welcome to Quantify Pro!";
   let subtitle = "Hi, Adebola";
@@ -17,7 +21,7 @@ export function Header() {
   if (pathname.includes("/projects")) {
     title = "Projects";
     subtitle = "";
-  } else if (pathname.includes("/clients")) { 
+  } else if (pathname.includes("/clients")) {
     title = "Clients";
     subtitle = "";
   } else if (pathname.includes("/templates")) {
@@ -40,10 +44,10 @@ export function Header() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <p className="text-muted-foreground mt-1">{subtitle}</p>
-          <h1 className="text-3xl font-bold text-foreground">
-            {title}
-          </h1>
+          <p className="text-muted-foreground mt-1">
+            Hi, {user?.firstName} {user?.lastName}
+          </p>
+          <h1 className="text-3xl font-bold text-foreground">{title}</h1>
         </div>
       </div>
 
@@ -55,7 +59,7 @@ export function Header() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               placeholder="Search projects, clients..."
-              className="pl-10 bg-muted h-9 text-sm"
+              className="pl-10 bg-muted h-12 text-sm"
             />
           </div>
         </div>
