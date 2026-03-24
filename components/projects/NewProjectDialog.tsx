@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Plus, Sparkles, PenLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -20,13 +21,14 @@ interface NewProjectDialogProps {
   basePath?: string; // "/projects" or "/enterprise/projects"
 }
 
-type Step = "modeSelection" | "ai" | "manual";
+type Step = "modeSelection" | "ai";
 
 export function NewProjectDialog({
   open: controlledOpen,
   onOpenChange,
   basePath = "/projects",
 }: NewProjectDialogProps = {}) {
+  const router = useRouter();
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = onOpenChange ?? setInternalOpen;
@@ -144,7 +146,14 @@ export function NewProjectDialog({
             <Button
               size="lg"
               className="flex-1 h-12"
-              onClick={() => setStep(selectedMode)}
+              onClick={() => {
+                if (selectedMode === "manual") {
+                  handleOpenChange(false);
+                  router.push(`${basePath}/new`);
+                } else {
+                  setStep(selectedMode);
+                }
+              }}
             >
               Select and Continue
             </Button>
@@ -167,7 +176,7 @@ export function NewProjectDialog({
       {step === "ai" && (
         <AiAnalysisContent
           onCancel={() => handleOpenChange(false)}
-          onSwitchMode={() => setStep("manual")}
+          onSwitchMode={() => { handleOpenChange(false); router.push(`${basePath}/new`); }}
           basePath={basePath}
           onSubmitSuccess={(data) => {
             console.log("Success", data);
@@ -176,22 +185,6 @@ export function NewProjectDialog({
         />
       )}
 
-      {step === "manual" && (
-        <DialogContent className="sm:max-w-lg gap-5">
-          <DialogHeader>
-            <DialogTitle>Manual Entry</DialogTitle>
-            <DialogDescription>
-              This mode is still under development.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex gap-3 mt-4">
-            <Button variant="outline" onClick={() => setStep("modeSelection")}>
-              Back
-            </Button>
-            <Button onClick={() => handleOpenChange(false)}>Close</Button>
-          </div>
-        </DialogContent>
-      )}
     </Dialog>
   );
 }

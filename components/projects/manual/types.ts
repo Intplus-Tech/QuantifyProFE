@@ -1,0 +1,123 @@
+// ─── Wizard shared types ─────────────────────────────────────────────────────
+
+export interface UploadedFile {
+  file: File;
+  category: string; // "Architectural" | "Structural" | "MEP" | etc.
+  id: string;       // crypto.randomUUID() — stable key
+}
+
+// ─── Step 2 ──────────────────────────────────────────────────────────────────
+
+export interface Step2Data {
+  projectName: string;
+  clientName: string;
+  projectRef: string;
+  streetAddress: string;
+  currency: string;
+  projectType: string;
+  projectPhase: string;
+  durationMonths: string;
+  description: string;
+}
+
+// ─── Step 3 ──────────────────────────────────────────────────────────────────
+
+export interface ScopeConfig {
+  projectType: string;   // "Piling Alone" | "Piling & Substructure" | "Foundation & Carcass Only" | "Carcass with finishes"
+  foundationType: string;
+  noOfFloors: string;
+  lift: string;          // "Yes" | "No"
+  hasPool: boolean;
+  poolLocation: string;
+}
+
+export interface PileSystem {
+  gradeOfConcrete: string;
+  castingMethod: string;
+  castingLabour: string;
+  depth: string;
+  diameter: string;
+  centerToCenter: string;
+  plasticizers: string;
+  mainBarNo: string;
+  mainBarSize: string;
+  ringBarSize: string;
+  rebarDepth: string;
+}
+
+export interface ConcreteElement {
+  gradeOfConcrete: string;
+  plasticizers: string;
+  waterproofing: string;
+  castingMethod: string;
+  castingLabourMethod: string;
+  wastePercent: string;
+}
+
+export interface BlindingElement {
+  gradeOfConcrete: string;
+  castingMethod: string;
+  wastePercent: string;
+  blindingThickness: string;
+}
+
+export interface Step3Data {
+  scopeConfig: ScopeConfig;
+  pileSystem: PileSystem;
+  blinding: Record<string, BlindingElement>;
+  superstructure: Record<string, ConcreteElement>;
+}
+
+// ─── Step 4 ──────────────────────────────────────────────────────────────────
+
+export interface FinishingSpecifications {
+  screedingOnDPM: string;
+  meshType: string;
+  ceilingType: string;
+  roofParapetWall: string;
+  paintTypeInternally: string;
+  paintTypeExternally: string;
+  riserHeightForStairs: string;
+  skirtingLandingThickness: string;
+}
+
+export interface TileTypeRow {
+  typeCode: string;
+  description: string;
+}
+
+export interface Step4Data {
+  specifications: FinishingSpecifications;
+  floorTiles: {
+    generalAreas: TileTypeRow[];
+    wetAreas: TileTypeRow[];
+    stairsArea: TileTypeRow[];
+    swimmingPool: TileTypeRow[];
+    liftWalls: TileTypeRow[];
+  };
+  wallTiles: {
+    internalWalls: TileTypeRow[];
+    externalWalls: TileTypeRow[];
+  };
+}
+
+// ─── Step 5 ──────────────────────────────────────────────────────────────────
+
+export interface Step5Data {
+  advancePayment: string;
+  fxRate: string;
+  markup: string;
+  retention: string;
+  contingency: string;
+  preliminaries: string;
+}
+
+// ─── Full Wizard State ────────────────────────────────────────────────────────
+
+export interface WizardState {
+  drawings: UploadedFile[];
+  step2: Step2Data;
+  scope: Step3Data;
+  finishing: Step4Data;
+  metrics: Step5Data;
+}
