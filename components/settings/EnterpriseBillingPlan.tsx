@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SupportTicketModal } from "./SupportTicketModal";
+import { ChangePlanModal } from "./ChangePlanModal";
 
 // ─── Dummy API handlers ───────────────────────────────────────────────────────
 
@@ -46,6 +47,7 @@ const billingHistory = [
 
 export default function EnterpriseBillingPlan() {
   const [supportOpen, setSupportOpen] = useState(false);
+  const [changePlanOpen, setChangePlanOpen] = useState(false);
 
   async function handleRemove(methodId: string, label: string) {
     try {
@@ -90,7 +92,7 @@ export default function EnterpriseBillingPlan() {
                   </div>
                   <Button
                     className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
-                    onClick={() => toast.info("Plan change — contact your account manager.")}
+                    onClick={() => setChangePlanOpen(true)}
                   >
                     Change Plan
                   </Button>
@@ -332,6 +334,7 @@ export default function EnterpriseBillingPlan() {
       </div>
 
       <SupportTicketModal open={supportOpen} onOpenChange={setSupportOpen} />
+      <ChangePlanModal open={changePlanOpen} onOpenChange={setChangePlanOpen} currentPlan="enterprise" />
     </>
   );
 }

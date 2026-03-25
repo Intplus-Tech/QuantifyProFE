@@ -6,8 +6,11 @@ import { Badge } from "@/components/ui/badge";
 import { Sparkles, ArrowUpRight } from "lucide-react";
 import { useGetBillingInfoQuery, useCancelSubscriptionMutation } from "@/store/api/billingApi";
 import { toast } from "sonner";
+import { useState } from "react";
+import { ChangePlanModal } from "@/components/settings/ChangePlanModal";
 
 export function SubscriptionStatus() {
+  const [changePlanOpen, setChangePlanOpen] = useState(false);
   const { data: billingResponse, isLoading } = useGetBillingInfoQuery();
   const [cancelSubscription, { isLoading: isCancelling }] = useCancelSubscriptionMutation();
 
@@ -29,6 +32,7 @@ export function SubscriptionStatus() {
   );
 
   return (
+    <>
     <Card className="shadow-sm border-border/50">
       <CardHeader className="pb-4">
         <div className="flex items-center gap-3">
@@ -78,6 +82,7 @@ export function SubscriptionStatus() {
             <Button
               size="sm"
               className="bg-primary hover:bg-primary/80 text-white font-medium"
+              onClick={() => setChangePlanOpen(true)}
             >
               Upgrade Plan
               <ArrowUpRight className="w-4 h-4 ml-1" />
@@ -86,5 +91,12 @@ export function SubscriptionStatus() {
         </div>
       </CardContent>
     </Card>
+
+    <ChangePlanModal
+      open={changePlanOpen}
+      onOpenChange={setChangePlanOpen}
+      currentPlan={billingInfo?.plan?.name?.toLowerCase()}
+    />
+    </>
   );
 }
