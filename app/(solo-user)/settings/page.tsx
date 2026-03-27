@@ -74,6 +74,7 @@ export default function SettingsPage() {
         {activeTab === "security" && <SecurityLogin />}
         {activeTab === "professional" && <ProfessionalDetails />}
         {activeTab === "billing" && <BillingPlan />}
+        {activeTab === "help" && <HelpSupport />}
       </div>
     </div>
   );
