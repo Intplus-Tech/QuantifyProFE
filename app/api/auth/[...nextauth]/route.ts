@@ -32,7 +32,7 @@ const handler = NextAuth({
         });
 
         const data = await res.json();
-        console.log(data, "data");
+        console.log(data, "data", "resp", res);
 
         if (res.ok) {
           return data;
