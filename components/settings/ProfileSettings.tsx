@@ -156,7 +156,7 @@ export default function ProfileSettings() {
         : "",
       title: currentUser?.title || "qs",
       email: currentUser?.email || "",
-      phone: currentUser?.phone || "",
+      phone: currentUser?.phoneNumber || "",
       address: currentUser?.address || "",
     },
   });
@@ -167,7 +167,7 @@ export default function ProfileSettings() {
         fullName: `${currentUser.firstName} ${currentUser.lastName}`.trim(),
         title: currentUser.title || "qs",
         email: currentUser.email || "",
-        phone: currentUser.phone || "",
+        phone: currentUser.phoneNumber || "",
         address: currentUser.address || "",
       });
     }
@@ -423,7 +423,7 @@ export default function ProfileSettings() {
                     <FieldError message={errP.phone?.message} />
                   </div>
                 </div>
-                <div className="space-y-2">
+                {/* <div className="space-y-2">
                   <Label className="text-xs font-medium text-muted-foreground">
                     Primary Address
                   </Label>
@@ -432,7 +432,7 @@ export default function ProfileSettings() {
                     className="bg-white border-border/50 resize-none min-h-20"
                   />
                   <FieldError message={errP.address?.message} />
-                </div>
+                </div> */}
                 <div className="flex justify-end">
                   <Button
                     type="submit"

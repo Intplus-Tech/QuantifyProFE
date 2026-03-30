@@ -211,7 +211,9 @@ export function ClientsTable({}: ClientsTableProps) {
             STATUS_COLORS["Active"];
           return (
             <div className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full shrink-0 ${statusColor}`} />
+              <span
+                className={`w-2 h-2 rounded-full shrink-0 ${statusColor}`}
+              />
               <span className="font-medium text-foreground text-sm flex capitalize">
                 {status}
               </span>
@@ -512,7 +514,6 @@ export function ClientsTable({}: ClientsTableProps) {
         onOpenChange={setViewOpen}
       />
 
-    
       <EditClientDialog
         client={activeClient}
         open={editOpen}

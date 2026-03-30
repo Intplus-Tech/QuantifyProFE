@@ -39,7 +39,7 @@ export const plans = {
   list: "/plans",
   create: "/plans",
   byCategory: (category: string) => `/plans/category/${category}`,
-  all: "/plans/all",
+  all: "/plans",
   details: (id: string) => `/plans/${id}`,
   update: (id: string) => `/plans/${id}`,
   delete: (id: string) => `/plans/${id}`,
@@ -65,26 +65,26 @@ export const company = {
     list: "/company/role-permissions",
     update: "/company/role-permissions",
   },
-    billing: {
-      info: "/company/billing",
-      changePlan: "/company/billing/plan",
-      history: "/company/billing/history",
-      paymentMethods: "/company/billing/payment-methods",
-      addPaymentMethod: "/company/billing/payment-methods",
-      setPrimaryPaymentMethod: (id: string) =>
-        `/company/billing/payment-methods/${id}/primary`,
-      removePaymentMethod: (id: string) =>
-        `/company/billing/payment-methods/${id}`,
-      subscribe: "/company/billing/subscribe",
-      verify: "/company/billing/verify",
-      cancel: "/company/billing/cancel",
-      usage: "/company/billing/usage",
-      invoicePdf: (id: string) => `/company/billing/invoices/${id}/pdf`,
-    },
-    sessions: {
-      list: "/company/sessions",
-      terminate: (id: string) => `/company/sessions/${id}`,
-    },
+  billing: {
+    info: "/company/billing",
+    changePlan: "/company/billing/plan",
+    history: "/company/billing/history",
+    paymentMethods: "/company/billing/payment-methods",
+    addPaymentMethod: "/company/billing/payment-methods",
+    setPrimaryPaymentMethod: (id: string) =>
+      `/company/billing/payment-methods/${id}/primary`,
+    removePaymentMethod: (id: string) =>
+      `/company/billing/payment-methods/${id}`,
+    subscribe: "/company/billing/subscribe",
+    verify: "/company/billing/verify",
+    cancel: "/company/billing/cancel",
+    usage: "/company/billing/usage",
+    invoicePdf: (id: string) => `/company/billing/invoices/${id}/pdf`,
+  },
+  sessions: {
+    list: "/company/sessions",
+    terminate: (id: string) => `/company/sessions/${id}`,
+  },
 };
 
 export const library = {
@@ -137,6 +137,11 @@ export const bim = {
   jobPdf: (jobId: string) => `/bim/jobs/${jobId}/pdf`,
 };
 
+export const uploads = {
+  uploadFile: "uploads/{id}",
+  getUploads: (id: string) => `/uploads/${id}`,
+};
+
 export const pdfBoq = {
   generate: "/pdf-boq/generate",
   jobs: "/pdf-boq/jobs",
@@ -160,4 +165,5 @@ export const ApiEndpoints = {
   projects,
   bim,
   pdfBoq,
+  uploads,
 };

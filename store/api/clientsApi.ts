@@ -30,7 +30,13 @@ export const clientsApi = baseApi.injectEndpoints({
     }),
     getClients: builder.query<
       PaginatedResponse<Client>,
-      { page?: number; limit?: number; search?: string; industry?: string; status?: string }
+      {
+        page?: number;
+        limit?: number;
+        search?: string;
+        industry?: string;
+        status?: string;
+      }
     >({
       query: (params) => ({
         url: ApiEndpoints.clients.list,
@@ -40,7 +46,9 @@ export const clientsApi = baseApi.injectEndpoints({
         try {
           const { data } = await queryFulfilled;
           if (data?.success && data?.data && data?.pagination) {
-            dispatch(setClients({ data: data.data, pagination: data.pagination }));
+            dispatch(
+              setClients({ data: data.data, pagination: data.pagination }),
+            );
           }
         } catch (error) {
           console.error("Failed to fetch clients:", error);
@@ -77,7 +85,10 @@ export const clientsApi = baseApi.injectEndpoints({
         }
       },
     }),
-    updateClient: builder.mutation<ApiResponse<Client>, { clientId: string; body: Partial<Client> }>({
+    updateClient: builder.mutation<
+      ApiResponse<Client>,
+      { clientId: string; body: Partial<Client> }
+    >({
       query: ({ clientId, body }) => ({
         url: ApiEndpoints.clients.update(clientId),
         method: ApiMethods.PUT,
@@ -110,7 +121,10 @@ export const clientsApi = baseApi.injectEndpoints({
         }
       },
     }),
-    getClientProjects: builder.query<PaginatedResponse<any>, { clientId: string; page?: number; limit?: number }>({
+    getClientProjects: builder.query<
+      PaginatedResponse<any>,
+      { clientId: string; page?: number; limit?: number }
+    >({
       query: ({ clientId, ...params }) => ({
         url: ApiEndpoints.clients.projects(clientId),
         params,
