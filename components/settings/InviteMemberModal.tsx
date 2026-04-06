@@ -20,7 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { UserPlus } from "lucide-react";
+import { Loader2, CheckCircle2, Circle, Info, Send } from "lucide-react";
+import { useInviteTeamMemberMutation } from "@/store/api/companyApi";
 
 // ─── Schema ──────────────────────────────────────────────────────────────────
 
@@ -28,17 +29,33 @@ const inviteSchema = z.object({
   fullName: z.string().min(2, "Full name must be at least 2 characters"),
   email: z.string().email("Enter a valid email address"),
   role: z.string().min(1, "Select a role"),
+  permision: z.array(z.string()).min(1, "Select at least one permission"),
 });
 
 type InviteFormValues = z.infer<typeof inviteSchema>;
 
-// ─── Dummy API handler ────────────────────────────────────────────────────────
-
-async function sendInvite(data: InviteFormValues): Promise<void> {
-  // TODO: Replace with real API call e.g. await api.post("/team/invite", data)
-  await new Promise((r) => setTimeout(r, 900));
-  console.log("[API] sendInvite →", data);
-}
+const PERMISSIONS_OPTIONS = [
+  {
+    id: "read_access",
+    label: "Read Access",
+    desc: "Can view projects and data",
+  },
+  {
+    id: "write_access",
+    label: "Write Access",
+    desc: "Can edit projects and data",
+  },
+  {
+    id: "full_access",
+    label: "Full Access",
+    desc: "Has all administrative rights",
+  },
+  {
+    id: "invite_others",
+    label: "Invite Others",
+    desc: "Can invite new team members",
+  },
+];
 
 // ─── Field error helper ───────────────────────────────────────────────────────
 
@@ -54,88 +71,101 @@ interface InviteMemberModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
-export function InviteMemberModal({ open, onOpenChange }: InviteMemberModalProps) {
+export function InviteMemberModal({
+  open,
+  onOpenChange,
+}: InviteMemberModalProps) {
+  const [inviteMember, { isLoading: isInviting }] =
+    useInviteTeamMemberMutation();
+
   const {
     register,
     control,
     handleSubmit,
     reset,
-    formState: { errors, isSubmitting },
+    formState: { errors },
   } = useForm<InviteFormValues>({
     resolver: zodResolver(inviteSchema),
-    defaultValues: { fullName: "", email: "", role: "" },
+    defaultValues: {
+      fullName: "",
+      email: "",
+      role: "",
+      permision: ["read_access"],
+    },
   });
 
   async function onSubmit(data: InviteFormValues) {
     try {
-      await sendInvite(data);
+      await inviteMember(data).unwrap();
       toast.success(`Invitation sent to ${data.email}.`);
       reset();
       onOpenChange(false);
-    } catch {
-      toast.error("Failed to send invitation. Please try again.");
+    } catch (err: any) {
+      toast.error(
+        err?.data?.message || "Failed to send invitation. Please try again.",
+      );
     }
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-full max-w-[calc(100%-2rem)] sm:max-w-md p-0 gap-0 overflow-hidden">
-        <DialogHeader className="px-6 pt-6 pb-1">
-          <div className="flex items-center gap-3 mb-1">
-            <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center">
-              <UserPlus className="w-4 h-4 text-primary" />
-            </div>
-            <DialogTitle className="text-lg font-bold text-foreground">
-              Invite Team Member
+      <DialogContent className="w-full max-w-2xl! p-0 gap-0 overflow-hidden rounded-xl border-border/50">
+        <DialogHeader className="px-8 pt-8 pb-6 border-b border-border/40">
+          <div className="flex flex-col gap-1.5">
+            <DialogTitle className="text-2xl font-bold text-slate-800">
+              Invite New Team Member
             </DialogTitle>
+            <p className="text-base text-slate-500">
+              Send an invitation to join your enterprise workspace.
+            </p>
           </div>
-          <p className="text-sm text-muted-foreground">
-            Send an invitation link to a new team member.
-          </p>
         </DialogHeader>
-
         <form onSubmit={handleSubmit(onSubmit)}>
-          <div className="px-6 py-5 space-y-4">
-            <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground">
-                Full Name
-              </Label>
-              <Input
-                {...register("fullName")}
-                placeholder="e.g. Alex Johnson"
-                className="border-border/60"
-              />
-              <FieldError message={errors.fullName?.message} />
+          <div className="px-8 py-6 space-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              <div className="space-y-2.5">
+                <Label className="text-sm font-semibold text-slate-700">
+                  Full Name
+                </Label>
+                <Input
+                  {...register("fullName")}
+                  placeholder="e.g. Alex Johnson"
+                  className="h-12 border-slate-200 bg-white"
+                />
+                <FieldError message={errors.fullName?.message} />
+              </div>
+
+              <div className="space-y-2.5">
+                <Label className="text-sm font-semibold text-slate-700">
+                  Email Address
+                </Label>
+                <Input
+                  {...register("email")}
+                  type="email"
+                  placeholder="alex@company.com"
+                  className="h-12 border-slate-200 bg-white"
+                />
+                <FieldError message={errors.email?.message} />
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground">
-                Email Address
-              </Label>
-              <Input
-                {...register("email")}
-                type="email"
-                placeholder="alex@company.com"
-                className="border-border/60"
-              />
-              <FieldError message={errors.email?.message} />
-            </div>
-
-            <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground">
-                Role
+            <div className="space-y-2.5">
+              <Label className="text-sm font-semibold text-slate-700">
+                Assign Role
               </Label>
               <Controller
                 control={control}
                 name="role"
                 render={({ field }) => (
                   <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger className="w-full border-border/60">
+                    <SelectTrigger className="w-full h-12 border-slate-200 bg-white text-base">
                       <SelectValue placeholder="Select a role" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="admin">Admin</SelectItem>
-                      <SelectItem value="lead-surveyor">Lead Surveyor</SelectItem>
+                      <SelectItem value="lead-surveyor">
+                        Lead Surveyor
+                      </SelectItem>
                       <SelectItem value="member">Member</SelectItem>
                       <SelectItem value="viewer">Viewer</SelectItem>
                     </SelectContent>
@@ -144,23 +174,96 @@ export function InviteMemberModal({ open, onOpenChange }: InviteMemberModalProps
               />
               <FieldError message={errors.role?.message} />
             </div>
+
+            <div className="space-y-4 pt-2">
+              <Label className="text-sm font-bold text-slate-600 uppercase tracking-wide">
+                DEFAULT PERMISSIONS
+              </Label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Controller
+                  control={control}
+                  name="permision"
+                  render={({ field }) => (
+                    <>
+                      {PERMISSIONS_OPTIONS.map((opt) => {
+                        const isSelected = field.value.includes(opt.id);
+                        return (
+                          <div
+                            key={opt.id}
+                            onClick={() => {
+                              const newValue = isSelected
+                                ? field.value.filter((v) => v !== opt.id)
+                                : [...field.value, opt.id];
+                              field.onChange(newValue);
+                            }}
+                            className={`flex gap-3 p-4 rounded-xl border cursor-pointer transition-all ${
+                              isSelected
+                                ? "border-amber-500 bg-amber-50/30"
+                                : "border-slate-200 bg-white hover:border-slate-300"
+                            }`}
+                          >
+                            <div className="shrink-0 mt-0.5">
+                              {isSelected ? (
+                                <CheckCircle2 className="w-5 h-5 text-amber-500 fill-amber-500 stroke-white" />
+                              ) : (
+                                <Circle className="w-5 h-5 text-slate-300" />
+                              )}
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-[15px] font-semibold text-slate-800 cursor-pointer">
+                                {opt.label}
+                              </Label>
+                              <p className="text-[13px] text-slate-500 leading-snug">
+                                {opt.desc}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </>
+                  )}
+                />
+              </div>
+              <FieldError message={errors.permision?.message} />
+            </div>
+
+            {/* Warning Box */}
+            <div className="bg-[#FFF9EE] border border-amber-200/60 rounded-xl p-4 flex items-start gap-3 mt-2">
+              <div className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center shrink-0 mt-0.5">
+                <Info className="w-3.5 h-3.5 text-white" />
+              </div>
+              <p className="text-[14px] text-[#A66D00] leading-relaxed">
+                Inviting a new member will use 1 of your 8 available seats. You
+                can manage your subscription in the{" "}
+                <span className="font-bold">Billing</span> section.
+              </p>
+            </div>
           </div>
 
-          <div className="px-6 pb-6 flex justify-end gap-3">
+          <div className="px-8 pb-8 pt-4 border-t border-border/40 flex justify-center sm:justify-end gap-4">
             <Button
               type="button"
               variant="ghost"
-              className="text-muted-foreground"
-              onClick={() => { reset(); onOpenChange(false); }}
+              className="text-slate-600 font-bold text-base hover:bg-slate-100 h-12 px-6"
+              onClick={() => {
+                reset();
+                onOpenChange(false);
+              }}
             >
               Cancel
             </Button>
             <Button
               type="submit"
-              disabled={isSubmitting}
-              className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
+              disabled={isInviting}
+              className="bg-[#F59E0B] hover:bg-[#D97706] text-white font-bold text-base h-12 px-6 rounded-lg shadow-sm"
             >
-              {isSubmitting ? "Sending..." : "Send Invite"}
+              {isInviting ? (
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+              ) : null}
+              {isInviting ? "Sending..." : "Send Invitation"}
+              {!isInviting && (
+                <Send className="w-4 h-4 ml-2 fill-white stroke-2" />
+              )}
             </Button>
           </div>
         </form>

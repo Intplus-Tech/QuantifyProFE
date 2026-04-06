@@ -7,109 +7,28 @@ import {
   addProject,
   updateProjectInState,
   removeProject,
-  Project,
 } from "../slices/projectsSlice";
-import { ApiResponse, PaginatedResponse } from "@/types/api";
-
-export interface BimUploadResponse {
-  urn: string;
-  objectKey: string;
-  bucketKey: string;
-  translationStatus: string;
-}
-
-export interface BimTranslationStatus {
-  urn: string;
-  status: string;
-  progress: string;
-  derivatives: any[];
-}
-
-export interface BimJob {
-  _id: string;
-  urn: string;
-  originalFilename: string;
-  fileType: string;
-  status: string;
-  viewName?: string;
-  rawItemCount?: number;
-  filteredItemCount?: number;
-  thumbnailUrl?: string;
-  viewIndex?: number;
-  createdAt: string;
-  result?: {
-    projectTitle: string;
-    sections: any[];
-  };
-}
-
-export interface BimWorkItem {
-  item: string;
-  specification?: string;
-  unit?: string;
-  quantity?: number;
-  rate?: number;
-  total?: number;
-  notes?: string;
-}
-
-export interface BimSection {
-  sectionName: string;
-  workItems: BimWorkItem[];
-}
-
-export interface BimJobUpdateRequest {
-  projectTitle?: string;
-  sections?: BimSection[];
-  generalNotes?: string;
-}
-
-export interface PdfBoqGenerateResponse {
-  jobId: string;
-  status: string;
-}
-
-export interface PdfBoqJob {
-  _id: string;
-  originalFilename: string;
-  status: string;
-  createdAt: string;
-  result?: {
-    projectTitle: string;
-    sections: BimSection[];
-  };
-}
-
-export interface PdfBoqCreateProjectRequest {
-  name: string;
-  description: string;
-  companyId?: string;
-  clientId?: string;
-  clientName?: string;
-  projectCode?: string;
-  projectType?: string;
-  projectLocation?: string;
-  drawingType?: string;
-  source?: string;
-  sourceJobId?: string;
-  boqResult?: any;
-  libraryItems?: string[];
-}
-
-export interface PdfBoqCreateProjectResponse {
-  _id: string;
-  name: string;
-  description: string;
-  source: string;
-  sourceJobId: string;
-  status: string;
-  clientName: string;
-  projectCode: string;
-  projectType: string;
-  projectLocation: string;
-  boqResult: any;
-  createdAt: string;
-}
+import { ApiResponse, PaginatedResponse } from "@/types/common";
+import {
+  Project,
+  BimUploadResponse,
+  BimTranslationStatus,
+  BimJob,
+  BimJobUpdateRequest,
+  PdfBoqGenerateResponse,
+  PdfBoqJob,
+  PdfBoqCreateProjectRequest,
+  PdfBoqCreateProjectResponse,
+  ProjectDashboardSummary,
+  ProjectThumbnailResponse,
+  BoqReportPreview,
+  SaveBoqRowRequest,
+  SaveBoqRowResponse,
+  ProjectMember,
+  AddProjectMemberRequest,
+  UpdateProjectMemberRequest,
+  ProjectActivity,
+} from "@/types/projects";
 
 export const projectsApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -268,10 +187,11 @@ export const projectsApi = baseApi.injectEndpoints({
         body,
       }),
     }),
-    getBimJobPdf: builder.query<ApiResponse<any>, string>({
+    getBimJobPdf: builder.query<Blob, string>({
       query: (jobId) => ({
         url: ApiEndpoints.bim.jobPdf(jobId),
         method: ApiMethods.GET,
+        responseHandler: (response) => response.blob(),
       }),
     }),
     uploadPdfBoq: builder.mutation<
@@ -310,10 +230,11 @@ export const projectsApi = baseApi.injectEndpoints({
         body,
       }),
     }),
-    getPdfBoqJobPdf: builder.query<ApiResponse<any>, string>({
+    getPdfBoqJobPdf: builder.query<Blob, string>({
       query: (jobId) => ({
         url: ApiEndpoints.pdfBoq.jobPdf(jobId),
         method: ApiMethods.GET,
+        responseHandler: (response) => response.blob(),
       }),
     }),
     createProjectFromPdfBoq: builder.mutation<
@@ -324,6 +245,104 @@ export const projectsApi = baseApi.injectEndpoints({
         url: ApiEndpoints.pdfBoq.createProject(jobId),
         method: ApiMethods.POST,
         body,
+      }),
+    }),
+    getProjectDashboard: builder.query<ApiResponse<ProjectDashboardSummary>, string>({
+      query: (projectId) => ({
+        url: ApiEndpoints.projects.dashboard(projectId),
+        method: ApiMethods.GET,
+      }),
+    }),
+    updateProjectThumbnail: builder.mutation<
+      ApiResponse<ProjectThumbnailResponse>,
+      { projectId: string; thumbnailUrl: string }
+    >({
+      query: ({ projectId, thumbnailUrl }) => ({
+        url: ApiEndpoints.projects.updateThumbnail(projectId),
+        method: ApiMethods.PATCH,
+        body: { thumbnailUrl },
+      }),
+    }),
+    getBoqReportPreview: builder.query<ApiResponse<BoqReportPreview>, string>({
+      query: (projectId) => ({
+        url: ApiEndpoints.projects.boqReportPreview(projectId),
+        method: ApiMethods.GET,
+      }),
+    }),
+    saveBoqRowToLibrary: builder.mutation<
+      ApiResponse<SaveBoqRowResponse>,
+      { projectId: string; body: SaveBoqRowRequest }
+    >({
+      query: ({ projectId, body }) => ({
+        url: ApiEndpoints.projects.saveBoqRowToLibrary(projectId),
+        method: ApiMethods.POST,
+        body,
+      }),
+    }),
+    getProjectsByCompany: builder.query<
+      PaginatedResponse<Project>,
+      {
+        companyId: string;
+        page?: number;
+        limit?: number;
+        status?: string;
+        source?: string;
+        search?: string;
+      }
+    >({
+      query: ({ companyId, ...params }) => ({
+        url: ApiEndpoints.projects.listByCompany(companyId),
+        method: ApiMethods.GET,
+        params,
+      }),
+    }),
+    getProjectActivity: builder.query<
+      ApiResponse<ProjectActivity[]>,
+      { projectId: string; limit?: number }
+    >({
+      query: ({ projectId, ...params }) => ({
+        url: ApiEndpoints.projects.activity(projectId),
+        method: ApiMethods.GET,
+        params,
+      }),
+    }),
+    getProjectMembers: builder.query<
+      PaginatedResponse<ProjectMember>,
+      { projectId: string; page?: number; limit?: number }
+    >({
+      query: ({ projectId, ...params }) => ({
+        url: ApiEndpoints.projects.members.list(projectId),
+        method: ApiMethods.GET,
+        params,
+      }),
+    }),
+    addProjectMember: builder.mutation<
+      ApiResponse<ProjectMember>,
+      { projectId: string; body: AddProjectMemberRequest }
+    >({
+      query: ({ projectId, body }) => ({
+        url: ApiEndpoints.projects.members.add(projectId),
+        method: ApiMethods.POST,
+        body,
+      }),
+    }),
+    updateProjectMemberRole: builder.mutation<
+      ApiResponse<ProjectMember>,
+      { projectId: string; memberId: string; body: UpdateProjectMemberRequest }
+    >({
+      query: ({ projectId, memberId, body }) => ({
+        url: ApiEndpoints.projects.members.update(projectId, memberId),
+        method: ApiMethods.PATCH,
+        body,
+      }),
+    }),
+    deleteProjectMember: builder.mutation<
+      ApiResponse<null>,
+      { projectId: string; memberId: string }
+    >({
+      query: ({ projectId, memberId }) => ({
+        url: ApiEndpoints.projects.members.remove(projectId, memberId),
+        method: ApiMethods.DELETE,
       }),
     }),
   }),
@@ -348,4 +367,14 @@ export const {
   useUpdatePdfBoqJobMutation,
   useGetPdfBoqJobPdfQuery,
   useCreateProjectFromPdfBoqMutation,
+  useGetProjectDashboardQuery,
+  useUpdateProjectThumbnailMutation,
+  useGetBoqReportPreviewQuery,
+  useSaveBoqRowToLibraryMutation,
+  useGetProjectsByCompanyQuery,
+  useGetProjectActivityQuery,
+  useGetProjectMembersQuery,
+  useAddProjectMemberMutation,
+  useUpdateProjectMemberRoleMutation,
+  useDeleteProjectMemberMutation,
 } = projectsApi;

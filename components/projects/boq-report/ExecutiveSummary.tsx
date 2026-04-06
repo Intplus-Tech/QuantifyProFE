@@ -164,18 +164,20 @@ export function ExecutiveSummary({
             </div>
 
             {/* Legend placed below the chart */}
-            <div className="flex items-center justify-center gap-6 mt-8">
-              {costCategories.map((cat) => (
-                <div key={cat.name} className="flex items-center gap-2">
-                  <span 
-                    className="w-2.5 h-2.5 rounded-full" 
-                    style={{ backgroundColor: hexColors[cat.color] ?? "#ccc" }} 
-                  />
-                  <span className="text-xs font-semibold text-slate-700">
-                    {cat.name.replace(" Works", "").replace(" Services", "")}
-                  </span>
-                </div>
-              ))}
+            <div className="w-full mt-8 overflow-x-auto no-scrollbar">
+              <div className="flex items-center justify-start sm:justify-center gap-6 pb-2 whitespace-nowrap min-w-max px-2">
+                {costCategories.map((cat) => (
+                  <div key={cat.name} className="flex items-center gap-2 shrink-0">
+                    <span 
+                      className="w-2.5 h-2.5 rounded-full" 
+                      style={{ backgroundColor: hexColors[cat.color] ?? "#ccc" }} 
+                    />
+                    <span className="text-xs font-semibold text-slate-700">
+                      {cat.name.replace(" Works", "").replace(" Services", "")}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>

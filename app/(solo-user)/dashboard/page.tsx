@@ -1,24 +1,46 @@
-﻿"use client";
+"use client";
 
-import { Card } from "@/components/ui/card";
 import { ChartNoAxesColumn } from "lucide-react";
 import Image from "next/image";
 import { Separator } from "@/components/ui/separator";
 import { StatsGrid } from "@/components/dashboard/StatsGrid";
 import { PromoSection } from "@/components/dashboard/PromoSection";
 import { ProjectsTable } from "@/components/dashboard/ProjectsTable";
+import { 
+  useGetProjectsQuery, 
+  useGetProjectDashboardQuery, 
+} from "@/store/api/projectsApi";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function DashboardPage() {
+  const { data: projectsRes, isLoading: projectsLoading } = useGetProjectsQuery({});
+  const projectsList = projectsRes?.data || [];
+  const firstProjectId = projectsList[0]?._id;
+
+  const { data: dashboardRes, isLoading: dashboardLoading } = useGetProjectDashboardQuery(firstProjectId || "", {
+    skip: !firstProjectId,
+  });
+
+  const dashboardData = dashboardRes?.data;
+
+  const formatCurrency = (val: number) => {
+    return new Intl.NumberFormat("en-NG", {
+      style: "currency",
+      currency: "NGN",
+      maximumFractionDigits: 0,
+    }).format(val);
+  };
+
   const statsData = [
     {
       label: "Total Project Value",
-      value: "₦143,000,000",
+      value: dashboardLoading ? <Skeleton className="h-9 w-32" /> : formatCurrency(dashboardData?.estimateTotal || 0),
       icon: null,
       colorClass: "",
     },
     {
       label: "Projects",
-      value: "4/5",
+      value: projectsLoading ? <Skeleton className="h-9 w-16" /> : `${projectsList.length}/5`,
       icon: (
         <ChartNoAxesColumn className="text-primary" size={24} strokeWidth={4} />
       ),
@@ -26,7 +48,7 @@ export default function DashboardPage() {
     },
     {
       label: "BOQs",
-      value: "84",
+      value: dashboardLoading ? <Skeleton className="h-9 w-12" /> : (dashboardData as any)?.boqCount || "0",
       icon: (
         <Image src="/icons/boq.svg" alt="BOQ Icon" width={32} height={32} />
       ),
@@ -47,60 +69,12 @@ export default function DashboardPage() {
       border: true,
       extra: (
         <>
-          <Separator orientation="horizontal" />
-          <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
+          <Separator orientation="horizontal" className="my-2" />
+          <div className="text-xs text-muted-foreground mb-3 leading-relaxed">
             Upgrade your plan
-          </p>
+          </div>
         </>
       ),
-    },
-  ];
-
-  const projectsData = [
-    {
-      name: "Skyline Residencies - Block A",
-      number: "402235",
-      openedBy: "Yash Ghori",
-      openedAgo: "10 days ago",
-      createdDate: "25/3/2023",
-      costSummaryDate: "02.05.2024",
-      costSummaryUrl: "#",
-    },
-    {
-      name: "City Center Mall Renovation",
-      number: "402236",
-      openedBy: "Yash Ghori",
-      openedAgo: "10 days ago",
-      createdDate: "25/3/2023",
-      costSummaryDate: "02.05.2024",
-      costSummaryUrl: "#",
-    },
-    {
-      name: "Highway Bridge #402",
-      number: "402237",
-      openedBy: "Yash Ghori",
-      openedAgo: "10 days ago",
-      createdDate: "25/3/2023",
-      costSummaryDate: "02.05.2024",
-      costSummaryUrl: "#",
-    },
-    {
-      name: "Lakeside Villas",
-      number: "402238",
-      openedBy: "Yash Ghori",
-      openedAgo: "10 days ago",
-      createdDate: "25/3/2023",
-      costSummaryDate: "02.05.2024",
-      costSummaryUrl: "#",
-    },
-    {
-      name: "Warehouse Distribution Center",
-      number: "402239",
-      openedBy: "Yash Ghori",
-      openedAgo: "10 days ago",
-      createdDate: "25/3/2023",
-      costSummaryDate: "02.05.2024",
-      costSummaryUrl: "#",
     },
   ];
 
@@ -108,7 +82,7 @@ export default function DashboardPage() {
     <div className="mx-auto space-y-4">
       <StatsGrid stats={statsData} />
       <PromoSection />
-      <ProjectsTable projects={projectsData} />
+      <ProjectsTable projects={projectsList} isLoading={projectsLoading} />
     </div>
   );
 }

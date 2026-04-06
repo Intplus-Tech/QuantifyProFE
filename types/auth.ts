@@ -1,60 +1,66 @@
-export interface Tokens {
-  accessToken: string;
-  refreshToken: string;
-}
-
 export interface User {
-  id: string;
-  _id?: string;
+  _id: string;
   firstName: string;
   lastName: string;
   email: string;
-  phoneNumber?: string;
-  phone?: string;
-  address?: string;
-  title?: string;
-  professionalTitle?: string;
-  certifications?: Array<{ name: string; membershipNumber: string }>;
-  yearsOfExperience?: number;
-  industrySpecialization?: string;
-  specializedSkills?: string[];
-  emailAlertsEnabled?: boolean;
-  sessionTimeoutEnabled?: boolean;
-  role: string;
-  status: string;
-  emailVerified: boolean;
-  authProvider: string;
-  createdAt: string;
-  updatedAt: string;
+  phoneNumber: string;
+  role: "admin" | "user" | "company";
+  companyId?: string;
+  avatar?: string;
+  isEmailVerified: boolean;
+  status: "active" | "suspended" | "pending";
 }
 
-export interface RegistrationData {
-  user: User;
-  message: string;
+export interface LoginInput {
+  email: string;
+  password: string;
 }
 
-export interface RegistrationResponse {
-  success: boolean;
-  message: string;
-  data: RegistrationData;
-  timestamp: string;
+export interface RegisterInput {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+  phoneNumber: string;
+  role?: "admin" | "user" | "company";
+  companyName?: string;
 }
 
-export interface LoginData {
-  user: User;
-  tokens: Tokens;
+export interface RefreshTokenInput {
+  refreshToken: string;
+}
+
+export interface ForgotPasswordInput {
+  email: string;
+}
+
+export interface ResetPasswordInput {
+  token: string;
+  password: string;
+}
+
+export interface ChangePasswordInput {
+  currentPassword: string;
+  newPassword: string;
 }
 
 export interface LoginResponse {
   success: boolean;
   message: string;
-  data: LoginData;
-  timestamp: string;
+  data: {
+    user: User;
+    accessToken: string;
+    refreshToken: string;
+  };
+}
+
+export interface RegistrationResponse {
+  success: boolean;
+  message: string;
+  data: User;
 }
 
 export interface GetUserProfileResponse {
   success: boolean;
-  message: string;
   data: User;
-  timestamp: string;
 }

@@ -45,3 +45,34 @@ export const PROCESSING_STAGES: ProcessingStageInfo[] = [
   { key: "object_recognition", label: "Object Recognition" },
   { key: "quantity_calculation", label: "Quantity Calculation" },
 ];
+
+export interface BoqWorkItem {
+  item: string;
+  specification?: string | null;
+  unit?: string;
+  quantity?: number | null;
+  notes?: string | null;
+}
+
+export interface BoqRow {
+  rowType: "header" | "item";
+  itemCode: string | null;
+  description: string;
+  specification?: string | null;
+  unit: string | null;
+  quantity: number | null;
+  notes: string | null;
+}
+
+export interface BoqSection {
+  sectionName: string;
+  rows?: BoqRow[];
+  workItems: BoqWorkItem[];
+}
+
+export interface BoqResult {
+  projectTitle: string;
+  templateVersion?: string;
+  generalNotes?: string;
+  sections: BoqSection[];
+}

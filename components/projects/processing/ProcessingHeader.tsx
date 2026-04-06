@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Loader2 } from "lucide-react";
+import { Check, RefreshCw, Ruler } from "lucide-react";
 import type { ProcessingState } from "./types";
 import { PROCESSING_STAGES } from "./types";
 
@@ -11,75 +11,76 @@ interface ProcessingHeaderProps {
 export function ProcessingHeader({ state }: ProcessingHeaderProps) {
   const stageIndex = PROCESSING_STAGES.findIndex((s) => s.key === state.currentStage);
 
+  const getDynamicTitle = () => {
+    if (state.status === "completed") return "Processing Complete";
+    if (state.status === "error") return "Processing Failed";
+    if (stageIndex === 0) return "Uploading... / Polling...";
+    if (stageIndex === 1) return "Pooling... / Interpreting...";
+    return "Finalizing Results...";
+  };
+
   return (
-    <div className="border rounded-xl bg-card text-card-foreground shadow-sm p-6">
+    <div className="border rounded-xl bg-card text-card-foreground shadow-xs p-6">
       {/* Title row */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+      <div className="flex items-center justify-between gap-3 mb-6">
         <div>
-          <h2 className="text-lg font-bold text-foreground">{state.fileName}</h2>
-          <p className="text-sm text-muted-foreground mt-0.5">{state.description}</p>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            {getDynamicTitle()}
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1 font-medium">
+            Analyzing architectural layers and structural symbols...
+          </p>
         </div>
-        <span
-          className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full shrink-0 ${
-            state.status === "completed"
-              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-              : state.status === "paused"
-              ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
-              : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-          }`}
-        >
-          {state.status === "processing" && <Loader2 className="w-3 h-3 animate-spin" />}
-          {Math.round(state.progress)}%
-        </span>
+        
+        <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 px-4 py-2 rounded-xl border border-blue-100 dark:border-blue-800/50 shadow-sm">
+          <span className="text-sm font-bold">{Math.round(state.progress)}%</span>
+          <span className="text-xs font-semibold uppercase tracking-wider opacity-80">Processing</span>
+        </div>
       </div>
 
       {/* Progress bar */}
-      <div className="w-full h-2.5 rounded-full bg-muted overflow-hidden mb-6">
+      <div className="w-full h-2.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden mb-8">
         <div
-          className="h-full rounded-full bg-linear-to-r from-amber-400 to-amber-500 transition-all duration-500 ease-out"
+          className="h-full rounded-full bg-amber-500 transition-all duration-700 ease-in-out shadow-[0_0_10px_rgba(245,158,11,0.3)]"
           style={{ width: `${state.progress}%` }}
         />
       </div>
 
       {/* Stage indicators */}
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center gap-12 px-2">
         {PROCESSING_STAGES.map((stage, index) => {
           const isDone = index < stageIndex || state.status === "completed";
           const isActive = index === stageIndex && state.status !== "completed";
 
           return (
-            <div key={stage.key} className="flex items-center gap-2 flex-1">
-              {/* Dot / check */}
-              <div
-                className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold ${
-                  isDone
-                    ? "bg-emerald-500 text-white"
-                    : isActive
-                    ? "bg-amber-500 text-white animate-pulse"
-                    : "bg-muted text-muted-foreground"
-                }`}
-              >
-                {isDone ? <Check className="w-3.5 h-3.5" /> : index + 1}
-              </div>
-              <span
-                className={`text-xs font-medium truncate ${
-                  isDone
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : isActive
-                    ? "text-foreground"
-                    : "text-muted-foreground"
-                }`}
-              >
-                {stage.label}
-              </span>
+            <div key={stage.key} className="flex items-center gap-3">
+              {index === 0 && (
+                <div className={`flex items-center gap-2 ${isDone ? "text-emerald-500" : "text-muted-foreground"}`}>
+                  <Check className={`w-4 h-4 ${isDone ? "stroke-3" : ""}`} />
+                  <span className="text-xs font-bold uppercase tracking-wider">{stage.label}</span>
+                </div>
+              )}
+              
+              {index === 1 && (
+                <div className={`flex items-center gap-2 ${isDone ? "text-emerald-500" : isActive ? "text-amber-500" : "text-muted-foreground"}`}>
+                  {isDone ? (
+                    <Check className="w-4 h-4 stroke-3" />
+                  ) : (
+                    <RefreshCw className={`w-4 h-4 ${isActive ? "animate-spin" : ""}`} />
+                  )}
+                  <span className="text-xs font-bold uppercase tracking-wider">{stage.label}</span>
+                </div>
+              )}
 
-              {/* Connector */}
-              {index < PROCESSING_STAGES.length - 1 && (
-                <div
-                  className={`hidden sm:block flex-1 h-px ${
-                    isDone ? "bg-emerald-400" : "bg-border"
-                  }`}
-                />
+              {index === 2 && (
+                <div className={`flex items-center gap-2 ${isDone ? "text-emerald-500" : "text-muted-foreground/60"}`}>
+                  {isDone ? (
+                    <Check className="w-4 h-4 stroke-3" />
+                  ) : (
+                    <Ruler className="w-4 h-4" />
+                  )}
+                  <span className="text-xs font-bold uppercase tracking-wider">{stage.label}</span>
+                </div>
               )}
             </div>
           );

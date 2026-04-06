@@ -284,6 +284,16 @@ export default function ProfileSettings() {
                             <SelectItem value="Architecture">
                               Architecture
                             </SelectItem>
+                            <SelectItem value="Construction">
+                              Construction
+                            </SelectItem>
+                            <SelectItem value="Real Estate">
+                              Real Estate
+                            </SelectItem>
+                            <SelectItem value="Project Management">
+                              Project Management
+                            </SelectItem>
+                            <SelectItem value="Other">Other</SelectItem>
                           </SelectContent>
                         </Select>
                       )}
@@ -310,7 +320,7 @@ export default function ProfileSettings() {
                             <SelectItem value="11-50">11-50</SelectItem>
                             <SelectItem value="51-200">51-200</SelectItem>
                             <SelectItem value="201-500">201-500</SelectItem>
-                            <SelectItem value="501+">500+</SelectItem>
+                            <SelectItem value="500+">500+</SelectItem>
                           </SelectContent>
                         </Select>
                       )}

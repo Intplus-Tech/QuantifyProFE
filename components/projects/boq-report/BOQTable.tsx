@@ -74,25 +74,33 @@ function Section({ section }: { section: BOQSection }) {
       </tr>
 
       {/* Line Items */}
-      {section.items.map((item) => (
-        <tr
-          key={item.item}
-          className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors"
-        >
-          <td className="px-6 py-4 text-slate-500 font-medium">{item.item}</td>
-          <td className="px-6 py-4 text-slate-700">{item.description}</td>
-          <td className="px-6 py-4 text-center text-slate-700">{item.unit}</td>
-          <td className="px-6 py-4 text-center text-slate-700 tabular-nums">
-            {formatNumber(item.qty)}
-          </td>
-          <td className="px-6 py-4 text-center text-slate-700 tabular-nums">
-            {formatDecimal(item.rate)}
-          </td>
-          <td className="px-6 py-4 text-right text-slate-900 tabular-nums">
-            {formatDecimal(item.total)}
-          </td>
-        </tr>
-      ))}
+      {section.items.map((item) => {
+        const isHeader = !item.item && !item.qty && !item.rate;
+        
+        return (
+          <tr
+            key={item.item + item.description}
+            className={`border-b border-slate-100 hover:bg-slate-50/50 transition-colors ${isHeader ? "bg-slate-50/30" : ""}`}
+          >
+            <td className="px-6 py-4 text-slate-500 font-medium">{item.item}</td>
+            <td className={`px-6 py-4 text-slate-700 ${isHeader ? "font-bold text-slate-900" : ""}`}>
+              {item.description}
+            </td>
+            <td className="px-6 py-4 text-center text-slate-700">
+              {isHeader ? "" : item.unit}
+            </td>
+            <td className="px-6 py-4 text-center text-slate-700 tabular-nums">
+              {isHeader ? "" : formatNumber(item.qty)}
+            </td>
+            <td className="px-6 py-4 text-center text-slate-700 tabular-nums">
+              {isHeader || !item.rate ? "" : formatDecimal(item.rate)}
+            </td>
+            <td className="px-6 py-4 text-right text-slate-900 tabular-nums font-medium">
+              {isHeader || !item.total ? "" : formatDecimal(item.total)}
+            </td>
+          </tr>
+        );
+      })}
 
       {/* Subtotal Row */}
       <tr className="border-b border-slate-200">

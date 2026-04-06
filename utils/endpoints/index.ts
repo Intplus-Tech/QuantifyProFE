@@ -126,6 +126,20 @@ export const projects = {
   update: (id: string) => `/projects/${id}`,
   delete: (id: string) => `/projects/${id}`,
   archive: (id: string) => `/projects/${id}/archive`,
+  dashboard: (id: string) => `/projects/${id}/dashboard`,
+  updateThumbnail: (id: string) => `/projects/${id}/thumbnail`,
+  boqReportPreview: (id: string) => `/projects/${id}/boq-report-preview`,
+  saveBoqRowToLibrary: (id: string) => `/projects/${id}/boq/save-to-library`,
+  listByCompany: (companyId: string) => `/projects/company/${companyId}`,
+  activity: (id: string) => `/projects/${id}/activity`,
+  members: {
+    list: (projectId: string) => `/projects/${projectId}/members`,
+    add: (projectId: string) => `/projects/${projectId}/members`,
+    update: (projectId: string, memberId: string) =>
+      `/projects/${projectId}/members/${memberId}`,
+    remove: (projectId: string, memberId: string) =>
+      `/projects/${projectId}/members/${memberId}`,
+  },
 };
 
 export const bim = {
@@ -138,6 +152,7 @@ export const bim = {
 };
 
 export const uploads = {
+  upload: "/uploads",
   uploadFile: "uploads/{id}",
   getUploads: (id: string) => `/uploads/${id}`,
 };

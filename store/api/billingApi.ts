@@ -1,9 +1,8 @@
 import { baseApi } from "./baseApi";
 import { ApiMethods } from "@/utils/apiMethods";
 import { company as companyEndpoints } from "@/utils/endpoints";
+import { ApiResponse, PaginatedResponse } from "@/types/common";
 import {
-  ApiResponse,
-  PaginatedResponse,
   BillingInfo,
   BillingInvoice,
   BillingPaymentMethod,
@@ -13,7 +12,7 @@ import {
   VerifySubscriptionInput,
   UsageStats,
   UpdateBillingPlanInput,
-} from "@/types/api";
+} from "@/types/billing";
 
 export const billingApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({

@@ -1,6 +1,8 @@
 import { baseApi } from "./baseApi";
 import { ApiEndpoints } from "@/utils/endpoints";
 import { ApiMethods } from "@/utils/apiMethods";
+import { ApiResponse, PaginatedResponse } from "@/types/common";
+import { Client, ClientsStats } from "@/types/clients";
 import {
   setClients,
   setStats,
@@ -8,10 +10,7 @@ import {
   addClient,
   updateClientInState,
   removeClient,
-  Client,
-  ClientsStats,
 } from "../slices/clientsSlice";
-import { ApiResponse, PaginatedResponse } from "@/types/api";
 
 export const clientsApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
