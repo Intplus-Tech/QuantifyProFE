@@ -54,8 +54,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Client } from "@/store/slices/clientsSlice";
-import { Project } from "@/store/slices/projectsSlice";
 import { INDUSTRY_COLORS, STATUS_COLORS } from "./mockData";
 
 // ---------------------------------------------------------------------------
@@ -181,11 +179,7 @@ export function ViewProfileDialog({
           {client.notes && (
             <>
               <Separator />
-              <ProfileRow
-                icon={FileText}
-                label="Notes"
-                value={client.notes}
-              />
+              <ProfileRow icon={FileText} label="Notes" value={client.notes} />
             </>
           )}
         </div>
@@ -214,19 +208,7 @@ interface EditClientDialogProps {
   client: UIClient | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /**
-   * Called with the updated form data when the user submits.
-   * TODO (next developer): replace the dummy handler in this component with
-   * `useUpdateClientMutation` from `@/store/api/clientsApi` and pass the
-   * result back via this callback.
-   *
-   * Example integration:
-   * ```ts
-   * const [updateClient, { isLoading }] = useUpdateClientMutation();
-   * // In the parent or here:
-   * await updateClient({ clientId: client._id, body: formData }).unwrap();
-   * ```
-   */
+
   onSubmit?: (data: Partial<Client>) => void | Promise<void>;
 }
 
@@ -333,10 +315,7 @@ export function EditClientDialog({
 
           {/* Company Name */}
           <div className="flex flex-col gap-1.5">
-            <Label
-              htmlFor="edit-company-name"
-              className="text-sm font-medium"
-            >
+            <Label htmlFor="edit-company-name" className="text-sm font-medium">
               Company Name
             </Label>
             <Input
@@ -560,7 +539,9 @@ export function DeleteClientAlertDialog({
               {client.clientCompanyName}
             </span>
             ? This action{" "}
-            <span className="text-destructive font-medium">cannot be undone</span>{" "}
+            <span className="text-destructive font-medium">
+              cannot be undone
+            </span>{" "}
             and will permanently remove the client and all associated records.
           </AlertDialogDescription>
         </AlertDialogHeader>
@@ -722,20 +703,25 @@ export function ViewProjectsDialog({
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/10 hover:bg-muted/10 border-b border-border/50">
-                {["PROJECT DETAILS", "STAGE", "STATUS", "LAST MODIFIED", "BOQ VALUE", "ACTIONS"].map(
-                  (h) => (
-                    <TableHead
-                      key={h}
-                      className={[
-                        "py-3 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap",
-                        h === "BOQ VALUE" ? "text-right" : "",
-                        h === "ACTIONS" ? "text-center" : "",
-                      ].join(" ")}
-                    >
-                      {h}
-                    </TableHead>
-                  )
-                )}
+                {[
+                  "PROJECT DETAILS",
+                  "STAGE",
+                  "STATUS",
+                  "LAST MODIFIED",
+                  "BOQ VALUE",
+                  "ACTIONS",
+                ].map((h) => (
+                  <TableHead
+                    key={h}
+                    className={[
+                      "py-3 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap",
+                      h === "BOQ VALUE" ? "text-right" : "",
+                      h === "ACTIONS" ? "text-center" : "",
+                    ].join(" ")}
+                  >
+                    {h}
+                  </TableHead>
+                ))}
               </TableRow>
             </TableHeader>
 
@@ -770,10 +756,14 @@ export function ViewProjectsDialog({
                 </TableRow>
               ) : (
                 filtered.map((project) => {
-                  const stage = project.boqResult?.projectTitle ? "Completed" : "Draft";
-                  const stageColor = STAGE_COLORS[stage] || "bg-gray-100 text-gray-600";
+                  const stage = project.boqResult?.projectTitle
+                    ? "Completed"
+                    : "Draft";
+                  const stageColor =
+                    STAGE_COLORS[stage] || "bg-gray-100 text-gray-600";
                   const statusKey = project.status?.toLowerCase() || "draft";
-                  const statusDot = PROJECT_STATUS_COLORS[statusKey] || "bg-gray-400";
+                  const statusDot =
+                    PROJECT_STATUS_COLORS[statusKey] || "bg-gray-400";
 
                   return (
                     <TableRow
@@ -813,7 +803,9 @@ export function ViewProjectsDialog({
                       {/* Status */}
                       <TableCell className="py-4 px-5">
                         <div className="flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full shrink-0 ${statusDot}`} />
+                          <span
+                            className={`w-2 h-2 rounded-full shrink-0 ${statusDot}`}
+                          />
                           <span className="text-sm font-medium capitalize text-foreground">
                             {project.status || "Draft"}
                           </span>

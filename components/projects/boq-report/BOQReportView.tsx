@@ -50,7 +50,7 @@ export function BOQReportView({
   const report = mapApiToUiReport(apiResponse.data);
 
   return (
-    <div className="p-6 md:p-8 max-w-5xl mx-auto">
+    <div className="">
       {/* Non-printable toolbar */}
       <div className="print:hidden">
         <ReportToolbar
@@ -126,7 +126,7 @@ function mapApiToUiReport(data: BoqReportPreview): BOQReport {
     title: `${idx + 1}.0 - ${sec.sectionName}`,
     subtotal: sec.subtotal,
     items: sec.rows.map((row, rowIdx) => ({
-      item: row.itemCode || ``,
+      item: row.itemCode || `${idx + 1}.${idx + rowIdx}`,
       description: row.description,
       unit: row.unit || "-",
       qty: row.quantity || 0,
@@ -138,7 +138,8 @@ function mapApiToUiReport(data: BoqReportPreview): BOQReport {
   return {
     meta: {
       companyName: data.company?.name || "QuantifyPro Analysis",
-      companySubtitle: data.company?.address || "Intelligent Quantity Surveying",
+      companySubtitle:
+        data.company?.address || "Intelligent Quantity Surveying",
       dateGenerated: dateFormatted,
       ref: data.referenceNumber,
       location: data.project.projectLocation,

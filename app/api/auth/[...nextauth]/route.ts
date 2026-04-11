@@ -43,7 +43,7 @@ const handler = NextAuth({
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        const User = user as any as LoginResponse;
+        const User = user as any;
         token = {
           accessToken: User.data.tokens.accessToken,
           user: User.data.user,

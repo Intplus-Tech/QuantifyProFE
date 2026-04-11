@@ -366,6 +366,7 @@ export const {
   useGetPdfBoqJobByIdQuery,
   useUpdatePdfBoqJobMutation,
   useGetPdfBoqJobPdfQuery,
+  useLazyGetPdfBoqJobPdfQuery,
   useCreateProjectFromPdfBoqMutation,
   useGetProjectDashboardQuery,
   useUpdateProjectThumbnailMutation,

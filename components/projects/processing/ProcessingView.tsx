@@ -14,6 +14,7 @@ import { ProcessingHeader } from "./ProcessingHeader";
 import { DrawingViewer } from "./DrawingViewer";
 import { DetectionLog } from "./DetectionLog";
 import { ProcessingFooter } from "./ProcessingFooter";
+import { ReviewBOQModal } from "./ReviewBOQModal";
 import { useMockProcessing } from "./mock-data";
 import { RootState } from "@/store";
 import { toast } from "sonner";
@@ -43,6 +44,7 @@ export function ProcessingView({
 
   const [bimPollStr, setBimPollStr] = useState(10000);
   const [pdfPollStr, setPdfPollStr] = useState(10000);
+  const [isReviewOpen, setIsReviewOpen] = useState(false);
 
   const bimQuery = useGetBimStatusQuery(sourceJobId, {
     skip: !sourceJobId || uploadedFileType !== "bim",
@@ -123,7 +125,7 @@ export function ProcessingView({
         source: uploadedFileType === "pdf" ? "pdf_boq" : "bim",
         sourceJobId: sourceJobId,
         // companyId: "string",
-        libraryItems: ["string"],
+        libraryItems: [""],
         boqResult: pdfQuery.data?.data?.result,
       };
 
@@ -156,8 +158,7 @@ export function ProcessingView({
   };
 
   const handleReviewBOQ = () => {
-    const finalId = createdProjectId || projectId;
-    router.push(`${basePath}/${finalId}/boq`);
+    setIsReviewOpen(true);
   };
 
   return (
@@ -188,6 +189,15 @@ export function ProcessingView({
         onCreateProject={handleCreateProject}
         isProjectCreated={!!createdProjectId}
         isCreatingProject={isCreatingPdfProject}
+      />
+
+      <ReviewBOQModal
+        isOpen={isReviewOpen}
+        onClose={() => setIsReviewOpen(false)}
+        data={pdfQuery.data?.data || bimQuery.data?.data}
+        onCreateProject={handleCreateProject}
+        isCreatingProject={isCreatingPdfProject}
+        previewBoq={() => router.push(`${basePath}/${createdProjectId}/boq`)}
       />
     </div>
   );

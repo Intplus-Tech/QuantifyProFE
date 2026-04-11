@@ -18,8 +18,10 @@ export interface ClientsStats {
   totalClients: number;
   activeClients: number;
   newClientsThisMonth: number;
+  totalBoqValue: number;
   industryDistribution: {
     industry: string;
     count: number;
   }[];
 }
+

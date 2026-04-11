@@ -142,6 +142,14 @@ export const projects = {
   },
 };
 
+export const template = {
+  list: "/templates",
+  create: "/templates",
+  details: (id: string) => `/templates/${id}`,
+  update: (id: string) => `/templates/${id}`,
+  delete: (id: string) => `/templates/${id}`,
+};
+
 export const bim = {
   upload: "/bim/upload",
   status: (urn: string) => `/bim/status/${urn}`,
@@ -181,4 +189,5 @@ export const ApiEndpoints = {
   bim,
   pdfBoq,
   uploads,
+  template,
 };

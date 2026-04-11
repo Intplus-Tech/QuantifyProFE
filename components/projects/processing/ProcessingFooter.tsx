@@ -128,6 +128,18 @@ export function ProcessingFooter({
             </>
           )}
 
+          {isCompleted && (
+            <Button
+              size="sm"
+              className="bg-amber-500 hover:bg-amber-600 px-6 text-white shadow-sm border border-amber-600/20 h-12!"
+              onClick={onReviewBOQ}
+            >
+              Review BOQ
+              <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+            </Button>
+          )}
+
+          {/* 
           {isCompleted && !isProjectCreated && (
             <Button
               size="sm"
@@ -138,18 +150,8 @@ export function ProcessingFooter({
               {isCreatingProject ? "Creating Project..." : "Create Project"}
               <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
             </Button>
-          )}
-
-          {isCompleted && isProjectCreated && (
-            <Button
-              size="sm"
-              className="bg-amber-500 hover:bg-amber-600 px-6 text-white shadow-sm border border-amber-600/20 h-12!"
-              onClick={onReviewBOQ}
-            >
-              Review BOQ
-              <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
-            </Button>
-          )}
+          )} 
+          */}
         </div>
       </div>
     </div>
