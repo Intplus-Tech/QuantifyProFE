@@ -24,6 +24,7 @@ export const baseApi = createApi({
     "PaymentMethods",
     "Company",
     "Templates",
+    "Clients",
   ],
   endpoints: () => ({}),
 });

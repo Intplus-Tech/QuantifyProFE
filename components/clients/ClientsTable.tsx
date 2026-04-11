@@ -50,7 +50,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { INDUSTRY_COLORS, STATUS_COLORS, formatValue } from "./mockData";
-import { Client } from "@/store/slices/clientsSlice";
+import { Client } from "@/types/clients";
 import { useGetClientsQuery } from "@/store/api/clientsApi";
 import { useEffect } from "react";
 import {
@@ -105,7 +105,8 @@ export function ClientsTable({}: ClientsTableProps) {
     setActiveClient(client);
     setDeleteOpen(true);
   }
-  function openProjects() {
+  function openProjects(client: UIClient) {
+    setActiveClient(client);
     setProjectsOpen(true);
   }
   // ------------------------------------
@@ -274,7 +275,7 @@ export function ClientsTable({}: ClientsTableProps) {
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="cursor-pointer"
-                    onClick={() => openProjects()}
+                    onClick={() => openProjects(client)}
                   >
                     <FolderOpen className="w-4 h-4 mr-2 text-muted-foreground" />
                     View Projects

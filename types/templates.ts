@@ -31,6 +31,7 @@ export interface Template {
 }
 
 export interface CreateTemplateRequest {
+  sourceProjectId?: string;
   name: string;
   description: string;
   icon?: string;

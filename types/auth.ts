@@ -3,6 +3,8 @@ export interface User {
   firstName: string;
   lastName: string;
   email: string;
+  title: string;
+  address: string;
   phoneNumber: string;
   role: "admin" | "user" | "company";
   companyId?: string;
@@ -62,5 +64,6 @@ export interface RegistrationResponse {
 
 export interface GetUserProfileResponse {
   success: boolean;
+  message: string;
   data: User;
 }

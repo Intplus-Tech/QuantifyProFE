@@ -41,6 +41,7 @@ export const clientsApi = baseApi.injectEndpoints({
         url: ApiEndpoints.clients.list,
         params,
       }),
+      providesTags: ["Clients"],
       async onQueryStarted(arg, { dispatch, queryFulfilled }) {
         try {
           const { data } = await queryFulfilled;
@@ -73,16 +74,8 @@ export const clientsApi = baseApi.injectEndpoints({
         method: ApiMethods.POST,
         body,
       }),
-      async onQueryStarted(arg, { dispatch, queryFulfilled }) {
-        try {
-          const { data } = await queryFulfilled;
-          if (data?.success && data?.data) {
-            dispatch(addClient(data.data));
-          }
-        } catch (error) {
-          console.error("Failed to create client:", error);
-        }
-      },
+
+      invalidatesTags: ["Clients"],
     }),
     updateClient: builder.mutation<
       ApiResponse<Client>,
@@ -90,35 +83,17 @@ export const clientsApi = baseApi.injectEndpoints({
     >({
       query: ({ clientId, body }) => ({
         url: ApiEndpoints.clients.update(clientId),
-        method: ApiMethods.PUT,
+        method: ApiMethods.PATCH,
         body,
       }),
-      async onQueryStarted(arg, { dispatch, queryFulfilled }) {
-        try {
-          const { data } = await queryFulfilled;
-          if (data?.success && data?.data) {
-            dispatch(updateClientInState(data.data));
-          }
-        } catch (error) {
-          console.error("Failed to update client:", error);
-        }
-      },
+      invalidatesTags: ["Clients"],
     }),
     deleteClient: builder.mutation<ApiResponse<null>, string>({
       query: (clientId) => ({
         url: ApiEndpoints.clients.delete(clientId),
         method: ApiMethods.DELETE,
       }),
-      async onQueryStarted(clientId, { dispatch, queryFulfilled }) {
-        try {
-          const { data } = await queryFulfilled;
-          if (data?.success) {
-            dispatch(removeClient(clientId));
-          }
-        } catch (error) {
-          console.error("Failed to delete client:", error);
-        }
-      },
+      invalidatesTags: ["Clients"],
     }),
     getClientProjects: builder.query<
       PaginatedResponse<any>,
