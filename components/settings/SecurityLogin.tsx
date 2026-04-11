@@ -23,7 +23,9 @@ import {
   Clock,
   Eye,
   EyeOff,
+  Loader2,
 } from "lucide-react";
+import { useGetSecurityPreferencesQuery, useUpdateSecurityPreferencesMutation } from "@/store/api/userApi";
 import { useChangePasswordMutation } from "@/store/api/authApi";
 
 // ─── Schema ─────────────────────────────────────────────────────────────────
@@ -80,8 +82,10 @@ const loginActivity = [
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function SecurityLogin() {
-  const [emailAlerts, setEmailAlerts] = useState(true);
-  const [sessionTimeout, setSessionTimeout] = useState(false);
+  const { data: prefsResponse, isLoading: isPrefsLoading } = useGetSecurityPreferencesQuery();
+  const [updateSecurityPreferences] = useUpdateSecurityPreferencesMutation();
+  const securityPrefs = prefsResponse?.data;
+
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
 
@@ -101,6 +105,36 @@ export default function SecurityLogin() {
   const [changePassword, { isLoading: isApiLoading }] =
     useChangePasswordMutation();
   const isSubmitting = isFormSubmitting || isApiLoading;
+
+  const handlePreferenceToggle = async (key: string, value: boolean) => {
+    try {
+      const updatedPrefs = {
+        emailAlertsEnabled: securityPrefs?.emailAlertsEnabled ?? false,
+        sessionTimeoutEnabled: securityPrefs?.sessionTimeoutEnabled ?? false,
+        [key]: value,
+      };
+
+      await updateSecurityPreferences(updatedPrefs).unwrap();
+      toast.success(`${key.replace(/([A-Z])/g, " $1").replace("Enabled", "")} updated successfully.`);
+    } catch (err: any) {
+      toast.error(err?.data?.message || "Failed to update preference.");
+    }
+  };
+
+  const preferenceConfigs = [
+    {
+      key: "emailAlertsEnabled",
+      label: "Email Alerts",
+      description: "Notify me of new logins",
+      icon: Mail,
+    },
+    {
+      key: "sessionTimeoutEnabled",
+      label: "Session Timeout",
+      description: "Auto-logout after 2 hours",
+      icon: Clock,
+    },
+  ];
 
   async function onPasswordSubmit(data: PasswordFormValues) {
     try {
@@ -207,65 +241,36 @@ export default function SecurityLogin() {
             </CardContent>
           </Card>
 
-          {/* Email Alerts & Session Timeout */}
+          {/* Security Preferences */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            <Card className="shadow-sm border-border/50">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <Mail className="w-5 h-5 text-muted-foreground" />
-                    <div>
-                      <p className="font-bold text-foreground">Email Alerts</p>
-                      <p className="text-xs text-muted-foreground">
-                        Notify me of new logins
-                      </p>
+            {isPrefsLoading ? (
+              <div className="col-span-2 flex justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : (
+              preferenceConfigs.map((pref) => (
+                <Card key={pref.key} className="shadow-sm border-border/50">
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <pref.icon className="w-5 h-5 text-muted-foreground" />
+                        <div>
+                          <p className="font-bold text-foreground">{pref.label}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {pref.description}
+                          </p>
+                        </div>
+                      </div>
+                      <Switch
+                        checked={(securityPrefs as any)?.[pref.key] ?? false}
+                        onCheckedChange={(val) => handlePreferenceToggle(pref.key, val)}
+                        className="data-[state=checked]:bg-primary"
+                      />
                     </div>
-                  </div>
-                  <Switch
-                    checked={emailAlerts}
-                    onCheckedChange={(val) => {
-                      setEmailAlerts(val);
-                      toast.success(
-                        val
-                          ? "Email alerts enabled."
-                          : "Email alerts disabled.",
-                      );
-                    }}
-                    className="data-[state=checked]:bg-primary"
-                  />
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-sm border-border/50">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <Clock className="w-5 h-5 text-muted-foreground" />
-                    <div>
-                      <p className="font-bold text-foreground">
-                        Session Timeout
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Auto-logout after 2 hours
-                      </p>
-                    </div>
-                  </div>
-                  <Switch
-                    checked={sessionTimeout}
-                    onCheckedChange={(val) => {
-                      setSessionTimeout(val);
-                      toast.success(
-                        val
-                          ? "Session timeout enabled."
-                          : "Session timeout disabled.",
-                      );
-                    }}
-                    className="data-[state=checked]:bg-primary"
-                  />
-                </div>
-              </CardContent>
-            </Card>
+                  </CardContent>
+                </Card>
+              ))
+            )}
           </div>
         </div>
 

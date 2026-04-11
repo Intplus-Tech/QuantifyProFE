@@ -34,71 +34,70 @@ export function ProcessingFooter({
 }: ProcessingFooterProps) {
   const isCompleted = state.status === "completed";
   const isPaused = state.status === "paused";
+
   return (
     <div className="border rounded-xl bg-card text-card-foreground shadow-sm p-4">
       <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
         {/* Stats */}
-        <div className="flex flex-wrap items-center gap-5">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
-              <Box className="w-4 h-4 text-amber-500" />
+        <div className="flex flex-wrap items-center gap-8">
+          <div className="flex items-center gap-3 pr-8 border-r border-slate-100 dark:border-slate-800">
+            <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center">
+              <Box className="w-5 h-5 text-orange-500" />
             </div>
             <div>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                Objects
+              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+                Objects Detected
               </p>
-              <p className="text-sm font-bold text-foreground">
+              <p className="text-xl font-extrabold text-slate-900 dark:text-slate-100 uppercase">
                 {state.objectsDetected}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
-              <Ruler className="w-4 h-4 text-blue-500" />
+          <div className="flex items-center gap-3 pr-8 border-r border-slate-100 dark:border-slate-800">
+            <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
+              <Ruler className="w-5 h-5 text-blue-500" />
             </div>
             <div>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
                 Measurements
               </p>
-              <p className="text-sm font-bold text-foreground">
+              <p className="text-xl font-extrabold text-slate-900 dark:text-slate-100 uppercase">
                 {state.measurements}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-              <Activity className="w-4 h-4 text-emerald-500" />
+          <div className="flex items-center gap-3 pr-8 border-r border-slate-100 dark:border-slate-800">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+              <Activity className="w-5 h-5 text-emerald-500" />
             </div>
             <div>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
                 Status
               </p>
-              <p className="text-sm font-bold text-foreground flex items-center gap-1.5">
+              <p className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
                 <span
                   className={`w-2 h-2 rounded-full ${
                     isCompleted
                       ? "bg-emerald-500"
-                      : isPaused
-                        ? "bg-yellow-500"
-                        : "bg-amber-500 animate-pulse"
+                      : "bg-orange-500 animate-pulse shadow-[0_0_8px_rgba(249,115,22,0.6)]"
                   }`}
                 />
-                {isCompleted ? "Completed" : isPaused ? "Paused" : "Processing"}
+                {isCompleted ? "Analysis Complete" : "Processing Drawing"}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-violet-500/10 flex items-center justify-center">
-              <Clock className="w-4 h-4 text-violet-500" />
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-violet-500/10 flex items-center justify-center">
+              <Clock className="w-5 h-5 text-violet-500" />
             </div>
             <div>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                Est. Time
+              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+                Estimated Time
               </p>
-              <p className="text-sm font-bold text-foreground">
+              <p className="text-sm font-extrabold text-slate-900 dark:text-slate-100 uppercase">
                 {state.estimatedTime}
               </p>
             </div>
@@ -129,28 +128,30 @@ export function ProcessingFooter({
             </>
           )}
 
-          {isCompleted && !isProjectCreated && (
+          {isCompleted && (
             <Button
               size="sm"
-              disabled={isCreatingProject}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm border border-emerald-700/20 disabled:opacity-40 h-12!"
-              onClick={onCreateProject}
-            >
-              {isCreatingProject ? "Creating Project..." : "Create Project"}
-              <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
-            </Button>
-          )}
-
-          {isCompleted && isProjectCreated && (
-            <Button
-              size="sm"
-              className="bg-amber-500 hover:bg-amber-600 text-white shadow-sm border border-amber-600/20 h-12!"
+              className="bg-amber-500 hover:bg-amber-600 px-6 text-white shadow-sm border border-amber-600/20 h-12!"
               onClick={onReviewBOQ}
             >
               Review BOQ
               <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
             </Button>
           )}
+
+          {/* 
+          {isCompleted && !isProjectCreated && (
+            <Button
+              size="sm"
+              disabled={isCreatingProject}
+              className="bg-emerald-600 px-6 hover:bg-emerald-700 text-white shadow-sm border border-emerald-700/20 disabled:opacity-40 h-12!"
+              onClick={onCreateProject}
+            >
+              {isCreatingProject ? "Creating Project..." : "Create Project"}
+              <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+            </Button>
+          )} 
+          */}
         </div>
       </div>
     </div>

@@ -1,14 +1,14 @@
 import { baseApi } from "./baseApi";
 import { ApiMethods } from "@/utils/apiMethods";
 import { user as userEndpoints } from "@/utils/endpoints";
+import { ApiResponse } from "@/types/common";
 import {
-  ApiResponse,
   UpdateUserInput,
   ProfessionalDetails,
   UpdateProfessionalDetailsInput,
   SecurityPreferences,
   UpdateSecurityPreferencesInput,
-} from "@/types/api";
+} from "@/types/user";
 import { GetUserProfileResponse, User } from "@/types/auth";
 import { setUser } from "../slices/authSlice";
 

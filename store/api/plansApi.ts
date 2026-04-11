@@ -1,8 +1,9 @@
 import { baseApi } from "./baseApi";
 import { ApiMethods } from "@/utils/apiMethods";
 import { plans as plansEndpoints } from "@/utils/endpoints";
-import { ApiResponse, Plan, CreatePlanInput } from "@/types/api";
+import { ApiResponse } from "@/types/common";
 import { setPlans, setActivePlan } from "../slices/plansSlice";
+import { CreatePlanInput, Plan } from "@/types/plans";
 
 export const plansApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({

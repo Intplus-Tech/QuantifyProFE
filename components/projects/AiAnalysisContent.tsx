@@ -5,9 +5,9 @@ import { useRouter } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
 import { useDispatch } from "react-redux";
 import { setNewProjectDraft } from "@/store/slices/projectsSlice";
-import { 
-  useUploadBimFileMutation, 
-  useUploadPdfBoqMutation 
+import {
+  useUploadBimFileMutation,
+  useUploadPdfBoqMutation,
 } from "@/store/api/projectsApi";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -59,7 +59,10 @@ const aiFormSchema = z.object({
   source: z.string().min(1, "Source is required"),
   description: z.string().optional(),
   drawingType: z.string().min(1, "Drawing Type is required"),
-  drawings: z.array(z.any()).min(1, "Please upload a drawing").max(1, "Only one drawing is allowed"),
+  drawings: z
+    .array(z.any())
+    .min(1, "Please upload a drawing")
+    .max(1, "Only one drawing is allowed"),
   sourceJobId: z.string().optional(),
   uploadedFileType: z.string().optional(),
 });
@@ -70,7 +73,7 @@ interface AiAnalysisContentProps {
   onCancel: () => void;
   onSwitchMode: () => void;
   onSubmitSuccess?: (data: AiFormValues) => void;
-  basePath?: string; // "/projects" or "/enterprise/projects"
+  basePath?: string;
 }
 
 export function AiAnalysisContent({
@@ -87,6 +90,7 @@ export function AiAnalysisContent({
     control,
     setValue,
     watch,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<AiFormValues>({
     resolver: zodResolver(aiFormSchema),
@@ -114,17 +118,29 @@ export function AiAnalysisContent({
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
       if (acceptedFiles.length === 0) return;
-      const file = acceptedFiles[0];
-      setValue("drawings", [file], { shouldValidate: true });
-
       setIsUploading(true);
       try {
+        const file = acceptedFiles[0];
+
+        const fileUrl = URL.createObjectURL(file);
+        console.log(fileUrl, "fileUrl", file, "file");
+        setValue("drawings", [file], { shouldValidate: true });
+        // Store technical metadata for display
+        setValue(
+          "uploadedFileType",
+          file.name.endsWith(".pdf") ? "pdf" : "bim",
+        );
+        // We'll use this fileUrl specifically for the ProcessingView display
+        setValue("fileUrl" as any, fileUrl);
+
         const formData = new FormData();
         formData.append("file", file);
 
-        const extension = file.name.substring(file.name.lastIndexOf(".")).toLowerCase();
-        const isBimOrCad = 
-          SUPPORTED_FORMATS["3D_BIM"].includes(extension) || 
+        const extension = file.name
+          .substring(file.name.lastIndexOf("."))
+          .toLowerCase();
+        const isBimOrCad =
+          SUPPORTED_FORMATS["3D_BIM"].includes(extension) ||
           SUPPORTED_FORMATS["2D_CAD"].includes(extension);
 
         if (isBimOrCad) {
@@ -132,19 +148,25 @@ export function AiAnalysisContent({
           const response = await uploadBimFile(formData).unwrap();
           if (response.success && response.data?.urn) {
             setValue("sourceJobId", response.data.urn);
-            toast.success(response.message || "BIM file uploaded and translation started.");
+            toast.success(
+              response.message || "BIM file uploaded and translation started.",
+            );
           }
         } else if (extension === ".pdf") {
           setValue("uploadedFileType", "pdf");
           const response = await uploadPdfBoq(formData).unwrap();
           if (response.success && response.data?.jobId) {
             setValue("sourceJobId", response.data.jobId);
-            toast.success(response.message || "PDF BOQ job submitted successfully.");
+            toast.success(
+              response.message || "PDF BOQ job submitted successfully.",
+            );
           }
         }
       } catch (error: any) {
         console.error("Upload failed", error);
-        toast.error(error?.data?.message || "File upload failed. Please try again.");
+        toast.error(
+          error?.data?.message || "File upload failed. Please try again.",
+        );
       } finally {
         setIsUploading(false);
       }
@@ -157,7 +179,10 @@ export function AiAnalysisContent({
     multiple: false,
     accept: {
       "application/pdf": [".pdf"],
-      "application/octet-stream": [...SUPPORTED_FORMATS["3D_BIM"], ...SUPPORTED_FORMATS["2D_CAD"]]
+      "application/octet-stream": [
+        ...SUPPORTED_FORMATS["3D_BIM"],
+        ...SUPPORTED_FORMATS["2D_CAD"],
+      ],
     },
     maxSize: 30 * 1024 * 1024, // 30MB
   });
@@ -173,7 +198,18 @@ export function AiAnalysisContent({
   const onSubmit = async (data: AiFormValues) => {
     // API integration: replace this with a real POST that returns a projectId
     console.log("Form Data:", data);
-    dispatch(setNewProjectDraft(data));
+
+    // Capture fileUrl directly from form state since it's not in the schema
+    const fileUrl = getValues("fileUrl" as any);
+
+    // Ensure fileUrl is included in the draft
+    const finalData = {
+      ...data,
+      fileUrl,
+      fileName: data.drawings[0]?.name || "drawing.file",
+    };
+
+    dispatch(setNewProjectDraft(finalData));
     toast.success("Project information saved as draft.");
     const mockProjectId = crypto.randomUUID();
     onSubmitSuccess?.(data);
@@ -321,9 +357,7 @@ export function AiAnalysisContent({
                     )}
                   />
                 </FieldContent>
-                <FieldError
-                  errors={[{ message: errors.source?.message }]}
-                />
+                <FieldError errors={[{ message: errors.source?.message }]} />
               </Field>
 
               <Field>
@@ -335,7 +369,9 @@ export function AiAnalysisContent({
                     className="h-12"
                   />
                 </FieldContent>
-                <FieldError errors={[{ message: errors.description?.message }]} />
+                <FieldError
+                  errors={[{ message: errors.description?.message }]}
+                />
               </Field>
             </div>
           </div>
@@ -406,10 +442,14 @@ export function AiAnalysisContent({
                 </div>
 
                 <h4 className="text-xl font-bold text-foreground mb-1.5 drop-shadow-sm">
-                  {isUploading ? "Uploading file..." : "Drag and drop your drawing here"}
+                  {isUploading
+                    ? "Uploading file..."
+                    : "Drag and drop your drawing here"}
                 </h4>
                 <p className="text-sm text-muted-foreground mb-8">
-                  {isUploading ? "Please wait while we process the upload." : (
+                  {isUploading ? (
+                    "Please wait while we process the upload."
+                  ) : (
                     <>
                       Or{" "}
                       <span className="text-amber-500 font-semibold hover:text-amber-600 transition-colors">

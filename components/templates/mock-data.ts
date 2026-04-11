@@ -7,10 +7,10 @@ export type TemplateTeamMember = {
 };
 
 export type Template = {
-  id: number;
+  id: string | number;
   title: string;
   description: string;
-  icon: LucideIcon;
+  icon: LucideIcon | string;
   iconBg: string;
   iconColor: string;
   openedAt: string;

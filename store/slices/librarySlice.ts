@@ -1,5 +1,6 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
-import { LibraryCategory, LibraryItem, PaginatedResponse } from "@/types/api";
+import { LibraryCategory, LibraryItem } from "@/types/library";
+import { PaginatedResponse } from "@/types/common";
 
 interface LibraryState {
   categories: LibraryCategory[];

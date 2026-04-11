@@ -1,45 +1,5 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
-
-export interface WorkItem {
-  item: string;
-  specification: string;
-  unit: string;
-  quantity: number;
-  notes: string;
-}
-
-export interface Section {
-  sectionName: string;
-  workItems: WorkItem[];
-}
-
-export interface BoqResult {
-  projectTitle: string;
-  sections: Section[];
-  generalNotes: string;
-}
-
-export interface Project {
-  _id: string;
-  name: string;
-  description: string;
-  userId: string;
-  companyId: string;
-  status: string;
-  source: string;
-  sourceJobId: string;
-  boqResult: BoqResult;
-  libraryItems: string[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface Pagination {
-  total: number;
-  page: number;
-  limit: number;
-  pages: number;
-}
+import { Pagination, Project } from "@/types/projects";
 
 interface ProjectsState {
   projects: Project[];
@@ -59,7 +19,10 @@ const projectsSlice = createSlice({
   name: "projects",
   initialState,
   reducers: {
-    setProjects(state, action: PayloadAction<{ data: Project[]; pagination: Pagination }>) {
+    setProjects(
+      state,
+      action: PayloadAction<{ data: Project[]; pagination: Pagination }>,
+    ) {
       state.projects = action.payload.data;
       state.pagination = action.payload.pagination;
     },
@@ -73,7 +36,9 @@ const projectsSlice = createSlice({
       }
     },
     updateProjectInState(state, action: PayloadAction<Project>) {
-      const index = state.projects.findIndex((p) => p._id === action.payload._id);
+      const index = state.projects.findIndex(
+        (p) => p._id === action.payload._id,
+      );
       if (index !== -1) {
         state.projects[index] = action.payload;
       }
@@ -90,7 +55,10 @@ const projectsSlice = createSlice({
         state.selectedProject = null;
       }
     },
-    setNewProjectDraft(state, action: PayloadAction<Record<string, any> | null>) {
+    setNewProjectDraft(
+      state,
+      action: PayloadAction<Record<string, any> | null>,
+    ) {
       state.newProjectDraft = action.payload;
     },
   },

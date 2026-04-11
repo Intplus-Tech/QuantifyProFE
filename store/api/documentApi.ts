@@ -1,12 +1,8 @@
 import { baseApi } from "./baseApi";
 import { ApiMethods } from "@/utils/apiMethods";
 import { documents as docEndpoints } from "@/utils/endpoints";
-import {
-  ApiResponse,
-  BoqRequest,
-  BoqResponse,
-  ProcessDocumentInput,
-} from "@/types/api";
+import { ApiResponse } from "@/types/common";
+import { BoqRequest, BoqResponse, ProcessDocumentInput } from "@/types/documents";
 import { setJobs } from "../slices/documentSlice";
 
 export const documentApi = baseApi.injectEndpoints({

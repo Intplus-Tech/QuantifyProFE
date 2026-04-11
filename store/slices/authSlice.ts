@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { LoginResponse, User } from "@/types/auth";
-import { CompanyProfile } from "@/types/api";
+import { CompanyProfile } from "@/types/company";
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 
 interface AuthState {

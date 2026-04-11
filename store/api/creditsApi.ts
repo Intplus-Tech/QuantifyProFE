@@ -1,12 +1,8 @@
 import { baseApi } from "./baseApi";
 import { ApiMethods } from "@/utils/apiMethods";
 import { Credits as creditsEndpoints } from "@/utils/endpoints";
-import {
-  ApiResponse,
-  CreditBalance,
-  CreditUsage,
-  AddCreditsInput,
-} from "@/types/api";
+import { ApiResponse } from "@/types/common";
+import { CreditBalance, CreditUsage, AddCreditsInput } from "@/types/credits";
 import { setBalance, setHistory } from "../slices/creditsSlice";
 
 export const creditsApi = baseApi.injectEndpoints({

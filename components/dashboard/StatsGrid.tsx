@@ -38,9 +38,9 @@ export function StatsGrid({ stats }: StatsGridProps) {
               )}
               <div>
                 <p className={stat.colorClass || ""}>{stat.label}</p>
-                <p className="text-4xl font-bold text-foreground">
+                <div className="text-4xl font-bold text-foreground">
                   {stat.value}
-                </p>
+                </div>
                 {stat.extra}
               </div>
             </div>

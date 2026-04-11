@@ -1,5 +1,5 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
-import { CompanyProfile, TeamMember } from "@/types/api";
+import { CompanyProfile, TeamMember } from "@/types/company";
 
 interface CompanyState {
   currentCompany: CompanyProfile | null;

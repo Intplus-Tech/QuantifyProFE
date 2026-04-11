@@ -1,5 +1,5 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
-import { CreditBalance, CreditUsage } from "@/types/api";
+import { CreditBalance, CreditUsage } from "@/types/credits";
 
 interface CreditsState {
   balance: CreditBalance | null;

@@ -1,7 +1,8 @@
 import { baseApi } from "./baseApi";
 import { ApiMethods } from "@/utils/apiMethods";
 import { support as supportEndpoints } from "@/utils/endpoints";
-import { ApiResponse, SupportTicket, CreateTicketInput } from "@/types/api";
+import { ApiResponse } from "@/types/common";
+import { SupportTicket, CreateTicketInput } from "@/types/support";
 
 export const supportApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({

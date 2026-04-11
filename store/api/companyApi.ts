@@ -1,13 +1,14 @@
 import { baseApi } from "./baseApi";
 import { ApiMethods } from "@/utils/apiMethods";
 import { company as companyEndpoints } from "@/utils/endpoints";
+import { ApiResponse } from "@/types/common";
 import {
-  ApiResponse,
   CompanyProfile,
   TeamMember,
   UpdateCompanyInput,
   InviteMemberInput,
-} from "@/types/api";
+  UpdateTeamMemberInput,
+} from "@/types/company";
 import { setCompany as setCompanyInCompanySlice, setTeamMembers } from "../slices/companySlice";
 import { setCompany as setCompanyInAuthSlice } from "../slices/authSlice";
 
@@ -78,14 +79,35 @@ export const companyApi = baseApi.injectEndpoints({
         } catch {}
       },
     }),
-    inviteTeamMember: builder.mutation<
-      ApiResponse<TeamMember>,
-      InviteMemberInput
-    >({
+    inviteTeamMember: builder.mutation<ApiResponse<TeamMember>, InviteMemberInput>({
       query: (data) => ({
         url: companyEndpoints.team.invite,
         method: ApiMethods.POST,
         body: data,
+      }),
+      invalidatesTags: ["User"],
+    }),
+    resendTeamInvitation: builder.mutation<ApiResponse<null>, string>({
+      query: (invitationId) => ({
+        url: companyEndpoints.team.resendInvitation(invitationId),
+        method: ApiMethods.POST,
+      }),
+    }),
+    updateTeamMember: builder.mutation<
+      ApiResponse<TeamMember>,
+      { memberId: string; data: UpdateTeamMemberInput }
+    >({
+      query: ({ memberId, data }) => ({
+        url: companyEndpoints.team.updateMember(memberId),
+        method: ApiMethods.PUT,
+        body: data,
+      }),
+      invalidatesTags: ["User"],
+    }),
+    deleteTeamMember: builder.mutation<ApiResponse<null>, string>({
+      query: (memberId) => ({
+        url: companyEndpoints.team.removeMember(memberId),
+        method: ApiMethods.DELETE,
       }),
       invalidatesTags: ["User"],
     }),
@@ -98,4 +120,7 @@ export const {
   useCreateCompanyProfileMutation,
   useGetTeamMembersQuery,
   useInviteTeamMemberMutation,
+  useResendTeamInvitationMutation,
+  useUpdateTeamMemberMutation,
+  useDeleteTeamMemberMutation,
 } = companyApi;

@@ -31,7 +31,7 @@ export default function ClientsPage() {
                   {totalClients}
                 </span>
                 <span className="text-xs font-medium text-green-600">
-                  +4 this month
+                  +{statsRes?.data?.newClientsThisMonth ?? 0} this month
                 </span>
               </div>
             </CardContent>

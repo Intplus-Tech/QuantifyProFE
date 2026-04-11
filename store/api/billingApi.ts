@@ -1,9 +1,8 @@
 import { baseApi } from "./baseApi";
 import { ApiMethods } from "@/utils/apiMethods";
 import { company as companyEndpoints } from "@/utils/endpoints";
+import { ApiResponse, PaginatedResponse } from "@/types/common";
 import {
-  ApiResponse,
-  PaginatedResponse,
   BillingInfo,
   BillingInvoice,
   BillingPaymentMethod,
@@ -13,7 +12,7 @@ import {
   VerifySubscriptionInput,
   UsageStats,
   UpdateBillingPlanInput,
-} from "@/types/api";
+} from "@/types/billing";
 
 export const billingApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -21,7 +20,10 @@ export const billingApi = baseApi.injectEndpoints({
       query: () => companyEndpoints.billing.info,
       providesTags: ["Billing"],
     }),
-    updateBillingPlan: builder.mutation<ApiResponse<any>, UpdateBillingPlanInput>({
+    updateBillingPlan: builder.mutation<
+      ApiResponse<any>,
+      UpdateBillingPlanInput
+    >({
       query: (data) => ({
         url: companyEndpoints.billing.changePlan,
         method: ApiMethods.PUT,
@@ -31,7 +33,13 @@ export const billingApi = baseApi.injectEndpoints({
     }),
     getBillingHistory: builder.query<
       PaginatedResponse<BillingInvoice>,
-      { page?: number; limit?: number; status?: string; search?: string; sortBy?: string } | void
+      {
+        page?: number;
+        limit?: number;
+        status?: string;
+        search?: string;
+        sortBy?: string;
+      } | void
     >({
       query: (params) => ({
         url: companyEndpoints.billing.history,
@@ -40,11 +48,16 @@ export const billingApi = baseApi.injectEndpoints({
       }),
       providesTags: ["Billing"],
     }),
-    getPaymentMethods: builder.query<ApiResponse<BillingPaymentMethod[]>, void>({
-      query: () => companyEndpoints.billing.paymentMethods,
-      providesTags: ["PaymentMethods"],
-    }),
-    addPaymentMethod: builder.mutation<ApiResponse<BillingPaymentMethod>, AddPaymentMethodInput>({
+    getPaymentMethods: builder.query<ApiResponse<BillingPaymentMethod[]>, void>(
+      {
+        query: () => companyEndpoints.billing.paymentMethods,
+        providesTags: ["PaymentMethods"],
+      },
+    ),
+    addPaymentMethod: builder.mutation<
+      ApiResponse<BillingPaymentMethod>,
+      AddPaymentMethodInput
+    >({
       query: (data) => ({
         url: companyEndpoints.billing.addPaymentMethod,
         method: ApiMethods.POST,
@@ -52,7 +65,10 @@ export const billingApi = baseApi.injectEndpoints({
       }),
       invalidatesTags: ["PaymentMethods"],
     }),
-    setPrimaryPaymentMethod: builder.mutation<ApiResponse<BillingPaymentMethod>, { id: string; isPrimary: boolean }>({
+    setPrimaryPaymentMethod: builder.mutation<
+      ApiResponse<BillingPaymentMethod>,
+      { id: string; isPrimary: boolean }
+    >({
       query: ({ id, isPrimary }) => ({
         url: companyEndpoints.billing.setPrimaryPaymentMethod(id),
         method: ApiMethods.PUT,
@@ -60,14 +76,19 @@ export const billingApi = baseApi.injectEndpoints({
       }),
       invalidatesTags: ["PaymentMethods", "Billing"],
     }),
-    subscribe: builder.mutation<ApiResponse<SubscribeResponse>, SubscribeInput>({
-      query: (data) => ({
-        url: companyEndpoints.billing.subscribe,
-        method: ApiMethods.POST,
-        body: data,
-      }),
-    }),
-    verifySubscription: builder.mutation<ApiResponse<any>, VerifySubscriptionInput>({
+    subscribe: builder.mutation<ApiResponse<SubscribeResponse>, SubscribeInput>(
+      {
+        query: (data) => ({
+          url: companyEndpoints.billing.subscribe,
+          method: ApiMethods.POST,
+          body: data,
+        }),
+      },
+    ),
+    verifySubscription: builder.mutation<
+      ApiResponse<any>,
+      VerifySubscriptionInput
+    >({
       query: (data) => ({
         url: companyEndpoints.billing.verify,
         method: ApiMethods.POST,

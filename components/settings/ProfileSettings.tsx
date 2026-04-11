@@ -156,7 +156,7 @@ export default function ProfileSettings() {
         : "",
       title: currentUser?.title || "qs",
       email: currentUser?.email || "",
-      phone: currentUser?.phone || "",
+      phone: currentUser?.phoneNumber || "",
       address: currentUser?.address || "",
     },
   });
@@ -167,7 +167,7 @@ export default function ProfileSettings() {
         fullName: `${currentUser.firstName} ${currentUser.lastName}`.trim(),
         title: currentUser.title || "qs",
         email: currentUser.email || "",
-        phone: currentUser.phone || "",
+        phone: currentUser.phoneNumber || "",
         address: currentUser.address || "",
       });
     }
@@ -284,6 +284,16 @@ export default function ProfileSettings() {
                             <SelectItem value="Architecture">
                               Architecture
                             </SelectItem>
+                            <SelectItem value="Construction">
+                              Construction
+                            </SelectItem>
+                            <SelectItem value="Real Estate">
+                              Real Estate
+                            </SelectItem>
+                            <SelectItem value="Project Management">
+                              Project Management
+                            </SelectItem>
+                            <SelectItem value="Other">Other</SelectItem>
                           </SelectContent>
                         </Select>
                       )}
@@ -310,7 +320,7 @@ export default function ProfileSettings() {
                             <SelectItem value="11-50">11-50</SelectItem>
                             <SelectItem value="51-200">51-200</SelectItem>
                             <SelectItem value="201-500">201-500</SelectItem>
-                            <SelectItem value="501+">500+</SelectItem>
+                            <SelectItem value="500+">500+</SelectItem>
                           </SelectContent>
                         </Select>
                       )}
@@ -423,7 +433,7 @@ export default function ProfileSettings() {
                     <FieldError message={errP.phone?.message} />
                   </div>
                 </div>
-                <div className="space-y-2">
+                {/* <div className="space-y-2">
                   <Label className="text-xs font-medium text-muted-foreground">
                     Primary Address
                   </Label>
@@ -432,7 +442,7 @@ export default function ProfileSettings() {
                     className="bg-white border-border/50 resize-none min-h-20"
                   />
                   <FieldError message={errP.address?.message} />
-                </div>
+                </div> */}
                 <div className="flex justify-end">
                   <Button
                     type="submit"

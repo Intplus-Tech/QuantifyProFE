@@ -54,9 +54,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Client } from "@/store/slices/clientsSlice";
-import { Project } from "@/store/slices/projectsSlice";
 import { INDUSTRY_COLORS, STATUS_COLORS } from "./mockData";
+import { Client } from "@/types/clients";
+import { Project } from "@/types/projects";
+import {
+  useUpdateClientMutation,
+  useDeleteClientMutation,
+} from "@/store/api/clientsApi";
 
 // ---------------------------------------------------------------------------
 // Shared type
@@ -181,11 +185,7 @@ export function ViewProfileDialog({
           {client.notes && (
             <>
               <Separator />
-              <ProfileRow
-                icon={FileText}
-                label="Notes"
-                value={client.notes}
-              />
+              <ProfileRow icon={FileText} label="Notes" value={client.notes} />
             </>
           )}
         </div>
@@ -214,20 +214,6 @@ interface EditClientDialogProps {
   client: UIClient | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /**
-   * Called with the updated form data when the user submits.
-   * TODO (next developer): replace the dummy handler in this component with
-   * `useUpdateClientMutation` from `@/store/api/clientsApi` and pass the
-   * result back via this callback.
-   *
-   * Example integration:
-   * ```ts
-   * const [updateClient, { isLoading }] = useUpdateClientMutation();
-   * // In the parent or here:
-   * await updateClient({ clientId: client._id, body: formData }).unwrap();
-   * ```
-   */
-  onSubmit?: (data: Partial<Client>) => void | Promise<void>;
 }
 
 const EMPTY_EDIT_FORM = {
@@ -244,10 +230,9 @@ export function EditClientDialog({
   client,
   open,
   onOpenChange,
-  onSubmit,
 }: EditClientDialogProps) {
   const [form, setForm] = useState(EMPTY_EDIT_FORM);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [updateClient, { isLoading: isSubmitting }] = useUpdateClientMutation();
 
   // Sync form whenever the client changes or the dialog opens
   useEffect(() => {
@@ -274,24 +259,26 @@ export function EditClientDialog({
   }
 
   async function handleSave() {
-    setIsSubmitting(true);
+    if (!client) return;
     try {
-      if (onSubmit) {
-        // Real integration: let the parent handle the API call
-        await onSubmit(form);
-      } else {
-        // TODO (next developer): plug in the real updateClient mutation here.
-        // This dummy simulates a short network delay.
-        await new Promise((r) => setTimeout(r, 600));
-        toast.success("Client updated successfully.", {
-          description: `${form.name}'s details have been saved.`,
-        });
-      }
+      await updateClient({
+        clientId: client._id,
+        body: {
+          name: form.name,
+          clientCompanyName: form.clientCompanyName,
+          industry: form.industry,
+          status: form.status as Client["status"],
+          email: form.email,
+          phone: form.phone,
+          notes: form.notes,
+        },
+      }).unwrap();
+      toast.success("Client updated successfully.", {
+        description: `${form.name}'s details have been saved.`,
+      });
       handleClose();
     } catch (err: any) {
       toast.error(err?.data?.message || "Failed to update client.");
-    } finally {
-      setIsSubmitting(false);
     }
   }
 
@@ -333,10 +320,7 @@ export function EditClientDialog({
 
           {/* Company Name */}
           <div className="flex flex-col gap-1.5">
-            <Label
-              htmlFor="edit-company-name"
-              className="text-sm font-medium"
-            >
+            <Label htmlFor="edit-company-name" className="text-sm font-medium">
               Company Name
             </Label>
             <Input
@@ -493,48 +477,25 @@ interface DeleteClientAlertDialogProps {
   client: UIClient | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /**
-   * Called when the user confirms deletion.
-   * TODO (next developer): plug in `useDeleteClientMutation` from
-   * `@/store/api/clientsApi` and call it here.
-   *
-   * Example integration:
-   * ```ts
-   * const [deleteClient, { isLoading }] = useDeleteClientMutation();
-   * // Pass as onConfirm:
-   * onConfirm={async () => { await deleteClient(client._id).unwrap(); }}
-   * ```
-   */
-  onConfirm?: () => void | Promise<void>;
 }
 
 export function DeleteClientAlertDialog({
   client,
   open,
   onOpenChange,
-  onConfirm,
 }: DeleteClientAlertDialogProps) {
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteClient, { isLoading: isDeleting }] = useDeleteClientMutation();
 
   async function handleConfirm() {
-    setIsDeleting(true);
+    if (!client) return;
     try {
-      if (onConfirm) {
-        // Real integration: let the parent handle the API call
-        await onConfirm();
-      } else {
-        // TODO (next developer): call useDeleteClientMutation here.
-        // This dummy simulates a short network delay.
-        await new Promise((r) => setTimeout(r, 600));
-        toast.success("Client deleted.", {
-          description: `${client?.name} has been removed.`,
-        });
-      }
+      await deleteClient(client._id).unwrap();
+      toast.success("Client deleted.", {
+        description: `${client.name} has been removed.`,
+      });
       onOpenChange(false);
     } catch (err: any) {
       toast.error(err?.data?.message || "Failed to delete client.");
-    } finally {
-      setIsDeleting(false);
     }
   }
 
@@ -542,37 +503,52 @@ export function DeleteClientAlertDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
+      <AlertDialogContent className="max-w-md">
         <AlertDialogHeader>
-          <div className="flex items-center gap-3 mb-1">
-            <div className="flex items-center justify-center w-10 h-10 rounded-full bg-destructive/10 shrink-0">
-              <AlertTriangle className="w-5 h-5 text-destructive" />
+          <div className="flex flex-col items-center text-center gap-4 pb-1">
+            <div className="flex items-center justify-center w-14 h-14 rounded-full bg-destructive/10">
+              <AlertTriangle className="w-7 h-7 text-destructive" />
             </div>
-            <AlertDialogTitle className="text-base font-semibold">
-              Delete Client
-            </AlertDialogTitle>
+            <div>
+              <AlertDialogTitle className="text-lg font-semibold">
+                Delete Client
+              </AlertDialogTitle>
+              <AlertDialogDescription className="text-sm text-muted-foreground mt-2 leading-relaxed">
+                You are about to permanently delete{" "}
+                <span className="font-semibold text-foreground">
+                  {client.name}
+                </span>
+                {client.clientCompanyName && (
+                  <>
+                    {" "}from{" "}
+                    <span className="font-semibold text-foreground">
+                      {client.clientCompanyName}
+                    </span>
+                  </>
+                )}
+                . This action{" "}
+                <span className="text-destructive font-medium">
+                  cannot be undone
+                </span>{" "}
+                and will remove all associated records.
+              </AlertDialogDescription>
+            </div>
           </div>
-          <AlertDialogDescription className="text-sm text-muted-foreground leading-relaxed">
-            Are you sure you want to delete{" "}
-            <span className="font-semibold text-foreground">{client.name}</span>{" "}
-            from{" "}
-            <span className="font-semibold text-foreground">
-              {client.clientCompanyName}
-            </span>
-            ? This action{" "}
-            <span className="text-destructive font-medium">cannot be undone</span>{" "}
-            and will permanently remove the client and all associated records.
-          </AlertDialogDescription>
         </AlertDialogHeader>
-        <AlertDialogFooter className="gap-2">
-          <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+        <AlertDialogFooter className="flex gap-3 sm:gap-3 pt-2">
+          <AlertDialogCancel
+            disabled={isDeleting}
+            className="flex-1"
+          >
+            Cancel
+          </AlertDialogCancel>
           <AlertDialogAction
             onClick={(e) => {
               e.preventDefault();
               handleConfirm();
             }}
             disabled={isDeleting}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
             {isDeleting ? (
               <>
@@ -580,7 +556,7 @@ export function DeleteClientAlertDialog({
                 Deleting…
               </>
             ) : (
-              "Delete"
+              "Delete Client"
             )}
           </AlertDialogAction>
         </AlertDialogFooter>
@@ -722,20 +698,25 @@ export function ViewProjectsDialog({
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/10 hover:bg-muted/10 border-b border-border/50">
-                {["PROJECT DETAILS", "STAGE", "STATUS", "LAST MODIFIED", "BOQ VALUE", "ACTIONS"].map(
-                  (h) => (
-                    <TableHead
-                      key={h}
-                      className={[
-                        "py-3 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap",
-                        h === "BOQ VALUE" ? "text-right" : "",
-                        h === "ACTIONS" ? "text-center" : "",
-                      ].join(" ")}
-                    >
-                      {h}
-                    </TableHead>
-                  )
-                )}
+                {[
+                  "PROJECT DETAILS",
+                  "STAGE",
+                  "STATUS",
+                  "LAST MODIFIED",
+                  "BOQ VALUE",
+                  "ACTIONS",
+                ].map((h) => (
+                  <TableHead
+                    key={h}
+                    className={[
+                      "py-3 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap",
+                      h === "BOQ VALUE" ? "text-right" : "",
+                      h === "ACTIONS" ? "text-center" : "",
+                    ].join(" ")}
+                  >
+                    {h}
+                  </TableHead>
+                ))}
               </TableRow>
             </TableHeader>
 
@@ -770,10 +751,14 @@ export function ViewProjectsDialog({
                 </TableRow>
               ) : (
                 filtered.map((project) => {
-                  const stage = project.boqResult?.projectTitle ? "Completed" : "Draft";
-                  const stageColor = STAGE_COLORS[stage] || "bg-gray-100 text-gray-600";
+                  const stage = project.boqResult?.projectTitle
+                    ? "Completed"
+                    : "Draft";
+                  const stageColor =
+                    STAGE_COLORS[stage] || "bg-gray-100 text-gray-600";
                   const statusKey = project.status?.toLowerCase() || "draft";
-                  const statusDot = PROJECT_STATUS_COLORS[statusKey] || "bg-gray-400";
+                  const statusDot =
+                    PROJECT_STATUS_COLORS[statusKey] || "bg-gray-400";
 
                   return (
                     <TableRow
@@ -813,7 +798,9 @@ export function ViewProjectsDialog({
                       {/* Status */}
                       <TableCell className="py-4 px-5">
                         <div className="flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full shrink-0 ${statusDot}`} />
+                          <span
+                            className={`w-2 h-2 rounded-full shrink-0 ${statusDot}`}
+                          />
                           <span className="text-sm font-medium capitalize text-foreground">
                             {project.status || "Draft"}
                           </span>

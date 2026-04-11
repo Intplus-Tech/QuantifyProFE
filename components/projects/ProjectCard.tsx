@@ -3,7 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { MoreVertical } from "lucide-react";
-import type { Project } from "@/store/slices/projectsSlice";
+import type { Project } from "@/types/projects";
 
 interface ProjectCardProps {
   project: Project;
@@ -13,8 +13,11 @@ export function ProjectCard({ project }: ProjectCardProps) {
   const router = useRouter();
 
   // Temporary mock data for UI fields not yet supported by backend schema
-  const defaultImage = "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&q=80";
-  const mockTeam = [{ avatar: "https://i.pravatar.cc/150?u=1", initials: "JD" }];
+  const defaultImage =
+    "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=800&q=80";
+  const mockTeam = [
+    { avatar: "https://i.pravatar.cc/150?u=1", initials: "JD" },
+  ];
 
   return (
     <Card
@@ -50,10 +53,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
         <div className="flex items-center justify-between mt-auto pt-4 border-t border-border/40">
           <div className="flex -space-x-2">
             {mockTeam.map((member, idx) => (
-              <Avatar
-                key={idx}
-                className="w-7 h-7 border-2 border-background"
-              >
+              <Avatar key={idx} className="w-7 h-7 border-2 border-background">
                 <AvatarImage src={member.avatar} />
                 <AvatarFallback className="text-[10px]">
                   {member.initials}

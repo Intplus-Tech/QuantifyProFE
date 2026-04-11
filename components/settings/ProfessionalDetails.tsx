@@ -430,9 +430,7 @@ export default function ProfessionalDetails() {
                   : "Loading..."}
               </h3>
               <p className="text-sm text-primary font-medium">
-                {professionalData?.professionalTitle ||
-                  currentUser?.title ||
-                  "Professional"}
+                {professionalData?.professionalTitle || "Professional"}
               </p>
             </div>
 

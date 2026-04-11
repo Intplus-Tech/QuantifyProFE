@@ -1,14 +1,13 @@
 import { baseApi } from "./baseApi";
 import { ApiMethods } from "@/utils/apiMethods";
 import { library as libraryEndpoints } from "@/utils/endpoints";
+import { ApiResponse, PaginatedResponse } from "@/types/common";
 import {
-  ApiResponse,
-  PaginatedResponse,
   LibraryCategory,
   LibraryItem,
   CreateCategoryInput,
   CreateLibraryItemInput,
-} from "@/types/api";
+} from "@/types/library";
 import { setCategories, setItems, addCategory } from "../slices/librarySlice";
 
 export const libraryApi = baseApi.injectEndpoints({

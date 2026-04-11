@@ -1,7 +1,7 @@
 import { baseApi } from "./baseApi";
 import { ApiMethods } from "@/utils/apiMethods";
 import { auth as authEndpoints } from "@/utils/endpoints";
-import { LoginResponse, RegistrationResponse } from "@/types/auth";
+import { ApiResponse } from "@/types/common";
 import {
   LoginInput,
   RegisterInput,
@@ -9,8 +9,9 @@ import {
   ForgotPasswordInput,
   ResetPasswordInput,
   ChangePasswordInput,
-  ApiResponse,
-} from "@/types/api";
+  LoginResponse,
+  RegistrationResponse,
+} from "@/types/auth";
 import { logout } from "../slices/authSlice";
 
 export const authApi = baseApi.injectEndpoints({

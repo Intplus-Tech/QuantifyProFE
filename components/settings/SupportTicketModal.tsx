@@ -1,6 +1,6 @@
 "use client";
 
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
@@ -13,14 +13,34 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowRight } from "lucide-react";
+import { useCreateTicketMutation } from "@/store/api/supportApi";
 
 // ─── Schema ──────────────────────────────────────────────────────────────────
+
+const CATEGORIES = [
+  "Technical Support",
+  "Account & Billing",
+  "Feature Request",
+  "Automation",
+  "Other",
+] as const;
 
 const ticketSchema = z.object({
   fullName: z.string().min(2, "Full name must be at least 2 characters"),
   email: z.string().email("Enter a valid email address"),
+  subject: z.string().min(3, "Subject must be at least 3 characters"),
+  category: z.enum(CATEGORIES, {
+    message: "Please select a valid category",
+  }),
   description: z
     .string()
     .min(10, "Description must be at least 10 characters"),
@@ -28,13 +48,6 @@ const ticketSchema = z.object({
 
 type TicketFormValues = z.infer<typeof ticketSchema>;
 
-// ─── Dummy API handler ────────────────────────────────────────────────────────
-
-async function submitSupportTicket(data: TicketFormValues): Promise<void> {
-  // TODO: Replace with real API call e.g. await api.post("/support/tickets", data)
-  await new Promise((r) => setTimeout(r, 900));
-  console.log("[API] submitSupportTicket →", data);
-}
 
 // ─── Field error helper ───────────────────────────────────────────────────────
 
@@ -56,28 +69,34 @@ export function SupportTicketModal({
   open,
   onOpenChange,
 }: SupportTicketModalProps) {
+  const [createTicket] = useCreateTicketMutation();
   const {
     register,
     handleSubmit,
     reset,
-    formState: { errors, isSubmitting },
+    control,
+    formState: { errors, isSubmitting: isFormSubmitting },
   } = useForm<TicketFormValues>({
     resolver: zodResolver(ticketSchema),
     defaultValues: {
       fullName: "",
       email: "",
+      subject: "",
+      category: "Technical Support",
       description: "",
     },
   });
 
+  const isSubmitting = isFormSubmitting;
+
   async function onSubmit(data: TicketFormValues) {
     try {
-      await submitSupportTicket(data);
+      await createTicket(data).unwrap();
       toast.success("Support ticket submitted. We'll get back to you within 2 hours.");
       reset();
       onOpenChange(false);
-    } catch {
-      toast.error("Failed to submit ticket. Please try again.");
+    } catch (err: any) {
+      toast.error(err?.data?.message || "Failed to submit ticket. Please try again.");
     }
   }
 
@@ -121,9 +140,47 @@ export function SupportTicketModal({
               </div>
             </div>
 
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-foreground">
+                  Subject
+                </Label>
+                <Input
+                  {...register("subject")}
+                  placeholder="e.g. Issue with Boq extraction"
+                  className="border-border/60"
+                />
+                <FieldError message={errors.subject?.message} />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-foreground">
+                  Category
+                </Label>
+                <Controller
+                  control={control}
+                  name="category"
+                  render={({ field }) => (
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <SelectTrigger className="w-full h-10 border-border/60">
+                        <SelectValue placeholder="Select a category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CATEGORIES.map((cat) => (
+                          <SelectItem key={cat} value={cat}>
+                            {cat}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                <FieldError message={errors.category?.message} />
+              </div>
+            </div>
+
             <div className="space-y-2">
               <Label className="text-sm font-medium text-foreground">
-                Discription
+                Description
               </Label>
               <Textarea
                 {...register("description")}
