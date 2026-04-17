@@ -1,12 +1,21 @@
 "use client";
 
-import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, X, Save } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { WIZARD_STEPS, defaultStep2, defaultStep3, defaultStep4, defaultStep5, defaultSubstructureData, defaultSubstructureFooting, defaultSubstructureFrameElement, defaultBlindingElement } from "./constants";
-import type { WizardState, UploadedFile, Step2Data, Step3Data, Step4Data, Step5Data, ConcreteElement, SubstructureData, BlindingElement } from "./types";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import {
+  goBackStep,
+  goNextStep,
+  markDraftSaved,
+  updateDrawings,
+  updateFinishing,
+  updateMetrics,
+  updateScope,
+  updateStep2,
+} from "@/store/slices/manualWizardSlice";
+import { WIZARD_STEPS } from "./constants";
 import { StepDrawings }        from "./StepDrawings";
 import { StepProjectDetails }  from "./StepProjectDetails";
 import { StepScope }           from "./StepScope";
@@ -17,205 +26,21 @@ interface ManualSetupShellProps {
   basePath?: string; // "/projects" or "/enterprise/projects"
 }
 
-function normalizeScopeState(scope: Step3Data): Step3Data {
-  const hasPool = scope.scopeConfig.hasPool;
-  const hasLift = scope.scopeConfig.lift === "Yes";
-  const hasStairs = Number(scope.scopeConfig.noOfFloors) > 0;
-  const projectType = scope.scopeConfig.projectType;
-  const foundationType = scope.scopeConfig.foundationType;
-
-  // For Piling Alone, clear Blinding and Substructure entirely
-  if (projectType === "Piling Alone") {
-    return {
-      ...scope,
-      blinding: {},
-      substructure: defaultSubstructureData(),
-      superstructure: filterSuperstructure(scope.superstructure, hasLift, hasStairs),
-    };
-  }
-
-  // For Foundation & Carcass Only + Pile, clear Substructure entirely
-  if (projectType === "Foundation & Carcass Only" && foundationType === "Pile") {
-    return {
-      ...scope,
-      blinding: {
-        ...(hasPool ? { "Swimming Pool": scope.blinding["Swimming Pool"] ?? defaultBlindingElement() } : {}),
-        "Pile Cap": scope.blinding["Pile Cap"] ?? defaultBlindingElement(),
-        "Oversite Slab": scope.blinding["Oversite Slab"] ?? defaultBlindingElement(),
-      },
-      substructure: defaultSubstructureData(),
-      superstructure: filterSuperstructure(scope.superstructure, hasLift, hasStairs),
-    };
-  }
-
-  // For Carcass with finishes (all foundation types), clear Substructure entirely
-  if (projectType === "Carcass with finishes") {
-    const blindingElements: Record<string, BlindingElement> = {};
-    if (hasPool) {
-      blindingElements["Swimming Pool"] = scope.blinding["Swimming Pool"] ?? defaultBlindingElement();
-    }
-    
-    if (foundationType === "Pile") {
-      blindingElements["Pile Cap"] = scope.blinding["Pile Cap"] ?? defaultBlindingElement();
-      blindingElements["Oversite Slab"] = scope.blinding["Oversite Slab"] ?? defaultBlindingElement();
-    } else if (foundationType === "Raft") {
-      blindingElements["Raft Foundation"] = scope.blinding["Raft Foundation"] ?? defaultBlindingElement();
-      blindingElements["Ground Beam"] = scope.blinding["Ground Beam"] ?? defaultBlindingElement();
-      blindingElements["Oversite Slab"] = scope.blinding["Oversite Slab"] ?? defaultBlindingElement();
-      blindingElements["Pad Footing"] = scope.blinding["Pad Footing"] ?? defaultBlindingElement();
-    } else if (foundationType === "Strip") {
-      blindingElements["Strip Foundation"] = scope.blinding["Strip Foundation"] ?? defaultBlindingElement();
-      blindingElements["Oversite Slab"] = scope.blinding["Oversite Slab"] ?? defaultBlindingElement();
-    } else if (foundationType === "Raft Pile with Basement") {
-      blindingElements["Pile Cap"] = scope.blinding["Pile Cap"] ?? defaultBlindingElement();
-      blindingElements["Ground Beam"] = scope.blinding["Ground Beam"] ?? defaultBlindingElement();
-      blindingElements["Oversite Slab"] = scope.blinding["Oversite Slab"] ?? defaultBlindingElement();
-    }
-    
-    return {
-      ...scope,
-      blinding: blindingElements,
-      substructure: defaultSubstructureData(),
-      superstructure: filterSuperstructure(scope.superstructure, hasLift, hasStairs),
-    };
-  }
-
-  const nextBlinding = { ...scope.blinding };
-  if (!hasPool) {
-    delete nextBlinding["Swimming Pool"];
-  }
-  if (foundationType === "Pile") {
-    delete nextBlinding["Ground Beam"];
-  }
-  if (projectType !== "Foundation & Carcass Only" && projectType !== "Carcass with finishes") {
-    delete nextBlinding["Pad Footing"];
-    delete nextBlinding["Strip Foundation"];
-  }
-  if ((projectType === "Foundation & Carcass Only" || projectType === "Carcass with finishes") && foundationType !== "Raft") {
-    delete nextBlinding["Pad Footing"];
-  }
-  if ((projectType === "Foundation & Carcass Only" || projectType === "Carcass with finishes") && foundationType !== "Strip" && foundationType !== "Raft") {
-    delete nextBlinding["Strip Foundation"];
-  }
-
-  const nextSuperstructure = filterSuperstructure(scope.superstructure, hasLift, hasStairs);
-
-  const nextSubstructureElements = { ...scope.substructure.elements };
-  if (!hasLift) {
-    delete nextSubstructureElements["Lift Wall"];
-  }
-  if (!hasPool) {
-    delete nextSubstructureElements["Swimming Pool"];
-  }
-  if (foundationType === "Pile") {
-    delete nextSubstructureElements["Ground Beam"];
-  }
-  if ((projectType === "Foundation & Carcass Only" || projectType === "Carcass with finishes") && foundationType !== "Raft" && foundationType !== "Strip") {
-    delete nextSubstructureElements["Column Footing (Upper Strip)"];
-  }
-
-  const nextBlockworkInStripFoundation =
-    (projectType === "Foundation & Carcass Only" || projectType === "Carcass with finishes") && (foundationType === "Raft" || foundationType === "Strip")
-      ? scope.substructure.blockworkInStripFoundation
-      : { blockworkForFormwork: "", blockworkFilling: "" };
-
-  return {
-    ...scope,
-    blinding: nextBlinding,
-    substructure: {
-      ...scope.substructure,
-      elements: nextSubstructureElements,
-      blockworkInStripFoundation: nextBlockworkInStripFoundation,
-    },
-    superstructure: nextSuperstructure,
-  };
-}
-
-function filterSuperstructure(superstructure: Record<string, ConcreteElement>, hasLift: boolean, hasStairs: boolean): Record<string, ConcreteElement> {
-  const nextSuperstructure = { ...superstructure };
-  if (!hasLift) {
-    delete nextSuperstructure["Lift Wall"];
-  }
-  if (!hasStairs) {
-    delete nextSuperstructure["Stairs"];
-  }
-  return nextSuperstructure;
-}
-
-function normalizeFinishingState(finishing: Step4Data, scopeConfig: Step3Data["scopeConfig"]): Step4Data {
-  const hasPool = scopeConfig.hasPool;
-  const hasLift = scopeConfig.lift === "Yes";
-  const hasStairs = Number(scopeConfig.noOfFloors) > 0;
-
-  return {
-    ...finishing,
-    specifications: {
-      ...finishing.specifications,
-      riserHeightForStairs: hasStairs ? finishing.specifications.riserHeightForStairs : "",
-    },
-    floorTiles: {
-      ...finishing.floorTiles,
-      stairsArea: hasStairs ? finishing.floorTiles.stairsArea : [],
-      swimmingPool: hasPool ? finishing.floorTiles.swimmingPool : [],
-      liftWalls: hasLift ? finishing.floorTiles.liftWalls : [],
-    },
-  };
-}
-
 export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellProps) {
   const router = useRouter();
-  const [currentStep, setCurrentStep] = useState(1);
+  const dispatch = useAppDispatch();
+  const currentStep = useAppSelector((state) => state.manualWizard.currentStep);
+  const wizardState = useAppSelector((state) => state.manualWizard.wizard);
 
-  const [wizardState, setWizardState] = useState<WizardState>({
-    drawings: [],
-    step2: defaultStep2(),
-    scope: defaultStep3(),
-    finishing: defaultStep4(),
-    metrics: defaultStep5(),
-  });
-
-  // ── Updaters passed to each step ──────────────────────────────────────────
-  const updateDrawings = useCallback((drawings: UploadedFile[]) => {
-    setWizardState((prev) => ({ ...prev, drawings }));
-  }, []);
-
-  const updateStep2 = useCallback((step2: Step2Data) => {
-    setWizardState((prev) => ({ ...prev, step2 }));
-  }, []);
-
-  const updateScope = useCallback((scope: Step3Data) => {
-    setWizardState((prev) => {
-      const normalizedScope = normalizeScopeState(scope);
-      const normalizedFinishing = normalizeFinishingState(
-        prev.finishing,
-        normalizedScope.scopeConfig
-      );
-
-      return {
-        ...prev,
-        scope: normalizedScope,
-        finishing: normalizedFinishing,
-      };
-    });
-  }, []);
-
-  const updateFinishing = useCallback((finishing: Step4Data) => {
-    setWizardState((prev) => ({ ...prev, finishing }));
-  }, []);
-
-  const updateMetrics = useCallback((metrics: Step5Data) => {
-    setWizardState((prev) => ({ ...prev, metrics }));
-  }, []);
-
-  // ── Navigation ────────────────────────────────────────────────────────────
-  const goNext = useCallback(() => setCurrentStep((s) => Math.min(s + 1, 5)), []);
-  const goBack = useCallback(() => setCurrentStep((s) => Math.max(s - 1, 1)), []);
+  const goNext = () => dispatch(goNextStep());
+  const goBack = () => dispatch(goBackStep());
 
   function handleCancel() {
     router.push(basePath);
   }
 
   function handleSaveDraft() {
+    dispatch(markDraftSaved());
     toast.success("Draft saved.");
   }
 
@@ -311,7 +136,7 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
           {currentStep === 1 && (
             <StepDrawings
               drawings={wizardState.drawings}
-              onChange={updateDrawings}
+              onChange={(drawings) => dispatch(updateDrawings(drawings))}
               onNext={goNext}
               onSaveDraft={handleSaveDraft}
             />
@@ -319,7 +144,7 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
           {currentStep === 2 && (
             <StepProjectDetails
               data={wizardState.step2}
-              onChange={updateStep2}
+              onChange={(step2) => dispatch(updateStep2(step2))}
               onNext={goNext}
               onBack={goBack}
             />
@@ -327,7 +152,7 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
           {currentStep === 3 && (
             <StepScope
               data={wizardState.scope}
-              onChange={updateScope}
+              onChange={(scope) => dispatch(updateScope(scope))}
               onNext={goNext}
               onBack={goBack}
             />
@@ -336,7 +161,7 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
             <StepFinishing
               data={wizardState.finishing}
               scopeConfig={wizardState.scope.scopeConfig}
-              onChange={updateFinishing}
+              onChange={(finishing) => dispatch(updateFinishing(finishing))}
               onNext={goNext}
               onBack={goBack}
             />
@@ -344,7 +169,7 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
           {currentStep === 5 && (
             <StepMetrics
               data={wizardState.metrics}
-              onChange={updateMetrics}
+              onChange={(metrics) => dispatch(updateMetrics(metrics))}
               onBack={goBack}
               onFinish={handleFinish}
             />

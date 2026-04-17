@@ -9,6 +9,7 @@ import documentReducer from "./slices/documentSlice";
 import plansReducer from "./slices/plansSlice";
 import clientsReducer from "./slices/clientsSlice";
 import projectsReducer from "./slices/projectsSlice";
+import manualWizardReducer from "./slices/manualWizardSlice";
 
 // Import API slices to ensure they are registered
 import "./api/authApi";
@@ -33,9 +34,15 @@ export const store = configureStore({
     plans: plansReducer,
     clients: clientsReducer,
     projects: projectsReducer,
+    manualWizard: manualWizardReducer,
   },
   middleware: (getDefaultMiddleware: any) =>
-    getDefaultMiddleware().concat(baseApi.middleware),
+    getDefaultMiddleware({
+      serializableCheck: {
+        ignoredActions: ["manualWizard/updateDrawings"],
+        ignoredPaths: ["manualWizard.wizard.drawings"],
+      },
+    }).concat(baseApi.middleware),
 });
 
 setupListeners(store.dispatch);
