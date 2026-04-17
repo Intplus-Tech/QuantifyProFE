@@ -141,7 +141,7 @@ export default function ProjectsPage() {
           <Card
             key={project.id}
             className="overflow-hidden flex flex-col shadow-sm hover:shadow-md transition-shadow border-border/50 cursor-pointer"
-            onClick={() => router.push("/enterprise/projects/demo-project/boq")}
+            onClick={() => router.push("/enterprise/projects/demo-project")}
           >
             {/* Project Image */}
             <div className="relative h-48 w-full bg-muted">

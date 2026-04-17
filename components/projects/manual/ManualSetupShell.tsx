@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, X, Save } from "lucide-react";
 import { toast } from "sonner";
@@ -9,6 +10,7 @@ import {
   goBackStep,
   goNextStep,
   markDraftSaved,
+  resetWizard,
   updateDrawings,
   updateFinishing,
   updateMetrics,
@@ -16,6 +18,8 @@ import {
   updateStep2,
 } from "@/store/slices/manualWizardSlice";
 import { WIZARD_STEPS } from "./constants";
+import { buildWorkspaceProjectFromWizard } from "../workspace/workspaceMapper";
+import { registerWorkspaceProject } from "@/store/slices/projectWorkspaceSlice";
 import { StepDrawings }        from "./StepDrawings";
 import { StepProjectDetails }  from "./StepProjectDetails";
 import { StepScope }           from "./StepScope";
@@ -32,6 +36,10 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
   const currentStep = useAppSelector((state) => state.manualWizard.currentStep);
   const wizardState = useAppSelector((state) => state.manualWizard.wizard);
 
+  useEffect(() => {
+    dispatch(resetWizard());
+  }, [dispatch]);
+
   const goNext = () => dispatch(goNextStep());
   const goBack = () => dispatch(goBackStep());
 
@@ -46,6 +54,7 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
 
   function handleFinish() {
     const projectId = crypto.randomUUID();
+    dispatch(registerWorkspaceProject(buildWorkspaceProjectFromWizard(projectId, wizardState)));
     router.push(`${basePath}/${projectId}`);
   }
 

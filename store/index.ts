@@ -10,6 +10,7 @@ import plansReducer from "./slices/plansSlice";
 import clientsReducer from "./slices/clientsSlice";
 import projectsReducer from "./slices/projectsSlice";
 import manualWizardReducer from "./slices/manualWizardSlice";
+import projectWorkspaceReducer from "./slices/projectWorkspaceSlice";
 
 // Import API slices to ensure they are registered
 import "./api/authApi";
@@ -35,6 +36,7 @@ export const store = configureStore({
     clients: clientsReducer,
     projects: projectsReducer,
     manualWizard: manualWizardReducer,
+    projectWorkspace: projectWorkspaceReducer,
   },
   middleware: (getDefaultMiddleware: any) =>
     getDefaultMiddleware({

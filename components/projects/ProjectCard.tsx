@@ -22,7 +22,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
   return (
     <Card
       className="overflow-hidden flex flex-col shadow-sm hover:shadow-md transition-shadow border-border/50 cursor-pointer"
-      onClick={() => router.push(`/projects/${project._id}/boq`)}
+      onClick={() => router.push(`/projects/${project._id}`)}
     >
       <div className="relative h-48 w-full bg-muted">
         <img
