@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -40,7 +40,7 @@ function SelectField({
     <div className="space-y-1.5">
       <Label className="text-xs font-medium text-muted-foreground">{label}</Label>
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="border-border/60 h-9 text-sm">
+        <SelectTrigger className="w-full border-border/60 h-9 text-sm">
           <SelectValue placeholder="Select..." />
         </SelectTrigger>
         <SelectContent>
@@ -66,13 +66,25 @@ interface TileGroupProps {
 }
 
 function TileGroup({ title, rows, onChange, disabled, disabledMessage }: TileGroupProps) {
+  function withSequentialTypeCodes(inputRows: TileTypeRow[]): TileTypeRow[] {
+    return inputRows.map((row, idx) => ({
+      ...row,
+      typeCode: String.fromCharCode(65 + idx),
+    }));
+  }
+
   function updateRow(idx: number, description: string) {
     const updated = rows.map((r, i) => (i === idx ? { ...r, description } : r));
-    onChange(updated);
+    onChange(withSequentialTypeCodes(updated));
   }
 
   function addRow() {
-    onChange([...rows, { typeCode: `${String.fromCharCode(65 + rows.length)}`, description: "" }]);
+    onChange(withSequentialTypeCodes([...rows, { typeCode: "", description: "" }]));
+  }
+
+  function removeRow(idx: number) {
+    const updated = rows.filter((_, i) => i !== idx);
+    onChange(withSequentialTypeCodes(updated));
   }
 
   return (
@@ -93,7 +105,7 @@ function TileGroup({ title, rows, onChange, disabled, disabledMessage }: TileGro
       <div className="divide-y divide-border/30">
         {rows.map((row, idx) => (
           <div key={idx} className="flex items-center gap-3 px-4 py-2.5">
-            <span className="text-xs font-bold text-muted-foreground w-10 shrink-0">
+            <span className="text-xs font-bold text-muted-foreground w-14 shrink-0 whitespace-nowrap">
               Type {row.typeCode}
             </span>
             <Input
@@ -103,6 +115,16 @@ function TileGroup({ title, rows, onChange, disabled, disabledMessage }: TileGro
               className="border-border/60 h-8 text-sm flex-1"
               disabled={disabled}
             />
+            {!disabled && (
+              <button
+                type="button"
+                onClick={() => removeRow(idx)}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border/60 text-muted-foreground hover:text-destructive hover:border-destructive/40 transition-colors"
+                aria-label={`Delete Type ${row.typeCode}`}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -137,6 +159,7 @@ interface StepFinishingProps {
 export function StepFinishing({ data, scopeConfig, onChange, onNext, onBack }: StepFinishingProps) {
   const hasPool = scopeConfig.hasPool;
   const hasLift = scopeConfig.lift === "Yes";
+  const hasStairs = Number(scopeConfig.noOfFloors) > 0;
 
   function updSpec(key: keyof FinishingSpecifications, value: string) {
     onChange({
@@ -180,7 +203,9 @@ export function StepFinishing({ data, scopeConfig, onChange, onNext, onBack }: S
           <SelectField label="Roof Parapet Wall"        value={spec.roofParapetWall}          onChange={(v) => updSpec("roofParapetWall", v)}         options={PARAPET_WALL_OPTIONS} />
           <SelectField label="Paint Type Internally"    value={spec.paintTypeInternally}      onChange={(v) => updSpec("paintTypeInternally", v)}     options={PAINT_TYPES} />
           <SelectField label="Paint Type Externally"    value={spec.paintTypeExternally}      onChange={(v) => updSpec("paintTypeExternally", v)}     options={PAINT_TYPES} />
-          <SelectField label="Riser Height for Stairs"  value={spec.riserHeightForStairs}     onChange={(v) => updSpec("riserHeightForStairs", v)}    options={RISER_HEIGHTS} />
+          {hasStairs && (
+            <SelectField label="Riser Height for Stairs"  value={spec.riserHeightForStairs}     onChange={(v) => updSpec("riserHeightForStairs", v)}    options={RISER_HEIGHTS} />
+          )}
           <SelectField label="Skirting Landing Thickness" value={spec.skirtingLandingThickness} onChange={(v) => updSpec("skirtingLandingThickness", v)} options={SKIRTING_THICKNESSES} />
         </div>
       </div>
@@ -199,11 +224,13 @@ export function StepFinishing({ data, scopeConfig, onChange, onNext, onBack }: S
           rows={data.floorTiles.wetAreas}
           onChange={(rows) => updFloorGroup("wetAreas", rows)}
         />
-        <TileGroup
-          title="Stairs Area"
-          rows={data.floorTiles.stairsArea}
-          onChange={(rows) => updFloorGroup("stairsArea", rows)}
-        />
+        {hasStairs && (
+          <TileGroup
+            title="Stairs Area"
+            rows={data.floorTiles.stairsArea}
+            onChange={(rows) => updFloorGroup("stairsArea", rows)}
+          />
+        )}
         {hasPool && (
           <TileGroup
             title="Swimming Pool"
@@ -211,13 +238,13 @@ export function StepFinishing({ data, scopeConfig, onChange, onNext, onBack }: S
             onChange={(rows) => updFloorGroup("swimmingPool", rows)}
           />
         )}
-        <TileGroup
-          title="Lift Walls"
-          rows={data.floorTiles.liftWalls}
-          onChange={(rows) => updFloorGroup("liftWalls", rows)}
-          disabled={!hasLift}
-          disabledMessage="ENABLE FROM SCOPE SECTION"
-        />
+        {hasLift && (
+          <TileGroup
+            title="Lift Walls"
+            rows={data.floorTiles.liftWalls}
+            onChange={(rows) => updFloorGroup("liftWalls", rows)}
+          />
+        )}
       </div>
 
       {/* ── Section C: Type of Wall Tiles ── */}

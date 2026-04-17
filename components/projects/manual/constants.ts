@@ -7,6 +7,11 @@ import type {
   PileSystem,
   BlindingElement,
   ConcreteElement,
+  SubstructureLayer,
+  SubstructureFooting,
+  SubstructureConcreteElement,
+  SubstructureFrameElement,
+  SubstructureData,
 } from "./types";
 
 // ─── Stepper config ───────────────────────────────────────────────────────────
@@ -37,8 +42,9 @@ export function getScopeTabs(projectType: string): string[] {
     case "Piling & Substructure":
       return ["pile-system", "blinding", "substructure", "superstructure"];
     case "Foundation & Carcass Only":
+      return ["blinding", "substructure", "superstructure"];
     case "Carcass with finishes":
-      return ["foundation-system", "blinding", "substructure", "superstructure"];
+      return ["foundation-system", "blinding", "superstructure"];
     default:
       return ["superstructure"];
   }
@@ -68,6 +74,12 @@ export const WATERPROOFING_OPTS = ["None", "Membrane", "Crystalline", "Tanking"]
 export const LIFT_OPTIONS = ["Yes", "No"];
 export const POOL_LOCATIONS = ["Substructure", "Superstructure", "External"];
 export const DRAWING_CATEGORIES = ["Architectural", "Structural", "MEP", "Civil", "Electrical"];
+export const SUBSTRUCTURE_FORMWORK_TYPES = ["Block", "Timber"];
+export const SUBSTRUCTURE_BLOCK_TYPES = ["100mm", "150mm", "225mm", "Nil"];
+export const SUBSTRUCTURE_BLOCKWORK_FILLINGS = ["Filled solid with frames", "Solid", "Hollow", "Nil"];
+export const SUBSTRUCTURE_STRIP_BLOCKWORK_FORMWORKS = ["150mm block"];
+export const SUBSTRUCTURE_CASTING_TYPES = ["RMC", "Traditional"];
+export const SUBSTRUCTURE_CASTING_METHODS = ["RMC", "Traditional", "RMC with pump"];
 
 export const CURRENCIES = [
   { value: "NGN", label: "Naira (₦)" },
@@ -111,16 +123,102 @@ export const SKIRTING_THICKNESSES = ["12mm", "18mm", "25mm", "32mm"];
 // ─── Blinding elements ────────────────────────────────────────────────────────
 
 export const BLINDING_ELEMENTS_ALWAYS = ["Pile Cap", "Ground Beam", "Oversite Slab"];
-export const SUPERSTRUCTURE_ELEMENTS_ALWAYS = ["Column", "Lintels", "Beam", "Stairs", "Slab", "Shear Wall", "Roof Column"];
+export const SUBSTRUCTURE_ELEMENTS_ALWAYS = [
+  "Pile Cap",
+  "Ground Beam",
+  "Oversite Slab",
+  "Column in Foundation",
+  "Shear Wall",
+];
+export const SUPERSTRUCTURE_ELEMENTS_ALWAYS = [
+  "Column",
+  "Lintels",
+  "Beam",
+  "Stairs",
+  "Slab",
+  "Shear Wall",
+  "Roof Column",
+  "Kitchen countertop & fixtures",
+  "Roof Beam",
+];
 
 // ─── Default state factories ──────────────────────────────────────────────────
 
 export function defaultBlindingElement(): BlindingElement {
-  return { gradeOfConcrete: "", castingMethod: "", wastePercent: "", blindingThickness: "" };
+  return {
+    gradeOfConcrete: "",
+    plasticizers: "",
+    waterproof: "",
+    castingMethod: "",
+    castingLabourMethod: "",
+    wastePercent: "",
+    blindingThickness: "",
+  };
 }
 
 export function defaultConcreteElement(): ConcreteElement {
   return { gradeOfConcrete: "", plasticizers: "", waterproofing: "", castingMethod: "", castingLabourMethod: "", wastePercent: "" };
+}
+
+export function defaultSubstructureLayer(): SubstructureLayer {
+  return { thicknessMm: "", wastePercent: "" };
+}
+
+export function defaultSubstructureFooting(): SubstructureFooting {
+  return {
+    gradeOfConcrete: "",
+    plasticizers: "",
+    waterproof: "",
+    castingType: "",
+    castingLabourMethod: "",
+    wastePercent: "",
+  };
+}
+
+export function defaultSubstructureConcreteElement(): SubstructureConcreteElement {
+  return {
+    gradeOfConcrete: "",
+    plasticizers: "",
+    waterproof: "",
+    formworkType: "",
+    blockTypeOfFormwork: "",
+    blockworkFilling: "",
+    castingMethod: "",
+    castingLabourMethod: "",
+    castingFillingMethod: "",
+    wastePercent: "",
+  };
+}
+
+export function defaultSubstructureFrameElement(): SubstructureFrameElement {
+  return {
+    gradeOfConcrete: "",
+    plasticizers: "",
+    waterproof: "",
+    formworkType: "",
+    castingMethod: "",
+    castingLabourMethod: "",
+    wastePercent: "",
+  };
+}
+
+export function defaultSubstructureData(): SubstructureData {
+  return {
+    layers: {
+      totalFillingThickness: defaultSubstructureLayer(),
+      lateriteThickness: defaultSubstructureLayer(),
+      hardcoreThickness: defaultSubstructureLayer(),
+    },
+    columnFooting: defaultSubstructureFooting(),
+    elements: Object.fromEntries(
+      SUBSTRUCTURE_ELEMENTS_ALWAYS.map((el) => [el, defaultSubstructureConcreteElement()])
+    ),
+    pileCapFrames: defaultSubstructureFrameElement(),
+    blockworkInStripFoundation: {
+      blockworkForFormwork: "",
+      blockworkFilling: "",
+    },
+  };
 }
 
 export function defaultPileSystem(): PileSystem {
@@ -150,6 +248,7 @@ export function defaultStep3(): Step3Data {
     scopeConfig: defaultScopeConfig(),
     pileSystem: defaultPileSystem(),
     blinding: Object.fromEntries(BLINDING_ELEMENTS_ALWAYS.map((el) => [el, defaultBlindingElement()])),
+    substructure: defaultSubstructureData(),
     superstructure: Object.fromEntries(SUPERSTRUCTURE_ELEMENTS_ALWAYS.map((el) => [el, defaultConcreteElement()])),
   };
 }
@@ -161,15 +260,15 @@ export function defaultStep4(): Step4Data {
       paintTypeInternally: "", paintTypeExternally: "", riserHeightForStairs: "", skirtingLandingThickness: "",
     },
     floorTiles: {
-      generalAreas: [{ typeCode: "A", description: "" }, { typeCode: "B", description: "" }, { typeCode: "C", description: "" }, { typeCode: "D", description: "" }],
-      wetAreas: [{ typeCode: "P", description: "" }, { typeCode: "Q", description: "" }],
-      stairsArea: [{ typeCode: "K", description: "" }],
-      swimmingPool: [{ typeCode: "Z(F)", description: "" }, { typeCode: "Z(W)", description: "" }],
-      liftWalls: [{ typeCode: "Z", description: "" }],
+      generalAreas: [{ typeCode: "A", description: "" }],
+      wetAreas: [{ typeCode: "A", description: "" }],
+      stairsArea: [{ typeCode: "A", description: "" }],
+      swimmingPool: [{ typeCode: "A", description: "" }],
+      liftWalls: [{ typeCode: "A", description: "" }],
     },
     wallTiles: {
-      internalWalls: [{ typeCode: "F", description: "" }, { typeCode: "G", description: "" }],
-      externalWalls: [{ typeCode: "V", description: "" }, { typeCode: "W", description: "" }],
+      internalWalls: [{ typeCode: "A", description: "" }],
+      externalWalls: [{ typeCode: "A", description: "" }],
     },
   };
 }

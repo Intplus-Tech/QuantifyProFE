@@ -30,13 +30,24 @@ import {
   CASTING_LABOUR,
   PLASTICIZERS,
   WATERPROOFING_OPTS,
+  SUBSTRUCTURE_FORMWORK_TYPES,
+  SUBSTRUCTURE_BLOCK_TYPES,
+  SUBSTRUCTURE_BLOCKWORK_FILLINGS,
+  SUBSTRUCTURE_STRIP_BLOCKWORK_FORMWORKS,
+  SUBSTRUCTURE_CASTING_TYPES,
+  SUBSTRUCTURE_CASTING_METHODS,
   getScopeTabs,
   getFirstTabLabel,
   TAB_LABELS,
   BLINDING_ELEMENTS_ALWAYS,
+  SUBSTRUCTURE_ELEMENTS_ALWAYS,
   SUPERSTRUCTURE_ELEMENTS_ALWAYS,
   defaultBlindingElement,
   defaultConcreteElement,
+  defaultSubstructureConcreteElement,
+  defaultSubstructureData,
+  defaultSubstructureFooting,
+  defaultSubstructureFrameElement,
 } from "./constants";
 import type {
   Step3Data,
@@ -44,6 +55,11 @@ import type {
   PileSystem,
   BlindingElement,
   ConcreteElement,
+  SubstructureData,
+  SubstructureLayer,
+  SubstructureFooting,
+  SubstructureConcreteElement,
+  SubstructureFrameElement,
 } from "./types";
 
 // ─── Field error helper ───────────────────────────────────────────────────────
@@ -61,16 +77,20 @@ function SelectField({
   onChange,
   options,
   placeholder = "Select...",
+  labelClassName,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   options: string[];
   placeholder?: string;
+  labelClassName?: string;
 }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs font-medium text-muted-foreground">{label}</Label>
+      <Label className={`text-xs font-medium text-muted-foreground ${labelClassName ?? ""}`}>
+        {label}
+      </Label>
       <Select value={value} onValueChange={onChange}>
         <SelectTrigger className="w-full border-border/60 h-9 text-sm">
           <SelectValue placeholder={placeholder} />
@@ -92,15 +112,19 @@ function NumberField({
   value,
   onChange,
   placeholder = "",
+  labelClassName,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  labelClassName?: string;
 }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs font-medium text-muted-foreground">{label}</Label>
+      <Label className={`text-xs font-medium text-muted-foreground ${labelClassName ?? ""}`}>
+        {label}
+      </Label>
       <Input
         type="number"
         value={value}
@@ -117,15 +141,19 @@ function TextField({
   value,
   onChange,
   placeholder = "",
+  labelClassName,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  labelClassName?: string;
 }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs font-medium text-muted-foreground">{label}</Label>
+      <Label className={`text-xs font-medium text-muted-foreground ${labelClassName ?? ""}`}>
+        {label}
+      </Label>
       <Input
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -299,9 +327,9 @@ function PileSystemTab({
     <div className="space-y-6 py-4">
       {/* Concrete settings */}
       <div>
-        <p className="text-xs font-bold text-foreground uppercase tracking-wider mb-3">
+        {/* <p className="text-xs font-bold text-foreground uppercase tracking-wider mb-3">
           Concrete Settings
-        </p>
+        </p> */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <SelectField label="Grade of Concrete" value={data.gradeOfConcrete} onChange={(v) => upd("gradeOfConcrete", v)} options={CONCRETE_GRADES} />
           <SelectField label="Casting Method" value={data.castingMethod} onChange={(v) => upd("castingMethod", v)} options={CASTING_METHODS} />
@@ -335,33 +363,92 @@ function BlindingTab({
   data,
   onChange,
   hasPool,
+  projectType,
+  foundationType,
 }: {
   data: Record<string, BlindingElement>;
   onChange: (d: Record<string, BlindingElement>) => void;
   hasPool: boolean;
+  projectType: string;
+  foundationType: string;
 }) {
-  const elements = hasPool
-    ? [...BLINDING_ELEMENTS_ALWAYS, "Swimming Pool"]
-    : BLINDING_ELEMENTS_ALWAYS;
+  const isFoundationCarcassRaft =
+    projectType === "Foundation & Carcass Only" && foundationType === "Raft";
+  const isCarcassRaft =
+    projectType === "Carcass with finishes" && foundationType === "Raft";
+  const isFoundationCarcassPile =
+    projectType === "Foundation & Carcass Only" && foundationType === "Pile";
+  const isCarcassPile =
+    projectType === "Carcass with finishes" && foundationType === "Pile";
+  const isFoundationCarcassStrip =
+    projectType === "Foundation & Carcass Only" && foundationType === "Strip";
+  const isCarcassStrip =
+    projectType === "Carcass with finishes" && foundationType === "Strip";
+  const isFoundationCarcassRPWB =
+    projectType === "Foundation & Carcass Only" && foundationType === "Raft Pile with Basement";
+  const isCarcassRPWB =
+    projectType === "Carcass with finishes" && foundationType === "Raft Pile with Basement";
+  const isPileFoundation = foundationType === "Pile";
+  const isStripFoundation = foundationType === "Strip";
+  const isRaftFoundation = foundationType === "Raft" || foundationType === "Raft Pile with Basement";
+
+  const elements = isFoundationCarcassRaft || isCarcassRaft
+    ? [
+        "Raft Foundation",
+        "Ground Beam",
+        "Oversite Slab",
+        "Pad Footing",
+        ...(hasPool ? ["Swimming Pool"] : []),
+      ]
+    : isFoundationCarcassRPWB || isCarcassRPWB
+      ? [
+          "Pile Cap",
+          "Ground Beam",
+          "Oversite Slab",
+          ...(hasPool ? ["Swimming Pool"] : []),
+        ]
+    : isFoundationCarcassPile || isCarcassPile
+      ? ["Pile Cap", "Oversite Slab", ...(hasPool ? ["Swimming Pool"] : [])]
+      : isFoundationCarcassStrip || isCarcassStrip
+        ? ["Strip Foundation", "Oversite Slab", ...(hasPool ? ["Swimming Pool"] : [])]
+        : isPileFoundation
+          ? ["Pile Cap", "Oversite Slab", ...(hasPool ? ["Swimming Pool"] : [])]
+          : hasPool
+            ? [...BLINDING_ELEMENTS_ALWAYS, "Swimming Pool"]
+            : BLINDING_ELEMENTS_ALWAYS;
 
   function updElement(name: string, key: keyof BlindingElement, val: string) {
     const current = data[name] ?? defaultBlindingElement();
     onChange({ ...data, [name]: { ...current, [key]: val } });
   }
 
+  const blindingLabelClass = "block min-h-8 leading-4";
+
   return (
     <div className="space-y-4 py-4">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {elements.map((el) => {
           const el_data = data[el] ?? defaultBlindingElement();
+          const isStripFoundation = el === "Strip Foundation";
+          const isRaftFoundation = el === "Raft Foundation";
+          const hasSpecialFields = isStripFoundation || isRaftFoundation;
           return (
-            <div key={el} className="border border-border/50 rounded-xl p-4 space-y-3">
+            <div key={el} className={`border border-border/50 rounded-xl p-4 space-y-3 ${hasSpecialFields ? "lg:col-span-2" : ""}`}>
               <p className="text-sm font-semibold text-foreground">{el}</p>
-              <div className="grid grid-cols-2 gap-3">
-                <SelectField label="Grade of Concrete" value={el_data.gradeOfConcrete} onChange={(v) => updElement(el, "gradeOfConcrete", v)} options={CONCRETE_GRADES} />
-                <SelectField label="Casting Method" value={el_data.castingMethod} onChange={(v) => updElement(el, "castingMethod", v)} options={CASTING_METHODS} />
-                <NumberField label="Waste (%)" value={el_data.wastePercent} onChange={(v) => updElement(el, "wastePercent", v)} />
-                <NumberField label="Blinding Thickness (mm)" value={el_data.blindingThickness} onChange={(v) => updElement(el, "blindingThickness", v)} />
+              <div className={`grid gap-3 ${hasSpecialFields ? "grid-cols-2 sm:grid-cols-3 md:grid-cols-4" : "grid-cols-2 md:grid-cols-4"}`}>
+                <SelectField label="Grade of Concrete" value={el_data.gradeOfConcrete} onChange={(v) => updElement(el, "gradeOfConcrete", v)} options={CONCRETE_GRADES} labelClassName={blindingLabelClass} />
+                {hasSpecialFields && (
+                  <SelectField label="Plasticizers" value={el_data.plasticizers ?? ""} onChange={(v) => updElement(el, "plasticizers", v)} options={PLASTICIZERS} labelClassName={blindingLabelClass} />
+                )}
+                {hasSpecialFields && (
+                  <SelectField label="Waterproof" value={el_data.waterproof ?? ""} onChange={(v) => updElement(el, "waterproof", v)} options={WATERPROOFING_OPTS} labelClassName={blindingLabelClass} />
+                )}
+                <SelectField label="Casting Method" value={el_data.castingMethod} onChange={(v) => updElement(el, "castingMethod", v)} options={CASTING_METHODS} labelClassName={blindingLabelClass} />
+                {hasSpecialFields && (
+                  <SelectField label="Casting Labour Method" value={el_data.castingLabourMethod ?? ""} onChange={(v) => updElement(el, "castingLabourMethod", v)} options={CASTING_LABOUR} labelClassName={blindingLabelClass} />
+                )}
+                <NumberField label="Waste (%)" value={el_data.wastePercent} onChange={(v) => updElement(el, "wastePercent", v)} labelClassName={blindingLabelClass} />
+                <NumberField label="Blinding Thickness (mm)" value={el_data.blindingThickness} onChange={(v) => updElement(el, "blindingThickness", v)} labelClassName={blindingLabelClass} />
               </div>
             </div>
           );
@@ -377,14 +464,18 @@ function SuperstructureTab({
   data,
   onChange,
   hasLift,
+  noOfFloors,
 }: {
   data: Record<string, ConcreteElement>;
   onChange: (d: Record<string, ConcreteElement>) => void;
   hasLift: boolean;
+  noOfFloors: string;
 }) {
-  const elements = hasLift
-    ? [...SUPERSTRUCTURE_ELEMENTS_ALWAYS, "Lift Wall"]
-    : SUPERSTRUCTURE_ELEMENTS_ALWAYS;
+  const hasStairs = Number(noOfFloors) > 0;
+  const baseElements = SUPERSTRUCTURE_ELEMENTS_ALWAYS.filter(
+    (el) => hasStairs || el !== "Stairs"
+  );
+  const elements = hasLift ? [...baseElements, "Lift Wall"] : baseElements;
 
   function updElement(name: string, key: keyof ConcreteElement, val: string) {
     const current = data[name] ?? defaultConcreteElement();
@@ -418,10 +509,265 @@ function SuperstructureTab({
 
 // ─── Tab: Substructure ────────────────────────────────────────────────────────
 
-function SubstructureTab() {
+function SubstructureLayerCard({
+  title,
+  data,
+  onChange,
+}: {
+  title: string;
+  data: SubstructureLayer;
+  onChange: (d: SubstructureLayer) => void;
+}) {
+  function upd<K extends keyof SubstructureLayer>(key: K, val: SubstructureLayer[K]) {
+    onChange({ ...data, [key]: val });
+  }
+
   return (
-    <div className="py-8 text-center text-muted-foreground">
-      <p className="text-sm">Substructure configuration coming soon.</p>
+    <div className="border border-border/50 rounded-xl p-4 space-y-3">
+      <p className="text-sm font-semibold text-foreground">{title}</p>
+      <div className="grid grid-cols-1 gap-3">
+        <NumberField label="Thickness (mm)" value={data.thicknessMm} onChange={(v) => upd("thicknessMm", v)} />
+        <NumberField label="Waste (%)" value={data.wastePercent} onChange={(v) => upd("wastePercent", v)} />
+      </div>
+    </div>
+  );
+}
+
+function SubstructureFootingCard({
+  data,
+  onChange,
+}: {
+  data: SubstructureFooting;
+  onChange: (d: SubstructureFooting) => void;
+}) {
+  function upd<K extends keyof SubstructureFooting>(key: K, val: SubstructureFooting[K]) {
+    onChange({ ...data, [key]: val });
+  }
+
+  return (
+    <div className="border border-border/50 rounded-xl p-4 space-y-3">
+      <p className="text-sm font-semibold text-foreground">Column Footing</p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <SelectField label="Grade of Concrete" value={data.gradeOfConcrete} onChange={(v) => upd("gradeOfConcrete", v)} options={CONCRETE_GRADES} />
+        <SelectField label="Plasticizers" value={data.plasticizers} onChange={(v) => upd("plasticizers", v)} options={PLASTICIZERS} />
+        <SelectField label="Waterproof" value={data.waterproof} onChange={(v) => upd("waterproof", v)} options={WATERPROOFING_OPTS} />
+        <SelectField label="Casting Type" value={data.castingType} onChange={(v) => upd("castingType", v)} options={SUBSTRUCTURE_CASTING_TYPES} />
+        <SelectField label="Casting Labour Method" value={data.castingLabourMethod} onChange={(v) => upd("castingLabourMethod", v)} options={CASTING_LABOUR} />
+        <NumberField label="Waste (%)" value={data.wastePercent} onChange={(v) => upd("wastePercent", v)} />
+      </div>
+    </div>
+  );
+}
+
+function SubstructureConcreteCard({
+  title,
+  data,
+  onChange,
+  useCastingFillingMethod,
+}: {
+  title: string;
+  data: SubstructureConcreteElement;
+  onChange: (d: SubstructureConcreteElement) => void;
+  useCastingFillingMethod?: boolean;
+}) {
+  function upd<K extends keyof SubstructureConcreteElement>(key: K, val: SubstructureConcreteElement[K]) {
+    onChange({ ...data, [key]: val });
+  }
+
+  return (
+    <div className="border border-border/50 rounded-xl p-4 space-y-3">
+      <p className="text-sm font-semibold text-foreground">{title}</p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <SelectField label="Grade of Concrete" value={data.gradeOfConcrete} onChange={(v) => upd("gradeOfConcrete", v)} options={CONCRETE_GRADES} />
+        <SelectField label="Plasticizers" value={data.plasticizers} onChange={(v) => upd("plasticizers", v)} options={PLASTICIZERS} />
+        <SelectField label="Waterproof" value={data.waterproof} onChange={(v) => upd("waterproof", v)} options={WATERPROOFING_OPTS} />
+        <SelectField label="Formwork Type" value={data.formworkType} onChange={(v) => upd("formworkType", v)} options={SUBSTRUCTURE_FORMWORK_TYPES} />
+        <SelectField label="Block Type of Formwork" value={data.blockTypeOfFormwork} onChange={(v) => upd("blockTypeOfFormwork", v)} options={SUBSTRUCTURE_BLOCK_TYPES} />
+        <SelectField label="Blockwork Filling" value={data.blockworkFilling} onChange={(v) => upd("blockworkFilling", v)} options={SUBSTRUCTURE_BLOCKWORK_FILLINGS} />
+        <SelectField label="Casting Method" value={data.castingMethod} onChange={(v) => upd("castingMethod", v)} options={SUBSTRUCTURE_CASTING_METHODS} />
+        {useCastingFillingMethod ? (
+          <SelectField label="Casting Filling Method" value={data.castingFillingMethod} onChange={(v) => upd("castingFillingMethod", v)} options={CASTING_LABOUR} />
+        ) : (
+          <SelectField label="Casting Labour Method" value={data.castingLabourMethod} onChange={(v) => upd("castingLabourMethod", v)} options={CASTING_LABOUR} />
+        )}
+        <NumberField label="Waste (%)" value={data.wastePercent} onChange={(v) => upd("wastePercent", v)} />
+      </div>
+    </div>
+  );
+}
+
+function SubstructureBlockworkInStripFoundationCard({
+  blockworkForFormwork,
+  blockworkFilling,
+  onChange,
+}: {
+  blockworkForFormwork: string;
+  blockworkFilling: string;
+  onChange: (next: { blockworkForFormwork: string; blockworkFilling: string }) => void;
+}) {
+  return (
+    <div className="border border-border/50 rounded-xl p-4 space-y-3">
+      <p className="text-sm font-semibold text-foreground">Blockwork in Strip Foundation</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <SelectField
+          label="Blockwork for Formwork"
+          value={blockworkForFormwork}
+          onChange={(v) => onChange({ blockworkForFormwork: v, blockworkFilling })}
+          options={SUBSTRUCTURE_STRIP_BLOCKWORK_FORMWORKS}
+        />
+        <SelectField
+          label="Blockwork Filling"
+          value={blockworkFilling}
+          onChange={(v) => onChange({ blockworkForFormwork, blockworkFilling: v })}
+          options={SUBSTRUCTURE_BLOCKWORK_FILLINGS}
+        />
+      </div>
+    </div>
+  );
+}
+
+function SubstructureFrameCard({
+  data,
+  onChange,
+}: {
+  data: SubstructureFrameElement;
+  onChange: (d: SubstructureFrameElement) => void;
+}) {
+  function upd<K extends keyof SubstructureFrameElement>(key: K, val: SubstructureFrameElement[K]) {
+    onChange({ ...data, [key]: val });
+  }
+
+  return (
+    <div className="border border-border/50 rounded-xl p-4 space-y-3">
+      <p className="text-sm font-semibold text-foreground">Pile Cap Frames</p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <SelectField label="Grade of Concrete" value={data.gradeOfConcrete} onChange={(v) => upd("gradeOfConcrete", v)} options={CONCRETE_GRADES} />
+        <SelectField label="Plasticizers" value={data.plasticizers} onChange={(v) => upd("plasticizers", v)} options={PLASTICIZERS} />
+        <SelectField label="Waterproof" value={data.waterproof} onChange={(v) => upd("waterproof", v)} options={WATERPROOFING_OPTS} />
+        <SelectField label="Formwork Type" value={data.formworkType} onChange={(v) => upd("formworkType", v)} options={SUBSTRUCTURE_FORMWORK_TYPES} />
+        <SelectField label="Casting Method" value={data.castingMethod} onChange={(v) => upd("castingMethod", v)} options={SUBSTRUCTURE_CASTING_METHODS} />
+        <SelectField label="Casting Labour Method" value={data.castingLabourMethod} onChange={(v) => upd("castingLabourMethod", v)} options={CASTING_LABOUR} />
+        <NumberField label="Waste (%)" value={data.wastePercent} onChange={(v) => upd("wastePercent", v)} />
+      </div>
+    </div>
+  );
+}
+
+function SubstructureTab({
+  data,
+  onChange,
+  hasLift,
+  hasPool,
+  projectType,
+  foundationType,
+}: {
+  data: SubstructureData;
+  onChange: (d: SubstructureData) => void;
+  hasLift: boolean;
+  hasPool: boolean;
+  projectType: string;
+  foundationType: string;
+}) {
+  const isFoundationCarcassRaft =
+    projectType === "Foundation & Carcass Only" && foundationType === "Raft";
+  const isFoundationCarcassStrip =
+    projectType === "Foundation & Carcass Only" && foundationType === "Strip";
+  const isCarcassStrip =
+    projectType === "Carcass with finishes" && foundationType === "Strip";
+  const isPileFoundation = foundationType === "Pile";
+  const isStripFoundation = foundationType === "Strip";
+
+  const baseElements = isFoundationCarcassRaft
+    ? ["Ground Beam", "Oversite Slab", "Column in Foundation", "Shear Wall", ...(hasLift ? ["Lift Wall"] : []), "Column Footing (Upper Strip)", ...(hasPool ? ["Swimming Pool"] : [])]
+    : isFoundationCarcassStrip || isCarcassStrip
+      ? ["Ground Beam", "Oversite Slab", "Column in Foundation", "Shear Wall", ...(hasLift ? ["Lift Wall"] : []), "Column Footing (Upper Strip)", ...(hasPool ? ["Swimming Pool"] : [])]
+      : isPileFoundation
+        ? ["Pile Cap", "Oversite Slab", "Column in Foundation", "Shear Wall", ...(hasLift ? ["Lift Wall"] : []), ...(hasPool ? ["Swimming Pool"] : [])]
+        : [...SUBSTRUCTURE_ELEMENTS_ALWAYS, ...(hasLift ? ["Lift Wall"] : []), ...(hasPool ? ["Swimming Pool"] : [])];
+
+  function updLayer(key: keyof SubstructureData["layers"], value: SubstructureLayer) {
+    onChange({ ...data, layers: { ...data.layers, [key]: value } });
+  }
+
+  function updColumnFooting(columnFooting: SubstructureFooting) {
+    onChange({ ...data, columnFooting });
+  }
+
+  function updPileCapFrames(pileCapFrames: SubstructureFrameElement) {
+    onChange({ ...data, pileCapFrames });
+  }
+
+  function updElement(name: string, elementData: SubstructureConcreteElement) {
+    onChange({ ...data, elements: { ...data.elements, [name]: elementData } });
+  }
+
+  return (
+    <div className="space-y-4 py-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <SubstructureLayerCard
+          title="Total Filling Thickness"
+          data={data.layers.totalFillingThickness}
+          onChange={(v) => updLayer("totalFillingThickness", v)}
+        />
+        <SubstructureLayerCard
+          title="Laterite Thickness"
+          data={data.layers.lateriteThickness}
+          onChange={(v) => updLayer("lateriteThickness", v)}
+        />
+        <SubstructureLayerCard
+          title="Hardcore Thickness"
+          data={data.layers.hardcoreThickness}
+          onChange={(v) => updLayer("hardcoreThickness", v)}
+        />
+      </div>
+
+      <SubstructureFootingCard
+        data={data.columnFooting ?? defaultSubstructureFooting()}
+        onChange={updColumnFooting}
+      />
+
+      {!isStripFoundation && (
+        <SubstructureConcreteCard
+          title="Pile Cap"
+          data={data.elements["Pile Cap"] ?? defaultSubstructureConcreteElement()}
+          onChange={(v) => updElement("Pile Cap", v)}
+        />
+      )}
+
+      {!isFoundationCarcassRaft && !isStripFoundation && (
+        <SubstructureFrameCard
+          data={data.pileCapFrames ?? defaultSubstructureFrameElement()}
+          onChange={updPileCapFrames}
+        />
+      )}
+
+      {baseElements
+        .filter((name) => {
+          if (isFoundationCarcassRaft || isStripFoundation) return name !== "Pile Cap";
+          return name !== "Pile Cap";
+        })
+        .map((name) => (
+          <SubstructureConcreteCard
+            key={name}
+            title={name}
+            data={data.elements[name] ?? defaultSubstructureConcreteElement()}
+            onChange={(v) => updElement(name, v)}
+            useCastingFillingMethod={isFoundationCarcassRaft || isStripFoundation}
+          />
+        ))}
+
+      {(isFoundationCarcassRaft || isStripFoundation) && (
+        <SubstructureBlockworkInStripFoundationCard
+          blockworkForFormwork={data.blockworkInStripFoundation?.blockworkForFormwork ?? ""}
+          blockworkFilling={data.blockworkInStripFoundation?.blockworkFilling ?? ""}
+          onChange={(next) =>
+            onChange({
+              ...data,
+              blockworkInStripFoundation: next,
+            })
+          }
+        />
+      )}
     </div>
   );
 }
@@ -463,6 +809,10 @@ export function StepScope({ data, onChange, onNext, onBack }: StepScopeProps) {
 
   function updBlinding(blinding: Record<string, BlindingElement>) {
     onChange({ ...data, blinding });
+  }
+
+  function updSubstructure(substructure: SubstructureData) {
+    onChange({ ...data, substructure });
   }
 
   function updSuperstructure(superstructure: Record<string, ConcreteElement>) {
@@ -552,11 +902,31 @@ export function StepScope({ data, onChange, onNext, onBack }: StepScopeProps) {
                 <PileSystemTab data={data.pileSystem} onChange={updPileSystem} />
               )}
               {tabId === "blinding" && (
-                <BlindingTab data={data.blinding} onChange={updBlinding} hasPool={hasPool} />
+                <BlindingTab
+                  data={data.blinding}
+                  onChange={updBlinding}
+                  hasPool={hasPool}
+                  projectType={scopeConfig.projectType}
+                  foundationType={scopeConfig.foundationType}
+                />
               )}
-              {tabId === "substructure" && <SubstructureTab />}
+              {tabId === "substructure" && (
+                <SubstructureTab
+                  data={data.substructure ?? defaultSubstructureData()}
+                  onChange={updSubstructure}
+                  hasLift={hasLift}
+                  hasPool={hasPool}
+                  projectType={scopeConfig.projectType}
+                  foundationType={scopeConfig.foundationType}
+                />
+              )}
               {tabId === "superstructure" && (
-                <SuperstructureTab data={data.superstructure} onChange={updSuperstructure} hasLift={hasLift} />
+                <SuperstructureTab
+                  data={data.superstructure}
+                  onChange={updSuperstructure}
+                  hasLift={hasLift}
+                  noOfFloors={scopeConfig.noOfFloors}
+                />
               )}
             </TabsContent>
           ))}
