@@ -20,12 +20,32 @@ function deriveBuildingType(projectType: string): string {
   return "Building";
 }
 
+function hasMeaningfulTileRow(row: { description: string }): boolean {
+  return row.description.trim().length > 0;
+}
+
+function countMeaningfulTileRows(rows: Array<{ description: string }>): number {
+  return rows.filter(hasMeaningfulTileRow).length;
+}
+
 function buildSections(wizard: WizardState): WorkspaceProjectSnapshot["sections"] {
   const scope = wizard.scope;
   const finishing = wizard.finishing;
   const blindingKeys = Object.keys(scope.blinding);
   const substructureKeys = Object.keys(scope.substructure.elements);
   const superstructureKeys = Object.keys(scope.superstructure);
+  const floorTileGroups = Object.values(finishing.floorTiles);
+  const wallTileGroups = Object.values(finishing.wallTiles);
+  const configuredFloorGroups = floorTileGroups.filter((rows) => countMeaningfulTileRows(rows) > 0);
+  const configuredWallGroups = wallTileGroups.filter((rows) => countMeaningfulTileRows(rows) > 0);
+  const configuredFloorRows = configuredFloorGroups.reduce(
+    (total, rows) => total + countMeaningfulTileRows(rows),
+    0,
+  );
+  const configuredWallRows = configuredWallGroups.reduce(
+    (total, rows) => total + countMeaningfulTileRows(rows),
+    0,
+  );
 
   return [
     {
@@ -71,11 +91,11 @@ function buildSections(wizard: WizardState): WorkspaceProjectSnapshot["sections"
       id: "finishing",
       title: "Section 4: Finishing",
       description: "Finishes, tile categories, and measurement rules.",
-      status: finishing.floorTiles.generalAreas.length ? "in-progress" : "queued",
+      status: configuredFloorRows || configuredWallRows ? "in-progress" : "queued",
       summary: "Finishing scope is ready for detailed takeoff and BOQ build-up.",
       metrics: [
-        { label: "Floor groups", value: `${Object.keys(finishing.floorTiles).length}` },
-        { label: "Wall groups", value: `${Object.keys(finishing.wallTiles).length}` },
+        { label: "Floor groups", value: `${configuredFloorGroups.length}` },
+        { label: "Wall groups", value: `${configuredWallGroups.length}` },
       ],
     },
   ];
@@ -110,7 +130,8 @@ export function buildWorkspaceProjectFromWizard(
 ): WorkspaceProjectSnapshot {
   const projectType = wizard.scope.scopeConfig.projectType || "Manual Project";
   const foundationType = wizard.scope.scopeConfig.foundationType || "Foundation";
-  const floors = Number(wizard.scope.scopeConfig.noOfFloors || 1);
+  const parsedFloors = Number.parseInt(wizard.scope.scopeConfig.noOfFloors, 10);
+  const floors = Number.isFinite(parsedFloors) && parsedFloors > 0 ? parsedFloors : 1;
   const hasPool = wizard.scope.scopeConfig.hasPool;
   const lift = wizard.scope.scopeConfig.lift;
 

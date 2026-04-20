@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
 import { useAppSelector } from "@/store/hooks";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,72 +14,6 @@ interface ProjectWorkspaceViewProps {
   projectId: string;
   basePath: string;
   mode: "dashboard" | "configuration" | "library";
-}
-
-function createFallbackWorkspace(projectId: string): WorkspaceProjectSnapshot {
-  return {
-    id: projectId,
-    projectId,
-    name: `Workspace ${projectId.slice(0, 8)}`,
-    projectType: "Manual Project",
-    foundationType: "Foundation",
-    floors: 1,
-    hasPool: false,
-    lift: "No",
-    grossFloorArea: 1240,
-    estimateTotal: 488000000,
-    costPerSqm: 393548,
-    completionStatus: 55,
-    contingencies: "5.0",
-    buildingType: "Residential (Villa)",
-    projectLocation: "Project location pending",
-    clientName: "Client pending",
-    description: "Workspace generated from manual setup.",
-    sections: [
-      {
-        id: "blinding",
-        title: "Section 1: Blinding",
-        description: "Foundation and blinding specifications.",
-        status: "in-progress",
-        summary: "Ready for detailed takeoff",
-        metrics: [{ label: "Elements", value: "0" }],
-      },
-      {
-        id: "substructure",
-        title: "Section 2: Substructure",
-        description: "Substructure components and layers.",
-        status: "queued",
-        summary: "Not yet reviewed",
-        metrics: [{ label: "Components", value: "0" }],
-      },
-      {
-        id: "superstructure",
-        title: "Section 3: Superstructure",
-        description: "Columns, beams, slabs, stairs, lift wall.",
-        status: "queued",
-        summary: "Not yet reviewed",
-        metrics: [{ label: "Elements", value: "0" }],
-      },
-      {
-        id: "finishing",
-        title: "Section 4: Finishing",
-        description: "Finishing materials and tile groups.",
-        status: "queued",
-        summary: "Not yet reviewed",
-        metrics: [{ label: "Groups", value: "0" }],
-      },
-    ],
-    activities: [
-      {
-        label: "Workspace Created",
-        actor: "System",
-        time: "Just now",
-        action: "Use manual setup to populate this dashboard.",
-      },
-    ],
-    referenceDrawings: [],
-    createdAt: new Date().toISOString(),
-  };
 }
 
 function SectionBadge({ status }: { status: WorkspaceProjectSnapshot["sections"][number]["status"] }) {
@@ -110,9 +43,47 @@ function StatCard({ icon: Icon, label, value, hint, accent = "text-foreground" }
   );
 }
 
+function MissingWorkspaceState({ basePath, projectId }: { basePath: string; projectId: string }) {
+  return (
+    <Card className="border-border/50 shadow-sm">
+      <CardContent className="p-8 md:p-10">
+        <div className="max-w-xl space-y-4">
+          <div>
+            <p className="text-xs uppercase tracking-widest text-muted-foreground font-semibold">
+              Workspace unavailable
+            </p>
+            <h1 className="text-2xl font-bold text-foreground mt-2">
+              We could not find this project snapshot
+            </h1>
+            <p className="text-sm text-muted-foreground mt-2">
+              The workspace for project {projectId} is missing from local state. Reload the page to
+              try restoring the persisted snapshot, or go back to the project area and reopen the
+              workspace.
+            </p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-3 pt-2">
+            <Button onClick={() => window.location.reload()} className="sm:w-auto">
+              Reload workspace
+            </Button>
+            <Button variant="outline" asChild className="sm:w-auto">
+              <Link href={basePath}>Go back</Link>
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function ProjectWorkspaceView({ projectId, basePath, mode }: ProjectWorkspaceViewProps) {
   const workspace = useAppSelector((state) => state.projectWorkspace.projectsById[projectId]);
-  const project = useMemo(() => workspace ?? createFallbackWorkspace(projectId), [workspace, projectId]);
+
+  if (!workspace) {
+    return <MissingWorkspaceState basePath={basePath} projectId={projectId} />;
+  }
+
+  const project = workspace;
 
   const costBreakdown = [
     { label: "Structural Scope", value: 46, color: "bg-blue-500" },
@@ -197,9 +168,7 @@ function LibraryView({
   basePath: string;
   projectId: string;
 }) {
-  const drawings = project.referenceDrawings.length
-    ? project.referenceDrawings
-    : ["No reference drawings uploaded yet"];
+  const hasDrawings = project.referenceDrawings.length > 0;
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 items-start">
@@ -213,18 +182,27 @@ function LibraryView({
           </div>
 
           <div className="space-y-3">
-            {drawings.map((drawing, index) => (
-              <div
-                key={`${drawing}-${index}`}
-                className="rounded-lg border border-border/50 bg-card px-4 py-3 flex items-center justify-between gap-3"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">{drawing}</p>
-                  <p className="text-xs text-muted-foreground mt-1">Document {index + 1}</p>
-                </div>
-                <Badge variant="secondary" className="text-[11px]">Ready</Badge>
+            {!hasDrawings ? (
+              <div className="rounded-lg border border-dashed border-border/50 bg-muted/30 px-4 py-5">
+                <p className="text-sm font-medium text-foreground">No reference drawings uploaded yet</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Upload drawings in the manual setup flow to populate this workspace.
+                </p>
               </div>
-            ))}
+            ) : (
+              project.referenceDrawings.map((drawing, index) => (
+                <div
+                  key={`${drawing}-${index}`}
+                  className="rounded-lg border border-border/50 bg-card px-4 py-3 flex items-center justify-between gap-3"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">{drawing}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Document {index + 1}</p>
+                  </div>
+                  <Badge variant="secondary" className="text-[11px]">Ready</Badge>
+                </div>
+              ))
+            )}
           </div>
         </CardContent>
       </Card>

@@ -52,6 +52,77 @@ function mergeSubstructureLikeSchema<T>(schema: T, current: unknown): T {
   return nextValue as T;
 }
 
+function getAllowedBlindingKeys(
+  projectType: string,
+  foundationType: string,
+  hasPool: boolean,
+): Set<string> {
+  const allowList = new Set<string>();
+
+  if (hasPool) {
+    allowList.add("Swimming Pool");
+  }
+
+  if (projectType === "Carcass with finishes") {
+    if (foundationType === "Pile") {
+      allowList.add("Pile Cap");
+      allowList.add("Oversite Slab");
+    } else if (foundationType === "Raft") {
+      allowList.add("Raft Foundation");
+      allowList.add("Ground Beam");
+      allowList.add("Oversite Slab");
+      allowList.add("Pad Footing");
+    } else if (foundationType === "Strip") {
+      allowList.add("Strip Foundation");
+      allowList.add("Oversite Slab");
+    } else if (foundationType === "Raft Pile with Basement") {
+      allowList.add("Pile Cap");
+      allowList.add("Ground Beam");
+      allowList.add("Oversite Slab");
+    }
+
+    return allowList;
+  }
+
+  if (projectType === "Foundation & Carcass Only") {
+    if (foundationType === "Pile") {
+      allowList.add("Pile Cap");
+      allowList.add("Oversite Slab");
+    } else if (foundationType === "Raft") {
+      allowList.add("Raft Foundation");
+      allowList.add("Ground Beam");
+      allowList.add("Oversite Slab");
+      allowList.add("Pad Footing");
+      allowList.add("Strip Foundation");
+    } else if (foundationType === "Strip") {
+      allowList.add("Strip Foundation");
+      allowList.add("Oversite Slab");
+    } else if (foundationType === "Raft Pile with Basement") {
+      allowList.add("Pile Cap");
+      allowList.add("Ground Beam");
+      allowList.add("Oversite Slab");
+      allowList.add("Raft Foundation");
+    }
+
+    return allowList;
+  }
+
+  if (projectType === "Piling & Substructure") {
+    if (foundationType === "Pile") {
+      allowList.add("Pile Cap");
+      allowList.add("Oversite Slab");
+    } else if (foundationType === "Raft Pile with Basement") {
+      allowList.add("Pile Cap");
+      allowList.add("Ground Beam");
+      allowList.add("Oversite Slab");
+    }
+
+    return allowList;
+  }
+
+  return allowList;
+}
+
 export function normalizeScopeState(scope: Step3Data): Step3Data {
   const hasPool = scope.scopeConfig.hasPool;
   const hasLift = scope.scopeConfig.lift === "Yes";
@@ -137,40 +208,10 @@ export function normalizeScopeState(scope: Step3Data): Step3Data {
     };
   }
 
-  const nextBlinding = { ...scope.blinding };
-
-  if (!hasPool) {
-    delete nextBlinding["Swimming Pool"];
-  }
-
-  if (foundationType === "Pile") {
-    delete nextBlinding["Ground Beam"];
-  }
-
-  if (
-    projectType !== "Foundation & Carcass Only" &&
-    projectType !== "Carcass with finishes"
-  ) {
-    delete nextBlinding["Pad Footing"];
-    delete nextBlinding["Strip Foundation"];
-  }
-
-  if (
-    (projectType === "Foundation & Carcass Only" ||
-      projectType === "Carcass with finishes") &&
-    foundationType !== "Raft"
-  ) {
-    delete nextBlinding["Pad Footing"];
-  }
-
-  if (
-    (projectType === "Foundation & Carcass Only" ||
-      projectType === "Carcass with finishes") &&
-    foundationType !== "Strip" &&
-    foundationType !== "Raft"
-  ) {
-    delete nextBlinding["Strip Foundation"];
-  }
+  const allowedBlindingKeys = getAllowedBlindingKeys(projectType, foundationType, hasPool);
+  const nextBlinding = Object.fromEntries(
+    Object.entries(scope.blinding).filter(([key]) => allowedBlindingKeys.has(key)),
+  );
 
   const nextSuperstructure = filterSuperstructure(
     scope.superstructure,

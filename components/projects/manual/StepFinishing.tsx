@@ -57,6 +57,19 @@ function SelectField({
 
 // ─── Tile group section ───────────────────────────────────────────────────────
 
+function getSequentialTypeCode(index: number): string {
+  let value = index + 1;
+  let code = "";
+
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    code = String.fromCharCode(65 + remainder) + code;
+    value = Math.floor((value - 1) / 26);
+  }
+
+  return code;
+}
+
 interface TileGroupProps {
   title: string;
   rows: TileTypeRow[];
@@ -69,7 +82,7 @@ function TileGroup({ title, rows, onChange, disabled, disabledMessage }: TileGro
   function withSequentialTypeCodes(inputRows: TileTypeRow[]): TileTypeRow[] {
     return inputRows.map((row, idx) => ({
       ...row,
-      typeCode: String.fromCharCode(65 + idx),
+      typeCode: getSequentialTypeCode(idx),
     }));
   }
 
@@ -79,7 +92,7 @@ function TileGroup({ title, rows, onChange, disabled, disabledMessage }: TileGro
   }
 
   function addRow() {
-    onChange(withSequentialTypeCodes([...rows, { typeCode: "", description: "" }]));
+    onChange(withSequentialTypeCodes([...rows, { description: "" }] as TileTypeRow[]));
   }
 
   function removeRow(idx: number) {
@@ -197,14 +210,14 @@ export function StepFinishing({ data, scopeConfig, onChange, onNext, onBack }: S
       <div className="border border-border/50 rounded-xl p-5">
         <p className="text-sm font-bold text-foreground mb-4">Finishing Specifications</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <SelectField label="Screeding on DPM"         value={spec.screedingOnDPM}          onChange={(v) => updSpec("screedingOnDPM", v)}          options={SCREEDING_OPTIONS} />
-          <SelectField label="Mesh Type"                value={spec.meshType}                 onChange={(v) => updSpec("meshType", v)}                options={MESH_TYPES} />
-          <SelectField label="Ceiling Type"             value={spec.ceilingType}              onChange={(v) => updSpec("ceilingType", v)}             options={CEILING_TYPES} />
-          <SelectField label="Roof Parapet Wall"        value={spec.roofParapetWall}          onChange={(v) => updSpec("roofParapetWall", v)}         options={PARAPET_WALL_OPTIONS} />
-          <SelectField label="Paint Type Internally"    value={spec.paintTypeInternally}      onChange={(v) => updSpec("paintTypeInternally", v)}     options={PAINT_TYPES} />
-          <SelectField label="Paint Type Externally"    value={spec.paintTypeExternally}      onChange={(v) => updSpec("paintTypeExternally", v)}     options={PAINT_TYPES} />
+          <SelectField label="Screeding on DPM" value={spec.screedingOnDPM} onChange={(v) => updSpec("screedingOnDPM", v)} options={SCREEDING_OPTIONS} />
+          <SelectField label="Mesh Type" value={spec.meshType} onChange={(v) => updSpec("meshType", v)} options={MESH_TYPES} />
+          <SelectField label="Ceiling Type" value={spec.ceilingType} onChange={(v) => updSpec("ceilingType", v)} options={CEILING_TYPES} />
+          <SelectField label="Roof Parapet Wall" value={spec.roofParapetWall} onChange={(v) => updSpec("roofParapetWall", v)} options={PARAPET_WALL_OPTIONS} />
+          <SelectField label="Paint Type Internally" value={spec.paintTypeInternally} onChange={(v) => updSpec("paintTypeInternally", v)} options={PAINT_TYPES} />
+          <SelectField label="Paint Type Externally" value={spec.paintTypeExternally} onChange={(v) => updSpec("paintTypeExternally", v)} options={PAINT_TYPES} />
           {hasStairs && (
-            <SelectField label="Riser Height for Stairs"  value={spec.riserHeightForStairs}     onChange={(v) => updSpec("riserHeightForStairs", v)}    options={RISER_HEIGHTS} />
+            <SelectField label="Riser Height for Stairs" value={spec.riserHeightForStairs} onChange={(v) => updSpec("riserHeightForStairs", v)} options={RISER_HEIGHTS} />
           )}
           <SelectField label="Skirting Landing Thickness" value={spec.skirtingLandingThickness} onChange={(v) => updSpec("skirtingLandingThickness", v)} options={SKIRTING_THICKNESSES} />
         </div>
