@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -56,6 +56,74 @@ interface LibraryRow {
 
 const UNIT_OPTIONS = ["SQMT", "CUM", "M", "M2", "M3", "KG", "TON",];
 
+const CURRENCY_PATTERN = /^(?:\d+(?:,\d{3})*|\d+)(?:\.\d+)?$/;
+const MONTH_YEAR_PATTERN = /^(0[1-9]|1[0-2])\/\d{4}$/;
+
+function deriveSectionCode(categoryId: string): string {
+  const code = categoryId
+    .split(/[^a-zA-Z0-9]+/)
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+
+  return code || categoryId.charAt(0).toUpperCase() || "A";
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function isCurrencySafe(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || !CURRENCY_PATTERN.test(trimmed)) {
+    return false;
+  }
+
+  const parsed = Number(trimmed.replaceAll(",", ""));
+  return Number.isFinite(parsed) && parsed >= 0;
+}
+
+function validateRowForm(form: NewRowFormState) {
+  const errors: Partial<Record<keyof NewRowFormState, string>> = {};
+
+  if (!form.particulars.trim()) {
+    errors.particulars = "Particulars are required.";
+  }
+
+  if (!form.unit.trim()) {
+    errors.unit = "Unit is required.";
+  }
+
+  if (!form.rate.trim()) {
+    errors.rate = "Rate is required.";
+  } else if (!isCurrencySafe(form.rate)) {
+    errors.rate = "Rate must be a valid currency value.";
+  }
+
+  if (!form.lastUpdated.trim()) {
+    errors.lastUpdated = "Last updated is required.";
+  } else if (!MONTH_YEAR_PATTERN.test(form.lastUpdated.trim())) {
+    errors.lastUpdated = "Use MM/YYYY format.";
+  }
+
+  if (!form.price.trim()) {
+    errors.price = "Price is required.";
+  } else if (!isCurrencySafe(form.price)) {
+    errors.price = "Price must be a valid currency value.";
+  }
+
+  return errors;
+}
+
+function FieldError({ message }: { message?: string }) {
+  if (!message) return null;
+
+  return <p className="text-xs text-destructive">{message}</p>;
+}
+
 export function LibraryCategoryView({
   categoryId,
   basePath,
@@ -63,11 +131,10 @@ export function LibraryCategoryView({
   const categoryData =
     allCategoryData[categoryId] ?? allCategoryData["default"];
 
-  const activeTab =
-    libraryTabCategories.find((tab) => tab.id === categoryId) ??
-    libraryTabCategories[0];
-
-  const sectionCode = activeTab.label.split(":")[0] ?? "A";
+  const activeTab = libraryTabCategories.find((tab) => tab.id === categoryId);
+  const sectionCode = activeTab ? activeTab.label.split(":")[0] ?? "A" : deriveSectionCode(categoryId);
+  const sectionTitle = activeTab?.sectionTitle ?? categoryData.title;
+  const exportFileName = `library-${slugify(`${sectionCode}-${sectionTitle}`) || sectionCode.toLowerCase()}.csv`;
 
   const initialRows = useMemo<LibraryRow[]>(
     () =>
@@ -87,10 +154,12 @@ export function LibraryCategoryView({
     [categoryData.items, sectionCode],
   );
 
-  const [rows, setRows] = useState(initialRows);
+  const [rows, setRows] = useState(() => initialRows);
   const [isAddRowDialogOpen, setIsAddRowDialogOpen] = useState(false);
   const [isEditRowDialogOpen, setIsEditRowDialogOpen] = useState(false);
   const [editingRowId, setEditingRowId] = useState<string | null>(null);
+  const [addRowErrors, setAddRowErrors] = useState<Partial<Record<keyof NewRowFormState, string>>>({});
+  const [editRowErrors, setEditRowErrors] = useState<Partial<Record<keyof NewRowFormState, string>>>({});
   const [newRowForm, setNewRowForm] = useState<NewRowFormState>({
     id: "",
     particulars: "",
@@ -109,10 +178,6 @@ export function LibraryCategoryView({
   });
   const allRowsSelected = rows.length > 0 && rows.every((row) => row.isSelected);
   const selectedRowsCount = rows.filter((row) => row.isSelected).length;
-
-  useEffect(() => {
-    setRows(initialRows);
-  }, [initialRows]);
 
   function escapeCsvValue(value: string) {
     const escaped = value.replaceAll('"', '""');
@@ -151,12 +216,7 @@ export function LibraryCategoryView({
       ]),
     ];
 
-    const safeCategory = activeTab.label
-      .toLowerCase()
-      .replaceAll("/", "-")
-      .replaceAll(" ", "-")
-      .replaceAll(":", "");
-    triggerCsvDownload(`library-${safeCategory}.csv`, csvRows);
+    triggerCsvDownload(exportFileName, csvRows);
   }
 
   function handleDownloadTemplate() {
@@ -200,6 +260,7 @@ export function LibraryCategoryView({
   }
 
   function openAddRowDialog() {
+    setAddRowErrors({});
     setNewRowForm({
       id: getNextRowId(),
       particulars: "",
@@ -213,22 +274,25 @@ export function LibraryCategoryView({
 
   function updateNewRowForm(field: keyof NewRowFormState, value: string) {
     setNewRowForm((prev) => ({ ...prev, [field]: value }));
+    setAddRowErrors((prev) => ({ ...prev, [field]: undefined }));
   }
 
   function submitAddRowForm(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const resolvedId = getNextRowId();
+    const nextErrors = validateRowForm(newRowForm);
+    setAddRowErrors(nextErrors);
 
+    if (Object.keys(nextErrors).length > 0) {
+      return;
+    }
+
+    const resolvedId = getNextRowId();
     const particulars = newRowForm.particulars.trim();
     const unit = newRowForm.unit.trim().toUpperCase();
     const rate = newRowForm.rate.trim();
     const lastUpdated = newRowForm.lastUpdated.trim();
     const price = newRowForm.price.trim();
-
-    if (!particulars || !unit || !rate || !lastUpdated || !price) {
-      return;
-    }
 
     setRows((prev) => [
       ...prev,
@@ -252,6 +316,7 @@ export function LibraryCategoryView({
       return;
     }
 
+    setEditRowErrors({});
     setEditingRowId(rowId);
     setEditRowForm({
       id: rowToEdit.id,
@@ -266,11 +331,13 @@ export function LibraryCategoryView({
 
   function updateEditRowForm(field: keyof NewRowFormState, value: string) {
     setEditRowForm((prev) => ({ ...prev, [field]: value }));
+    setEditRowErrors((prev) => ({ ...prev, [field]: undefined }));
   }
 
   function closeEditRowDialog() {
     setIsEditRowDialogOpen(false);
     setEditingRowId(null);
+    setEditRowErrors({});
   }
 
   function submitEditRowForm(event: React.FormEvent<HTMLFormElement>) {
@@ -280,15 +347,18 @@ export function LibraryCategoryView({
       return;
     }
 
+    const nextErrors = validateRowForm(editRowForm);
+    setEditRowErrors(nextErrors);
+
+    if (Object.keys(nextErrors).length > 0) {
+      return;
+    }
+
     const particulars = editRowForm.particulars.trim();
     const unit = editRowForm.unit.trim().toUpperCase();
     const rate = editRowForm.rate.trim();
     const lastUpdated = editRowForm.lastUpdated.trim();
     const price = editRowForm.price.trim();
-
-    if (!particulars || !unit || !rate || !lastUpdated || !price) {
-      return;
-    }
 
     setRows((prev) =>
       prev.map((row) =>
@@ -367,22 +437,33 @@ export function LibraryCategoryView({
 
       <div className="flex flex-wrap justify-between gap-2">
         {libraryTabCategories.map((tab) => (
-          <Link
-            key={tab.id}
-            href={`${basePath}/${tab.id}`}
-            className={`rounded-md border text-sm px-3 py-2 leading-none transition-colors ${tab.id === activeTab.id
-              ? "border-primary bg-primary text-primary-foreground"
-              : "border-border bg-card text-muted-foreground hover:bg-muted"
-              }`}
-          >
-            {tab.label}
-          </Link>
+          allCategoryData[tab.id] ? (
+            <Link
+              key={tab.id}
+              href={`${basePath}/${tab.id}`}
+              className={`rounded-md border text-sm px-3 py-2 leading-none transition-colors ${tab.id === activeTab?.id
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border bg-card text-muted-foreground hover:bg-muted"
+                }`}
+            >
+              {tab.label}
+            </Link>
+          ) : (
+            <span
+              key={tab.id}
+              aria-disabled="true"
+              title="Coming soon"
+              className="cursor-not-allowed rounded-md border border-dashed border-border px-3 py-2 text-sm leading-none text-muted-foreground opacity-70"
+            >
+              {tab.label}
+            </span>
+          )
         ))}
       </div>
 
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         <div className="flex items-center justify-between border-b border-border px-4 py-3.5 md:px-5 md:py-4">
-          <h2 className="text-xl font-semibold text-foreground md:text-lg">{activeTab.sectionTitle}</h2>
+          <h2 className="text-xl font-semibold text-foreground md:text-lg">{sectionTitle}</h2>
           <span className="text-xs text-muted-foreground md:text-sm">
             {selectedRowsCount > 0
               ? `${selectedRowsCount} selected / ${rows.length} rows`
@@ -506,7 +587,7 @@ export function LibraryCategoryView({
                   value={newRowForm.unit}
                   onValueChange={(value) => updateNewRowForm("unit", value)}
                 >
-                  <SelectTrigger id="new-row-unit" className="w-full">
+                  <SelectTrigger id="new-row-unit" className="w-full" aria-invalid={Boolean(addRowErrors.unit)}>
                     <SelectValue placeholder="Select unit" />
                   </SelectTrigger>
                   <SelectContent>
@@ -517,6 +598,7 @@ export function LibraryCategoryView({
                     ))}
                   </SelectContent>
                 </Select>
+                <FieldError message={addRowErrors.unit} />
               </div>
             </div>
 
@@ -527,7 +609,10 @@ export function LibraryCategoryView({
                 value={newRowForm.particulars}
                 onChange={(event) => updateNewRowForm("particulars", event.target.value)}
                 placeholder="Enter work item description"
+                required
+                aria-invalid={Boolean(addRowErrors.particulars)}
               />
+              <FieldError message={addRowErrors.particulars} />
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -538,7 +623,10 @@ export function LibraryCategoryView({
                   value={newRowForm.rate}
                   onChange={(event) => updateNewRowForm("rate", event.target.value)}
                   placeholder="0.00"
+                  required
+                  aria-invalid={Boolean(addRowErrors.rate)}
                 />
+                <FieldError message={addRowErrors.rate} />
               </div>
 
               <div className="space-y-1.5">
@@ -548,7 +636,10 @@ export function LibraryCategoryView({
                   value={newRowForm.lastUpdated}
                   onChange={(event) => updateNewRowForm("lastUpdated", event.target.value)}
                   placeholder="MM/YYYY"
+                  required
+                  aria-invalid={Boolean(addRowErrors.lastUpdated)}
                 />
+                <FieldError message={addRowErrors.lastUpdated} />
               </div>
 
               <div className="space-y-1.5">
@@ -558,7 +649,10 @@ export function LibraryCategoryView({
                   value={newRowForm.price}
                   onChange={(event) => updateNewRowForm("price", event.target.value)}
                   placeholder="0.00"
+                  required
+                  aria-invalid={Boolean(addRowErrors.price)}
                 />
+                <FieldError message={addRowErrors.price} />
               </div>
             </div>
 
@@ -595,7 +689,7 @@ export function LibraryCategoryView({
                   value={editRowForm.unit}
                   onValueChange={(value) => updateEditRowForm("unit", value)}
                 >
-                  <SelectTrigger id="edit-row-unit" className="w-full">
+                  <SelectTrigger id="edit-row-unit" className="w-full" aria-invalid={Boolean(editRowErrors.unit)}>
                     <SelectValue placeholder="Select unit" />
                   </SelectTrigger>
                   <SelectContent>
@@ -606,6 +700,7 @@ export function LibraryCategoryView({
                     ))}
                   </SelectContent>
                 </Select>
+                <FieldError message={editRowErrors.unit} />
               </div>
             </div>
 
@@ -616,7 +711,10 @@ export function LibraryCategoryView({
                 value={editRowForm.particulars}
                 onChange={(event) => updateEditRowForm("particulars", event.target.value)}
                 placeholder="Enter work item description"
+                required
+                aria-invalid={Boolean(editRowErrors.particulars)}
               />
+              <FieldError message={editRowErrors.particulars} />
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -627,7 +725,10 @@ export function LibraryCategoryView({
                   value={editRowForm.rate}
                   onChange={(event) => updateEditRowForm("rate", event.target.value)}
                   placeholder="0.00"
+                  required
+                  aria-invalid={Boolean(editRowErrors.rate)}
                 />
+                <FieldError message={editRowErrors.rate} />
               </div>
 
               <div className="space-y-1.5">
@@ -637,7 +738,10 @@ export function LibraryCategoryView({
                   value={editRowForm.lastUpdated}
                   onChange={(event) => updateEditRowForm("lastUpdated", event.target.value)}
                   placeholder="MM/YYYY"
+                  required
+                  aria-invalid={Boolean(editRowErrors.lastUpdated)}
                 />
+                <FieldError message={editRowErrors.lastUpdated} />
               </div>
 
               <div className="space-y-1.5">
@@ -647,7 +751,10 @@ export function LibraryCategoryView({
                   value={editRowForm.price}
                   onChange={(event) => updateEditRowForm("price", event.target.value)}
                   placeholder="0.00"
+                  required
+                  aria-invalid={Boolean(editRowErrors.price)}
                 />
+                <FieldError message={editRowErrors.price} />
               </div>
             </div>
 

@@ -14,13 +14,15 @@ export const libraryTabCategories = [
 ] as const;
 
 export const libraryCategories: LibraryCategory[] = [
-  { id: "concrete", name: "Concrete", count: 124, icon: Box },
-  { id: "steel", name: "Steel", count: 86, icon: Hammer },
-  { id: "earthworks", name: "Earthworks", count: 42, icon: Mountain },
-  { id: "labor", name: "Labor", count: 18, icon: Users },
-  { id: "masonry", name: "Masonry", count: 31, icon: LayoutGrid },
-  { id: "carpentry", name: "Carpentry", count: 55, icon: Wrench },
-  { id: "mep", name: "MEP", count: 92, icon: Zap },
+  { id: "earthworks", name: "Marking & Earth", count: 42, icon: Mountain },
+  { id: "blinding", name: "Blinding", count: 16, icon: Box },
+  { id: "formwork", name: "Formwork", count: 28, icon: Hammer },
+  { id: "concrete", name: "Concrete", count: 124, icon: Users },
+  { id: "reinforcement", name: "Reinforcement", count: 86, icon: LayoutGrid },
+  { id: "blockwork", name: "Blockwork", count: 31, icon: Wrench },
+  { id: "floor-finish", name: "Floor Finish", count: 55, icon: Zap },
+  { id: "steel-structure", name: "Steel Structure", count: 68, icon: Hammer },
+  { id: "doors-windows", name: "Doors/Windows", count: 24, icon: Box },
 ];
 
 export const defaultLocations: string[] = [
@@ -77,6 +79,98 @@ export const allCategoryData: Record<string, LibraryCategoryData> = {
         { id: 5, title: "Rock Excavation", desc: "Requiring pneumatic breaker attachment", unit: "m³", base: "8,200.00", mach: "12,100.00", lab: "3,800.00", final: "24,100.00" },
       ],
     },
+  },
+
+  blinding: {
+    title: "Blinding Rate",
+    subtitle: "Manage unit rates for blinding and sub-base applications.",
+    columns: [{ label: "RATE", render: (item) => item.rate ?? item.base ?? item.final }],
+    items: [
+      { id: 1, title: "Stone dust 100mm layer", desc: "Compacted", unit: "SQMT", rate: "1,890.00", final: "1,890.00", lastUpdated: "03/2025" },
+      { id: 2, title: "Stone base 200mm layer", desc: "Compacted", unit: "SQMT", rate: "3,400.00", final: "3,400.00", lastUpdated: "03/2025" },
+      { id: 3, title: "Hardcore 150mm layer", desc: "Compacted", unit: "SQMT", rate: "7,000.00", final: "7,000.00", lastUpdated: "03/2025" },
+      { id: 4, title: "Blinding 50mm (Grade 15)", desc: "Concrete", unit: "CUM", rate: "134,000.00", final: "134,000.00", lastUpdated: "03/2025" },
+      { id: 5, title: "Blinding 100mm", desc: "Concrete", unit: "CUM", rate: "268,000.00", final: "268,000.00", lastUpdated: "03/2025" },
+    ],
+  },
+
+  formwork: {
+    title: "Formwork Rate",
+    subtitle: "Manage unit rates for formwork items.",
+    columns: [{ label: "RATE", render: (item) => item.rate ?? item.final }],
+    items: [
+      { id: 1, title: "Wall Formwork", desc: "Standard shuttering", unit: "m²", rate: "12,000.00", final: "12,000.00", lastUpdated: "03/2025" },
+      { id: 2, title: "Slab Formwork", desc: "Timber soffit formwork", unit: "m²", rate: "10,500.00", final: "10,500.00", lastUpdated: "03/2025" },
+    ],
+  },
+
+  concrete: {
+    title: "Concrete Rate",
+    subtitle: "Manage unit rates for concrete work.",
+    columns: [
+      { label: "BASE RATE", render: (item) => item.base ?? item.rate ?? item.final },
+      { label: "LABOR", render: (item) => item.lab ?? "0.00" },
+    ],
+    items: [
+      { id: 1, title: "C25/30 Ready Mix", desc: "General structural concrete", unit: "CUM", base: "52,000.00", lab: "5,500.00", final: "57,500.00" },
+      { id: 2, title: "C20/25 Ready Mix", desc: "Non-structural concrete", unit: "CUM", base: "47,000.00", lab: "4,800.00", final: "51,800.00" },
+    ],
+  },
+
+  reinforcement: {
+    title: "Reinforcement Rate",
+    subtitle: "Manage unit rates for reinforcement materials.",
+    columns: [
+      { label: "BASE RATE", render: (item) => item.base ?? item.rate ?? item.final },
+      { label: "LABOR", render: (item) => item.lab ?? "0.00" },
+    ],
+    items: [
+      { id: 1, title: "Rebar H12", desc: "High yield steel bar", unit: "KG", base: "820.00", lab: "90.00", final: "910.00" },
+      { id: 2, title: "Rebar H16", desc: "High yield steel bar", unit: "KG", base: "790.00", lab: "85.00", final: "875.00" },
+    ],
+  },
+
+  blockwork: {
+    title: "Blockwork Rate",
+    subtitle: "Manage unit rates for blockwork items.",
+    columns: [{ label: "RATE", render: (item) => item.rate ?? item.base ?? item.final }],
+    items: [
+      { id: 1, title: "225mm Blockwall", desc: "Load-bearing blockwork", unit: "m²", rate: "18,400.00", final: "18,400.00", lastUpdated: "03/2025" },
+      { id: 2, title: "150mm Partition Wall", desc: "Non-load-bearing wall", unit: "m²", rate: "13,250.00", final: "13,250.00", lastUpdated: "03/2025" },
+    ],
+  },
+
+  "floor-finish": {
+    title: "Floor Finish Rate",
+    subtitle: "Manage unit rates for floor finishes.",
+    columns: [{ label: "RATE", render: (item) => item.rate ?? item.final }],
+    items: [
+      { id: 1, title: "Ceramic Floor Tile", desc: "Standard internal tile", unit: "m²", rate: "9,800.00", final: "9,800.00", lastUpdated: "03/2025" },
+      { id: 2, title: "Porcelain Floor Tile", desc: "Premium finish tile", unit: "m²", rate: "15,400.00", final: "15,400.00", lastUpdated: "03/2025" },
+    ],
+  },
+
+  "steel-structure": {
+    title: "Steel Structure Rate",
+    subtitle: "Manage unit rates for steel structure assemblies.",
+    columns: [
+      { label: "BASE RATE", render: (item) => item.base ?? item.rate ?? item.final },
+      { label: "MARKUP", render: (item) => item.markup ?? "0%" },
+    ],
+    items: [
+      { id: 1, title: "Steel Column", desc: "Fabricated steel column", unit: "tonne", base: "410,000.00", markup: "15%", final: "471,500.00" },
+      { id: 2, title: "Steel Beam", desc: "Fabricated steel beam", unit: "tonne", base: "395,000.00", markup: "15%", final: "454,250.00" },
+    ],
+  },
+
+  "doors-windows": {
+    title: "Doors and Windows Rate",
+    subtitle: "Manage unit rates for doors and windows.",
+    columns: [{ label: "RATE", render: (item) => item.rate ?? item.final }],
+    items: [
+      { id: 1, title: "Aluminium Window", desc: "Sliding window unit", unit: "nr", rate: "85,000.00", final: "85,000.00", lastUpdated: "03/2025" },
+      { id: 2, title: "Steel Door", desc: "Single leaf steel door", unit: "nr", rate: "102,500.00", final: "102,500.00", lastUpdated: "03/2025" },
+    ],
   },
 
   labor: {
@@ -211,17 +305,4 @@ export const allCategoryData: Record<string, LibraryCategoryData> = {
       { id: 1, title: "Sample Item", desc: "Sample description", unit: "m", base: "4,500.00", final: "44,500.00" },
     ],
   },
-};
-
-allCategoryData.blinding = {
-  title: "Blinding Rate",
-  subtitle: "Manage unit rates for blinding and sub-base applications.",
-  columns: [{ label: "RATE", render: (item) => item.rate ?? item.base ?? item.final }],
-  items: [
-    { id: 1, title: "Stone dust 100mm layer", desc: "Compacted", unit: "SQMT", rate: "1,890.00", final: "1,890.00", lastUpdated: "03/2025" },
-    { id: 2, title: "Stone base 200mm layer", desc: "Compacted", unit: "SQMT", rate: "3,400.00", final: "3,400.00", lastUpdated: "03/2025" },
-    { id: 3, title: "Hardcore 150mm layer", desc: "Compacted", unit: "SQMT", rate: "7,000.00", final: "7,000.00", lastUpdated: "03/2025" },
-    { id: 4, title: "Blinding 50mm (Grade 15)", desc: "Concrete", unit: "CUM", rate: "134,000.00", final: "134,000.00", lastUpdated: "03/2025" },
-    { id: 5, title: "Blinding 100mm", desc: "Concrete", unit: "CUM", rate: "268,000.00", final: "268,000.00", lastUpdated: "03/2025" },
-  ],
 };

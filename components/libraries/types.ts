@@ -13,6 +13,8 @@ export interface LibraryItem {
   desc: string;
   unit: string;
   final: string;
+  rate?: string;
+  lastUpdated?: string;
   [key: string]: string | number;
 }
 

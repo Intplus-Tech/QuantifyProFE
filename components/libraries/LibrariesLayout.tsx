@@ -2,7 +2,6 @@
 
 interface LibrariesLayoutProps {
   children: React.ReactNode;
-  basePath: string;
 }
 
 export function LibrariesLayout({ children }: LibrariesLayoutProps) {

@@ -7,6 +7,7 @@ export default function EnterpriseCategoryPage() {
   const { category } = useParams<{ category: string }>();
   return (
     <LibraryCategoryView
+      key={category ?? "earthworks"}
       categoryId={category ?? "earthworks"}
       basePath="/enterprise/libraries"
     />
