@@ -5,5 +5,10 @@ import { LibraryCategoryView } from "@/components/libraries/LibraryCategoryView"
 
 export default function SoloCategoryPage() {
   const { category } = useParams<{ category: string }>();
-  return <LibraryCategoryView categoryId={category ?? "earthworks"} />;
+  return (
+    <LibraryCategoryView
+      categoryId={category ?? "earthworks"}
+      basePath="/libraries"
+    />
+  );
 }

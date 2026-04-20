@@ -1,6 +1,18 @@
 import { Box, Hammer, Mountain, Users, LayoutGrid, Zap, Wrench } from "lucide-react";
 import type { LibraryCategory, LibraryCategoryData } from "./types";
 
+export const libraryTabCategories = [
+  { id: "earthworks", label: "A: Marking & Earth", sectionTitle: "Section A: Marking and earth works" },
+  { id: "blinding", label: "B: Blinding", sectionTitle: "Section B: Blinding" },
+  { id: "formwork", label: "C: Formwork", sectionTitle: "Section C: Formwork" },
+  { id: "concrete", label: "D: Concrete", sectionTitle: "Section D: Concrete" },
+  { id: "reinforcement", label: "E: Reinforcement", sectionTitle: "Section E: Reinforcement" },
+  { id: "blockwork", label: "F: Blockwork", sectionTitle: "Section F: Blockwork" },
+  { id: "floor-finish", label: "G: Floor Finish", sectionTitle: "Section G: Floor Finish" },
+  { id: "steel-structure", label: "H: Steel Structure", sectionTitle: "Section H: Steel Structure" },
+  { id: "doors-windows", label: "I: Doors/Windows", sectionTitle: "Section I: Doors and windows" },
+] as const;
+
 export const libraryCategories: LibraryCategory[] = [
   { id: "concrete", name: "Concrete", count: 124, icon: Box },
   { id: "steel", name: "Steel", count: 86, icon: Hammer },
@@ -199,4 +211,17 @@ export const allCategoryData: Record<string, LibraryCategoryData> = {
       { id: 1, title: "Sample Item", desc: "Sample description", unit: "m", base: "4,500.00", final: "44,500.00" },
     ],
   },
+};
+
+allCategoryData.blinding = {
+  title: "Blinding Rate",
+  subtitle: "Manage unit rates for blinding and sub-base applications.",
+  columns: [{ label: "RATE", render: (item) => item.rate ?? item.base ?? item.final }],
+  items: [
+    { id: 1, title: "Stone dust 100mm layer", desc: "Compacted", unit: "SQMT", rate: "1,890.00", final: "1,890.00", lastUpdated: "03/2025" },
+    { id: 2, title: "Stone base 200mm layer", desc: "Compacted", unit: "SQMT", rate: "3,400.00", final: "3,400.00", lastUpdated: "03/2025" },
+    { id: 3, title: "Hardcore 150mm layer", desc: "Compacted", unit: "SQMT", rate: "7,000.00", final: "7,000.00", lastUpdated: "03/2025" },
+    { id: 4, title: "Blinding 50mm (Grade 15)", desc: "Concrete", unit: "CUM", rate: "134,000.00", final: "134,000.00", lastUpdated: "03/2025" },
+    { id: 5, title: "Blinding 100mm", desc: "Concrete", unit: "CUM", rate: "268,000.00", final: "268,000.00", lastUpdated: "03/2025" },
+  ],
 };

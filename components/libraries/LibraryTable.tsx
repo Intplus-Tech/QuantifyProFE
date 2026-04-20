@@ -34,7 +34,7 @@ export function LibraryTable({
   const pageNumbers = Array.from({ length: totalPages }, (_, i) => i + 1);
 
   return (
-    <Card className="shadow-sm overflow-hidden bg-white border-border/50">
+    <Card className="shadow-sm overflow-hidden bg-card border-border/50">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -92,14 +92,14 @@ export function LibraryTable({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8 text-slate-400 hover:text-slate-600"
+                      className="h-8 w-8 text-muted-foreground hover:text-foreground"
                     >
                       <Edit2 className="w-4 h-4" />
                     </Button>
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8 text-slate-400 hover:text-red-600"
+                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
@@ -112,7 +112,7 @@ export function LibraryTable({
       </div>
 
       {/* Pagination */}
-      <div className="p-4 border-t border-border flex items-center justify-between bg-white">
+      <div className="p-4 border-t border-border flex items-center justify-between bg-card">
         <p className="text-xs text-muted-foreground">
           Showing {totalItems === 0 ? 0 : startIndex + 1}–
           {Math.min(startIndex + itemsPerPage, totalItems)} of {totalItems}{" "}
@@ -134,11 +134,10 @@ export function LibraryTable({
               variant="outline"
               size="sm"
               onClick={() => setCurrentPage(page)}
-              className={`h-8 w-8 p-0 text-xs ${
-                currentPage === page
+              className={`h-8 w-8 p-0 text-xs ${currentPage === page
                   ? "bg-primary/10 text-primary border-primary/30 font-bold"
                   : ""
-              }`}
+                }`}
             >
               {page}
             </Button>
