@@ -27,6 +27,31 @@ export function filterSuperstructure(
   return nextSuperstructure;
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function mergeSubstructureLikeSchema<T>(schema: T, current: unknown): T {
+  if (!isPlainObject(schema) || !isPlainObject(current)) {
+    return schema;
+  }
+
+  const nextValue = Array.isArray(schema) ? schema : { ...schema };
+
+  for (const key of Object.keys(schema)) {
+    const schemaValue = (schema as Record<string, unknown>)[key];
+    const currentValue = current[key];
+
+    if (isPlainObject(schemaValue) && isPlainObject(currentValue)) {
+      (nextValue as Record<string, unknown>)[key] = mergeSubstructureLikeSchema(schemaValue, currentValue);
+    } else if (key in current) {
+      (nextValue as Record<string, unknown>)[key] = currentValue;
+    }
+  }
+
+  return nextValue as T;
+}
+
 export function normalizeScopeState(scope: Step3Data): Step3Data {
   const hasPool = scope.scopeConfig.hasPool;
   const hasLift = scope.scopeConfig.lift === "Yes";
@@ -44,6 +69,12 @@ export function normalizeScopeState(scope: Step3Data): Step3Data {
   }
 
   if (projectType === "Foundation & Carcass Only" && foundationType === "Pile") {
+    const substructureSchema = defaultSubstructureData();
+    const mergedSubstructure = mergeSubstructureLikeSchema(
+      substructureSchema,
+      scope.substructure,
+    );
+
     return {
       ...scope,
       blinding: {
@@ -57,7 +88,7 @@ export function normalizeScopeState(scope: Step3Data): Step3Data {
         "Oversite Slab":
           scope.blinding["Oversite Slab"] ?? defaultBlindingElement(),
       },
-      substructure: defaultSubstructureData(),
+      substructure: mergedSubstructure,
       superstructure: filterSuperstructure(scope.superstructure, hasLift, hasStairs),
     };
   }

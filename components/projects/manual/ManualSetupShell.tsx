@@ -19,12 +19,15 @@ import {
 } from "@/store/slices/manualWizardSlice";
 import { WIZARD_STEPS } from "./constants";
 import { buildWorkspaceProjectFromWizard } from "../workspace/workspaceMapper";
-import { registerWorkspaceProject } from "@/store/slices/projectWorkspaceSlice";
-import { StepDrawings }        from "./StepDrawings";
-import { StepProjectDetails }  from "./StepProjectDetails";
-import { StepScope }           from "./StepScope";
-import { StepFinishing }       from "./StepFinishing";
-import { StepMetrics }         from "./StepMetrics";
+import {
+  persistWorkspaceProjectSnapshot,
+  registerWorkspaceProject,
+} from "@/store/slices/projectWorkspaceSlice";
+import { StepDrawings } from "./StepDrawings";
+import { StepProjectDetails } from "./StepProjectDetails";
+import { StepScope } from "./StepScope";
+import { StepFinishing } from "./StepFinishing";
+import { StepMetrics } from "./StepMetrics";
 
 interface ManualSetupShellProps {
   basePath?: string; // "/projects" or "/enterprise/projects"
@@ -34,16 +37,20 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
   const router = useRouter();
   const dispatch = useAppDispatch();
   const currentStep = useAppSelector((state) => state.manualWizard.currentStep);
+  const draftSavedAt = useAppSelector((state) => state.manualWizard.draftSavedAt);
   const wizardState = useAppSelector((state) => state.manualWizard.wizard);
 
   useEffect(() => {
-    dispatch(resetWizard());
-  }, [dispatch]);
+    if (!draftSavedAt) {
+      dispatch(resetWizard());
+    }
+  }, [dispatch, draftSavedAt]);
 
   const goNext = () => dispatch(goNextStep());
   const goBack = () => dispatch(goBackStep());
 
   function handleCancel() {
+    dispatch(resetWizard());
     router.push(basePath);
   }
 
@@ -54,7 +61,11 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
 
   function handleFinish() {
     const projectId = crypto.randomUUID();
-    dispatch(registerWorkspaceProject(buildWorkspaceProjectFromWizard(projectId, wizardState)));
+    const workspaceSnapshot = buildWorkspaceProjectFromWizard(projectId, wizardState);
+
+    persistWorkspaceProjectSnapshot(workspaceSnapshot);
+    dispatch(registerWorkspaceProject(workspaceSnapshot));
+    dispatch(resetWizard());
     router.push(`${basePath}/${projectId}`);
   }
 
@@ -99,7 +110,7 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
       <div className="border-b border-border/40 bg-background p-6 py-4 shrink-0">
         <div className="max-w-6xl mx-auto flex items-center gap-2">
           {WIZARD_STEPS.map((step, idx) => {
-            const isDone    = currentStep > step.id;
+            const isDone = currentStep > step.id;
             const isCurrent = currentStep === step.id;
             return (
               <div key={step.id} className="flex items-center gap-2 flex-1 min-w-0">
@@ -113,11 +124,10 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
                     </div>
                   ) : (
                     <div
-                      className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-xs font-bold ${
-                        isCurrent
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-muted-foreground"
-                      }`}
+                      className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-xs font-bold ${isCurrent
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground"
+                        }`}
                     >
                       {step.id}
                     </div>

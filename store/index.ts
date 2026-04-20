@@ -10,7 +10,13 @@ import plansReducer from "./slices/plansSlice";
 import clientsReducer from "./slices/clientsSlice";
 import projectsReducer from "./slices/projectsSlice";
 import manualWizardReducer from "./slices/manualWizardSlice";
-import projectWorkspaceReducer from "./slices/projectWorkspaceSlice";
+import projectWorkspaceReducer, {
+  clearWorkspaceProject,
+  hydrateWorkspaceProjects,
+  loadPersistedProjectWorkspaceState,
+  registerWorkspaceProject,
+  saveProjectWorkspaceState,
+} from "./slices/projectWorkspaceSlice";
 
 // Import API slices to ensure they are registered
 import "./api/authApi";
@@ -24,7 +30,28 @@ import "./api/plansApi";
 import "./api/clientsApi";
 import "./api/projectsApi";
 
+const persistedProjectWorkspace = loadPersistedProjectWorkspaceState();
+
+const projectWorkspacePersistenceMiddleware = (storeApi: any) => (next: any) => (action: any) => {
+  const result = next(action);
+
+  if (
+    registerWorkspaceProject.match(action) ||
+    clearWorkspaceProject.match(action) ||
+    hydrateWorkspaceProjects.match(action)
+  ) {
+    saveProjectWorkspaceState(storeApi.getState().projectWorkspace);
+  }
+
+  return result;
+};
+
 export const store = configureStore({
+  preloadedState: persistedProjectWorkspace
+    ? {
+      projectWorkspace: persistedProjectWorkspace,
+    }
+    : undefined,
   reducer: {
     [baseApi.reducerPath]: baseApi.reducer,
     auth: authReducer,
@@ -44,7 +71,7 @@ export const store = configureStore({
         ignoredActions: ["manualWizard/updateDrawings"],
         ignoredPaths: ["manualWizard.wizard.drawings"],
       },
-    }).concat(baseApi.middleware),
+    }).concat(baseApi.middleware, projectWorkspacePersistenceMiddleware),
 });
 
 setupListeners(store.dispatch);
