@@ -1,61 +1,772 @@
 "use client";
 
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { useMemo, useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { LibraryLocationTabs } from "./LibraryLocationTabs";
-import { LibraryTable } from "./LibraryTable";
-import { allCategoryData, defaultLocations } from "./mock-data";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Download,
+  FilePenLine,
+  FileSpreadsheet,
+  Plus,
+  RefreshCcw,
+  Undo2,
+  Upload,
+} from "lucide-react";
+import { allCategoryData, libraryTabCategories } from "./mock-data";
 
 interface LibraryCategoryViewProps {
   categoryId: string;
+  basePath: string;
 }
 
-export function LibraryCategoryView({ categoryId }: LibraryCategoryViewProps) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+interface NewRowFormState {
+  id: string;
+  particulars: string;
+  unit: string;
+  rate: string;
+  lastUpdated: string;
+  price: string;
+}
 
-  const activeLocation =
-    searchParams.get("location") ?? defaultLocations[0] ?? "";
+interface LibraryRow {
+  id: string;
+  particulars: string;
+  unit: string;
+  rate: string;
+  lastUpdated: string;
+  price: string;
+  isSelected: boolean;
+}
 
-  function handleLocationChange(location: string) {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("location", location);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+const UNIT_OPTIONS = ["SQMT", "CUM", "M", "M2", "M3", "KG", "TON",];
+
+const CURRENCY_PATTERN = /^(?:\d+(?:,\d{3})*|\d+)(?:\.\d+)?$/;
+const MONTH_YEAR_PATTERN = /^(0[1-9]|1[0-2])\/\d{4}$/;
+
+function deriveSectionCode(categoryId: string): string {
+  const code = categoryId
+    .split(/[^a-zA-Z0-9]+/)
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+
+  return code || categoryId.charAt(0).toUpperCase() || "A";
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function isCurrencySafe(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed || !CURRENCY_PATTERN.test(trimmed)) {
+    return false;
   }
 
+  const parsed = Number(trimmed.replaceAll(",", ""));
+  return Number.isFinite(parsed) && parsed >= 0;
+}
+
+function validateRowForm(form: NewRowFormState) {
+  const errors: Partial<Record<keyof NewRowFormState, string>> = {};
+
+  if (!form.particulars.trim()) {
+    errors.particulars = "Particulars are required.";
+  }
+
+  if (!form.unit.trim()) {
+    errors.unit = "Unit is required.";
+  }
+
+  if (!form.rate.trim()) {
+    errors.rate = "Rate is required.";
+  } else if (!isCurrencySafe(form.rate)) {
+    errors.rate = "Rate must be a valid currency value.";
+  }
+
+  if (!form.lastUpdated.trim()) {
+    errors.lastUpdated = "Last updated is required.";
+  } else if (!MONTH_YEAR_PATTERN.test(form.lastUpdated.trim())) {
+    errors.lastUpdated = "Use MM/YYYY format.";
+  }
+
+  if (!form.price.trim()) {
+    errors.price = "Price is required.";
+  } else if (!isCurrencySafe(form.price)) {
+    errors.price = "Price must be a valid currency value.";
+  }
+
+  return errors;
+}
+
+function FieldError({ message }: { message?: string }) {
+  if (!message) return null;
+
+  return <p className="text-xs text-destructive">{message}</p>;
+}
+
+export function LibraryCategoryView({
+  categoryId,
+  basePath,
+}: LibraryCategoryViewProps) {
   const categoryData =
     allCategoryData[categoryId] ?? allCategoryData["default"];
 
-  const activeItems =
-    categoryData.locationItems?.[activeLocation] ?? categoryData.items;
+  const activeTab = libraryTabCategories.find((tab) => tab.id === categoryId);
+  const sectionCode = activeTab ? activeTab.label.split(":")[0] ?? "A" : deriveSectionCode(categoryId);
+  const sectionTitle = activeTab?.sectionTitle ?? categoryData.title;
+  const exportFileName = `library-${slugify(`${sectionCode}-${sectionTitle}`) || sectionCode.toLowerCase()}.csv`;
+
+  const initialRows = useMemo<LibraryRow[]>(
+    () =>
+      categoryData.items.map((item, index) => {
+        const baseRate =
+          item.rate ?? item.base ?? item.mat ?? item.mach ?? item.final ?? "0.00";
+        return {
+          id: `${sectionCode}${index + 1}`,
+          particulars: item.title,
+          unit: String(item.unit ?? "").toUpperCase(),
+          rate: String(baseRate),
+          lastUpdated: String(item.lastUpdated ?? "03/2025"),
+          price: String(item.final ?? baseRate),
+          isSelected: false,
+        };
+      }),
+    [categoryData.items, sectionCode],
+  );
+
+  const [rows, setRows] = useState(() => initialRows);
+  const [isAddRowDialogOpen, setIsAddRowDialogOpen] = useState(false);
+  const [isEditRowDialogOpen, setIsEditRowDialogOpen] = useState(false);
+  const [editingRowId, setEditingRowId] = useState<string | null>(null);
+  const [addRowErrors, setAddRowErrors] = useState<Partial<Record<keyof NewRowFormState, string>>>({});
+  const [editRowErrors, setEditRowErrors] = useState<Partial<Record<keyof NewRowFormState, string>>>({});
+  const [newRowForm, setNewRowForm] = useState<NewRowFormState>({
+    id: "",
+    particulars: "",
+    unit: "SQMT",
+    rate: "0.00",
+    lastUpdated: "03/2025",
+    price: "0.00",
+  });
+  const [editRowForm, setEditRowForm] = useState<NewRowFormState>({
+    id: "",
+    particulars: "",
+    unit: "SQMT",
+    rate: "0.00",
+    lastUpdated: "03/2025",
+    price: "0.00",
+  });
+  const allRowsSelected = rows.length > 0 && rows.every((row) => row.isSelected);
+  const selectedRowsCount = rows.filter((row) => row.isSelected).length;
+
+  function escapeCsvValue(value: string) {
+    const escaped = value.replaceAll('"', '""');
+    return `"${escaped}"`;
+  }
+
+  function triggerCsvDownload(fileName: string, rowsToExport: string[][]) {
+    const csvContent = rowsToExport
+      .map((row) => row.map((cell) => escapeCsvValue(cell)).join(","))
+      .join("\n");
+
+    const blob = new Blob([`\uFEFF${csvContent}`], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  function handleExportDatabase() {
+    const csvRows = [
+      ["ID", "Particulars", "Unit", "Rate (N)", "Last Updated", "Price"],
+      ...rows.map((row) => [
+        row.id,
+        row.particulars,
+        row.unit,
+        row.rate,
+        row.lastUpdated,
+        row.price,
+      ]),
+    ];
+
+    triggerCsvDownload(exportFileName, csvRows);
+  }
+
+  function handleDownloadTemplate() {
+    const templateRows = [
+      ["ID", "Particulars", "Unit", "Rate (N)", "Last Updated", "Price"],
+      ["", "", "SQMT", "0.00", "MM/YYYY", "0.00"],
+    ];
+
+    triggerCsvDownload("library-template.csv", templateRows);
+  }
+
+  function updatePrice(id: string, value: string) {
+    setRows((prev) =>
+      prev.map((row) => (row.id === id ? { ...row, price: value } : row)),
+    );
+  }
+
+  function toggleSelection(id: string, checked: boolean) {
+    setRows((prev) =>
+      prev.map((row) =>
+        row.id === id ? { ...row, isSelected: checked } : row,
+      ),
+    );
+  }
+
+  function toggleSelectAll(checked: boolean) {
+    setRows((prev) => prev.map((row) => ({ ...row, isSelected: checked })));
+  }
+
+  function getNextRowId() {
+    const maxSuffix = rows.reduce((max, row) => {
+      const match = row.id.match(new RegExp(`^${sectionCode}(\\d+)$`));
+      if (!match) {
+        return max;
+      }
+      const suffix = Number(match[1]);
+      return Number.isNaN(suffix) ? max : Math.max(max, suffix);
+    }, 0);
+
+    return `${sectionCode}${maxSuffix + 1}`;
+  }
+
+  function openAddRowDialog() {
+    setAddRowErrors({});
+    setNewRowForm({
+      id: getNextRowId(),
+      particulars: "",
+      unit: "SQMT",
+      rate: "0.00",
+      lastUpdated: "03/2025",
+      price: "0.00",
+    });
+    setIsAddRowDialogOpen(true);
+  }
+
+  function updateNewRowForm(field: keyof NewRowFormState, value: string) {
+    setNewRowForm((prev) => ({ ...prev, [field]: value }));
+    setAddRowErrors((prev) => ({ ...prev, [field]: undefined }));
+  }
+
+  function submitAddRowForm(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const nextErrors = validateRowForm(newRowForm);
+    setAddRowErrors(nextErrors);
+
+    if (Object.keys(nextErrors).length > 0) {
+      return;
+    }
+
+    const resolvedId = getNextRowId();
+    const particulars = newRowForm.particulars.trim();
+    const unit = newRowForm.unit.trim().toUpperCase();
+    const rate = newRowForm.rate.trim();
+    const lastUpdated = newRowForm.lastUpdated.trim();
+    const price = newRowForm.price.trim();
+
+    setRows((prev) => [
+      ...prev,
+      {
+        id: resolvedId,
+        particulars,
+        unit,
+        rate,
+        lastUpdated,
+        price,
+        isSelected: false,
+      },
+    ]);
+
+    setIsAddRowDialogOpen(false);
+  }
+
+  function openEditRowDialog(rowId: string) {
+    const rowToEdit = rows.find((row) => row.id === rowId);
+    if (!rowToEdit) {
+      return;
+    }
+
+    setEditRowErrors({});
+    setEditingRowId(rowId);
+    setEditRowForm({
+      id: rowToEdit.id,
+      particulars: rowToEdit.particulars,
+      unit: rowToEdit.unit,
+      rate: rowToEdit.rate,
+      lastUpdated: rowToEdit.lastUpdated,
+      price: rowToEdit.price,
+    });
+    setIsEditRowDialogOpen(true);
+  }
+
+  function updateEditRowForm(field: keyof NewRowFormState, value: string) {
+    setEditRowForm((prev) => ({ ...prev, [field]: value }));
+    setEditRowErrors((prev) => ({ ...prev, [field]: undefined }));
+  }
+
+  function closeEditRowDialog() {
+    setIsEditRowDialogOpen(false);
+    setEditingRowId(null);
+    setEditRowErrors({});
+  }
+
+  function submitEditRowForm(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!editingRowId) {
+      return;
+    }
+
+    const nextErrors = validateRowForm(editRowForm);
+    setEditRowErrors(nextErrors);
+
+    if (Object.keys(nextErrors).length > 0) {
+      return;
+    }
+
+    const particulars = editRowForm.particulars.trim();
+    const unit = editRowForm.unit.trim().toUpperCase();
+    const rate = editRowForm.rate.trim();
+    const lastUpdated = editRowForm.lastUpdated.trim();
+    const price = editRowForm.price.trim();
+
+    setRows((prev) =>
+      prev.map((row) =>
+        row.id === editingRowId
+          ? {
+            ...row,
+            particulars,
+            unit,
+            rate,
+            lastUpdated,
+            price,
+          }
+          : row,
+      ),
+    );
+
+    closeEditRowDialog();
+  }
+
+  function deleteSelected() {
+    setRows((prev) => prev.filter((row) => !row.isSelected));
+  }
+
+  function resetRows() {
+    setRows(initialRows);
+  }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+    <div className="space-y-3">
+      <div className="flex flex-col gap-3 p-4 md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">
-            {categoryData.title}
-          </h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            {categoryData.subtitle}
+          <p className="mt-1.5 max-w-2xl text-xs text-muted-foreground md:text-sm">
+            A central, project-independent rate library for maintaining default
+            prices, and cost build-ups across the whole platform. Only the
+            green cells are editable inputs.
           </p>
         </div>
-        <Button className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm">
-          Add New Item
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline">
+            <Upload className="mr-2 h-4 w-4" />
+            Import Rate List
+          </Button>
+          <Button variant="outline" onClick={handleExportDatabase}>
+            <Download className="mr-2 h-4 w-4" />
+            Export
+          </Button>
+          <Button>
+            <RefreshCcw className="mr-2 h-4 w-4" />
+            New Rate
+          </Button>
+        </div>
       </div>
 
-      {/* Location Tabs */}
-      <LibraryLocationTabs
-        locations={defaultLocations}
-        activeLocation={activeLocation}
-        onLocationChange={handleLocationChange}
-      />
+      <div className="rounded-xl border border-border bg-card p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="mr-2 text-sm font-semibold text-muted-foreground md:text-base">Quick actions</p>
+          <Button
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            New Category
+          </Button>
+          <Button variant="outline" onClick={handleExportDatabase}>
+            <FileSpreadsheet className="mr-2 h-4 w-4" />
+            Export Database
+          </Button>
+          <Button variant="outline" onClick={handleDownloadTemplate}>
+            <Download className="mr-2 h-4 w-4" />
+            Download Template
+          </Button>
+          <Button className="bg-chart-2 text-primary-foreground hover:opacity-90">
+            <RefreshCcw className="mr-2 h-4 w-4" />
+            Update New Prices
+          </Button>
+        </div>
+      </div>
 
-      {/* Table */}
-      <LibraryTable categoryData={categoryData} items={activeItems} activeLocation={activeLocation} />
+      <div className="flex flex-wrap justify-between gap-2">
+        {libraryTabCategories.map((tab) => (
+          allCategoryData[tab.id] ? (
+            <Link
+              key={tab.id}
+              href={`${basePath}/${tab.id}`}
+              className={`rounded-md border text-sm px-3 py-2 leading-none transition-colors ${tab.id === activeTab?.id
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border bg-card text-muted-foreground hover:bg-muted"
+                }`}
+            >
+              {tab.label}
+            </Link>
+          ) : (
+            <span
+              key={tab.id}
+              aria-disabled="true"
+              title="Coming soon"
+              className="cursor-not-allowed rounded-md border border-dashed border-border px-3 py-2 text-sm leading-none text-muted-foreground opacity-70"
+            >
+              {tab.label}
+            </span>
+          )
+        ))}
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3.5 md:px-5 md:py-4">
+          <h2 className="text-xl font-semibold text-foreground md:text-lg">{sectionTitle}</h2>
+          <span className="text-xs text-muted-foreground md:text-sm">
+            {selectedRowsCount > 0
+              ? `${selectedRowsCount} selected / ${rows.length} rows`
+              : `${rows.length} rows`}
+          </span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm md:text-base">
+            <thead className="bg-muted text-foreground">
+              <tr>
+                <th className="px-4 py-2.5 text-left text-sm font-semibold md:px-5 md:py-3 md:text-base">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all rows"
+                    checked={allRowsSelected}
+                    onChange={(event) => toggleSelectAll(event.target.checked)}
+                    className="h-4 w-4 cursor-pointer rounded border-border text-primary focus:ring-primary/30"
+                  />
+                </th>
+                <th className="px-4 py-2.5 text-left text-sm font-semibold md:px-5 md:py-3 md:text-base">ID</th>
+                <th className="px-4 py-2.5 text-left text-sm font-semibold md:px-5 md:py-3 md:text-base">Particulars</th>
+                <th className="px-4 py-2.5 text-left text-sm font-semibold md:px-5 md:py-3 md:text-base">Unit</th>
+                <th className="px-4 py-2.5 text-left text-sm font-semibold md:px-5 md:py-3 md:text-base">Rate (₦)</th>
+                <th className="px-4 py-2.5 text-left text-sm font-semibold md:px-5 md:py-3 md:text-base">Last Updated</th>
+                <th className="px-4 py-2.5 text-right text-sm font-semibold md:px-5 md:py-3 md:text-base">Price</th>
+                <th className="px-4 py-2.5 text-center text-sm font-semibold md:px-5 md:py-3 md:text-base">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr
+                  key={row.id}
+                  className={`border-t border-border ${row.isSelected ? "bg-accent" : "bg-card"}`}
+                >
+                  <td className="px-4 py-3 md:px-5 md:py-4">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${row.id}`}
+                      checked={row.isSelected}
+                      onChange={(event) => toggleSelection(row.id, event.target.checked)}
+                      className="h-4 w-4 cursor-pointer rounded border-border text-primary focus:ring-primary/30"
+                    />
+                  </td>
+                  <td className="px-4 py-3 text-base text-foreground md:px-5 md:py-4">{row.id}</td>
+                  <td className="px-4 py-3 text-sm font-semibold text-foreground md:px-5 md:py-4 md:text-base">{row.particulars}</td>
+                  <td className="px-4 py-3 text-sm text-muted-foreground md:px-5 md:py-4 md:text-base">{row.unit}</td>
+                  <td className="px-4 py-3 text-sm text-foreground md:px-5 md:py-4 md:text-base">{row.rate}</td>
+                  <td className="px-4 py-3 text-sm text-muted-foreground md:px-5 md:py-4 md:text-base">{row.lastUpdated}</td>
+                  <td className="px-4 py-2.5 md:px-5 md:py-3">
+                    <input
+                      value={row.price}
+                      onChange={(event) => updatePrice(row.id, event.target.value)}
+                      onClick={(event) => event.stopPropagation()}
+                      className="h-10 w-full rounded-md border border-primary/40 bg-primary/10 px-3 text-right text-sm font-semibold text-primary outline-none focus:border-primary md:h-11 md:px-4 md:text-base"
+                    />
+                  </td>
+                  <td className="px-4 py-3 text-center md:px-5 md:py-4">
+                    <Button
+                      variant="outline"
+                      className="h-8 border-border bg-card px-2.5 text-xs"
+                      onClick={() => openEditRowDialog(row.id)}
+                    >
+                      <FilePenLine className="mr-1 h-3.5 w-3.5" />
+                      Edit
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="border-t border-border bg-muted px-4 py-3 md:px-5 md:py-4">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              className="h-9 border-border bg-card px-3 text-sm md:h-10 md:px-4 md:text-base"
+              onClick={openAddRowDialog}
+            >
+              <Plus className="mr-1 h-4 w-4" />
+              Add Row
+            </Button>
+            <Button
+              variant="outline"
+              className="h-9 border-border bg-card px-3 text-sm md:h-10 md:px-4 md:text-base"
+              onClick={deleteSelected}
+              disabled={selectedRowsCount === 0}
+            >
+              Delete Selected
+            </Button>
+            <Button variant="outline" className="h-9 border-border bg-card px-3 text-sm md:h-10 md:px-4 md:text-base" onClick={resetRows}>
+              <Undo2 className="mr-1 h-4 w-4" />
+              Reset Row
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <Dialog open={isAddRowDialogOpen} onOpenChange={setIsAddRowDialogOpen}>
+        <DialogContent className="sm:max-w-lg gap-5">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold">Add New Library Row</DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={submitAddRowForm} className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="new-row-id">ID</Label>
+                <Input
+                  id="new-row-id"
+                  value={newRowForm.id}
+                  readOnly
+                  disabled
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="new-row-unit">Unit</Label>
+                <Select
+                  value={newRowForm.unit}
+                  onValueChange={(value) => updateNewRowForm("unit", value)}
+                >
+                  <SelectTrigger id="new-row-unit" className="w-full" aria-invalid={Boolean(addRowErrors.unit)}>
+                    <SelectValue placeholder="Select unit" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {UNIT_OPTIONS.map((unitOption) => (
+                      <SelectItem key={unitOption} value={unitOption}>
+                        {unitOption}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FieldError message={addRowErrors.unit} />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="new-row-particulars">Particulars</Label>
+              <Input
+                id="new-row-particulars"
+                value={newRowForm.particulars}
+                onChange={(event) => updateNewRowForm("particulars", event.target.value)}
+                placeholder="Enter work item description"
+                required
+                aria-invalid={Boolean(addRowErrors.particulars)}
+              />
+              <FieldError message={addRowErrors.particulars} />
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="new-row-rate">Rate (N)</Label>
+                <Input
+                  id="new-row-rate"
+                  value={newRowForm.rate}
+                  onChange={(event) => updateNewRowForm("rate", event.target.value)}
+                  placeholder="0.00"
+                  required
+                  aria-invalid={Boolean(addRowErrors.rate)}
+                />
+                <FieldError message={addRowErrors.rate} />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="new-row-last-updated">Last Updated</Label>
+                <Input
+                  id="new-row-last-updated"
+                  value={newRowForm.lastUpdated}
+                  onChange={(event) => updateNewRowForm("lastUpdated", event.target.value)}
+                  placeholder="MM/YYYY"
+                  required
+                  aria-invalid={Boolean(addRowErrors.lastUpdated)}
+                />
+                <FieldError message={addRowErrors.lastUpdated} />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="new-row-price">Price</Label>
+                <Input
+                  id="new-row-price"
+                  value={newRowForm.price}
+                  onChange={(event) => updateNewRowForm("price", event.target.value)}
+                  placeholder="0.00"
+                  required
+                  aria-invalid={Boolean(addRowErrors.price)}
+                />
+                <FieldError message={addRowErrors.price} />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsAddRowDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit">Add Row</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isEditRowDialogOpen} onOpenChange={setIsEditRowDialogOpen}>
+        <DialogContent className="sm:max-w-lg gap-5">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold">Edit Library Row</DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={submitEditRowForm} className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-row-id">ID</Label>
+                <Input id="edit-row-id" value={editRowForm.id} readOnly disabled />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-row-unit">Unit</Label>
+                <Select
+                  value={editRowForm.unit}
+                  onValueChange={(value) => updateEditRowForm("unit", value)}
+                >
+                  <SelectTrigger id="edit-row-unit" className="w-full" aria-invalid={Boolean(editRowErrors.unit)}>
+                    <SelectValue placeholder="Select unit" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {UNIT_OPTIONS.map((unitOption) => (
+                      <SelectItem key={unitOption} value={unitOption}>
+                        {unitOption}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FieldError message={editRowErrors.unit} />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-row-particulars">Particulars</Label>
+              <Input
+                id="edit-row-particulars"
+                value={editRowForm.particulars}
+                onChange={(event) => updateEditRowForm("particulars", event.target.value)}
+                placeholder="Enter work item description"
+                required
+                aria-invalid={Boolean(editRowErrors.particulars)}
+              />
+              <FieldError message={editRowErrors.particulars} />
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-row-rate">Rate (N)</Label>
+                <Input
+                  id="edit-row-rate"
+                  value={editRowForm.rate}
+                  onChange={(event) => updateEditRowForm("rate", event.target.value)}
+                  placeholder="0.00"
+                  required
+                  aria-invalid={Boolean(editRowErrors.rate)}
+                />
+                <FieldError message={editRowErrors.rate} />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-row-last-updated">Last Updated</Label>
+                <Input
+                  id="edit-row-last-updated"
+                  value={editRowForm.lastUpdated}
+                  onChange={(event) => updateEditRowForm("lastUpdated", event.target.value)}
+                  placeholder="MM/YYYY"
+                  required
+                  aria-invalid={Boolean(editRowErrors.lastUpdated)}
+                />
+                <FieldError message={editRowErrors.lastUpdated} />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-row-price">Price</Label>
+                <Input
+                  id="edit-row-price"
+                  value={editRowForm.price}
+                  onChange={(event) => updateEditRowForm("price", event.target.value)}
+                  placeholder="0.00"
+                  required
+                  aria-invalid={Boolean(editRowErrors.price)}
+                />
+                <FieldError message={editRowErrors.price} />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={closeEditRowDialog}>
+                Cancel
+              </Button>
+              <Button type="submit">Save Changes</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
