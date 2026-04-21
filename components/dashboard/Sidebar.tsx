@@ -58,7 +58,6 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  console.log(pathname.split("/"), "pathname");
 
   return (
     <SidebarComponent collapsible="icon" variant="sidebar" className="max-w-md">

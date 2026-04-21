@@ -52,9 +52,54 @@ export default function ProjectsPage() {
         <div className="flex items-center justify-center p-16 col-span-full min-h-[400px]">
           <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
         </div>
+      ) : projects.length === 0 ? (
+        <>
+          <NewProjectDialog
+            open={dialogOpen}
+            onOpenChange={setDialogOpen}
+            basePath="/projects"
+          />
+          <div className="bg-white rounded-2xl flex flex-col items-center justify-center p-16 text-center border border-dashed border-gray-200 mt-8 min-h-[400px]">
+            <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-4">
+              <svg
+                width="24"
+                height="24"
+                fill="none"
+                viewBox="0 0 24 24"
+                className="text-primary"
+              >
+                <path
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+                />
+              </svg>
+            </div>
+            <h3 className="text-lg font-semibold text-foreground mb-2">
+              No projects yet
+            </h3>
+            <p className="text-muted-foreground mb-6 max-w-sm">
+              Get started by creating your first project to manage estimates and
+              generate BOQs.
+            </p>
+            <Button
+              size="lg"
+              className="rounded-full"
+              onClick={() => setDialogOpen(true)}
+            >
+              + Create New Project
+            </Button>
+          </div>
+        </>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          <NewProjectDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+          <NewProjectDialog
+            open={dialogOpen}
+            onOpenChange={setDialogOpen}
+            basePath="/projects"
+          />
           {projects.map((project) => (
             <ProjectCard key={project._id} project={project} />
           ))}

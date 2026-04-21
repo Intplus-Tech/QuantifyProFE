@@ -234,7 +234,6 @@ export function EditClientDialog({
   const [form, setForm] = useState(EMPTY_EDIT_FORM);
   const [updateClient, { isLoading: isSubmitting }] = useUpdateClientMutation();
 
-  // Sync form whenever the client changes or the dialog opens
   useEffect(() => {
     if (client && open) {
       setForm({
@@ -520,7 +519,8 @@ export function DeleteClientAlertDialog({
                 </span>
                 {client.clientCompanyName && (
                   <>
-                    {" "}from{" "}
+                    {" "}
+                    from{" "}
                     <span className="font-semibold text-foreground">
                       {client.clientCompanyName}
                     </span>
@@ -536,10 +536,7 @@ export function DeleteClientAlertDialog({
           </div>
         </AlertDialogHeader>
         <AlertDialogFooter className="flex gap-3 sm:gap-3 pt-2">
-          <AlertDialogCancel
-            disabled={isDeleting}
-            className="flex-1"
-          >
+          <AlertDialogCancel disabled={isDeleting} className="flex-1">
             Cancel
           </AlertDialogCancel>
           <AlertDialogAction
