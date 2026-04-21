@@ -1,16 +1,15 @@
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
-import { getSession } from "next-auth/react";
 import { ApiEndpoints } from "@/utils/endpoints";
+import { getToken } from "@/utils/tokenManager";
 
 export const baseApi = createApi({
   reducerPath: "api",
   baseQuery: fetchBaseQuery({
     baseUrl: ApiEndpoints.baseUrl,
-    prepareHeaders: async (headers: any) => {
-      const session = await getSession();
-      const token = (session as any)?.accessToken;
+    prepareHeaders: (headers) => {
+      const token = getToken();
       if (token) {
-        headers.set("authorization", `Bearer ${token}`);
+        headers.set("Authorization", `Bearer ${token}`);
       }
       return headers;
     },

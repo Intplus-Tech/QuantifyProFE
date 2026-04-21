@@ -3,7 +3,7 @@
 import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { signIn } from "next-auth/react";
+import { useLoginMutation } from "@/store/api/authApi";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -61,19 +61,21 @@ function LoginForm() {
     },
   });
 
+  const [login] = useLoginMutation();
+
   async function onSubmit(data: LoginFormData) {
-    const result = await signIn("credentials", {
-      email: data.email,
-      password: data.password,
-      redirect: false,
-    });
-
-    console.log(result, "result");
-
-    if (result?.ok) {
-      router.push("/");
-    } else {
-      setLoginError(result?.error || "Invalid email or password.");
+    try {
+      const result = await login({ email: data.email, password: data.password }).unwrap();
+      console.log(result, "result");
+      
+      const role = result.data.user.role;
+      if (role === "company") {
+        router.push("/enterprise/dashboard");
+      } else {
+        router.push("/dashboard");
+      }
+    } catch (err: any) {
+      setLoginError(err?.data?.message || "Invalid email or password.");
     }
   }
 
