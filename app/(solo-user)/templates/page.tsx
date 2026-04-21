@@ -35,7 +35,6 @@ export default function TemplatesPage() {
   );
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // API Hooks
   const { data: apiResponse, isLoading } = useGetTemplatesQuery({});
   const [deleteTemplate] = useDeleteTemplateMutation();
 

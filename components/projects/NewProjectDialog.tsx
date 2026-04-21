@@ -19,6 +19,7 @@ interface NewProjectDialogProps {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   basePath?: string; // "/projects" or "/enterprise/projects"
+  hideTrigger?: boolean;
 }
 
 type Step = "modeSelection" | "ai";
@@ -51,19 +52,21 @@ export function NewProjectDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        <Card className="border-2 border-dashed border-border/60 bg-muted/5 hover:bg-muted/20 transition-colors cursor-pointer flex flex-col items-center justify-center min-h-[320px] shadow-none">
-          <div className="w-14 h-14 rounded-full bg-primary flex items-center justify-center mb-4 shadow-sm">
-            <Plus className="w-6 h-6 text-primary-foreground" />
-          </div>
-          <h3 className="text-lg font-semibold text-primary mb-1">
-            Create New Project
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            Start from scratch or template
-          </p>
-        </Card>
-      </DialogTrigger>
+      {/* {!hideTrigger && (
+        <DialogTrigger asChild>
+          <Card className="border-2 border-dashed border-border/60 bg-muted/5 hover:bg-muted/20 transition-colors cursor-pointer flex flex-col items-center justify-center min-h-[320px] shadow-none">
+            <div className="w-14 h-14 rounded-full bg-primary flex items-center justify-center mb-4 shadow-sm">
+              <Plus className="w-6 h-6 text-primary-foreground" />
+            </div>
+            <h3 className="text-lg font-semibold text-primary mb-1">
+              Create New Project
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              Start from scratch or template
+            </p>
+          </Card>
+        </DialogTrigger>
+      )} */}
 
       {step === "modeSelection" && (
         <DialogContent className="sm:max-w-xl gap-5">
@@ -176,7 +179,10 @@ export function NewProjectDialog({
       {step === "ai" && (
         <AiAnalysisContent
           onCancel={() => handleOpenChange(false)}
-          onSwitchMode={() => { handleOpenChange(false); router.push(`${basePath}/new`); }}
+          onSwitchMode={() => {
+            handleOpenChange(false);
+            router.push(`${basePath}/new`);
+          }}
           basePath={basePath}
           onSubmitSuccess={(data) => {
             console.log("Success", data);
@@ -184,7 +190,6 @@ export function NewProjectDialog({
           }}
         />
       )}
-
     </Dialog>
   );
 }

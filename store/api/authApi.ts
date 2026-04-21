@@ -12,10 +12,37 @@ import {
   LoginResponse,
   RegistrationResponse,
 } from "@/types/auth";
-import { logout } from "../slices/authSlice";
+import { logout, setAuth } from "../slices/authSlice";
+import { setToken, removeToken } from "@/utils/tokenManager";
 
 export const authApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
+    login: builder.mutation<LoginResponse, LoginInput>({
+      query: (userData) => ({
+        url: authEndpoints.login,
+        method: ApiMethods.POST,
+        body: userData,
+      }),
+      async onQueryStarted(arg, { dispatch, queryFulfilled }) {
+        try {
+          const { data } = await queryFulfilled;
+          if (data.success && data.data) {
+            const token = (data.data as any).tokens?.accessToken || (data.data as any).accessToken;
+            if (token) {
+              setToken(token);
+              dispatch(
+                setAuth({
+                  accessToken: token,
+                  currentUser: data.data.user,
+                  user: null,
+                  company: null,
+                })
+              );
+            }
+          }
+        } catch {}
+      },
+    }),
     register: builder.mutation<RegistrationResponse, RegisterInput>({
       query: (userData) => ({
         url: authEndpoints.register,
@@ -31,6 +58,7 @@ export const authApi = baseApi.injectEndpoints({
       async onQueryStarted(arg, { dispatch, queryFulfilled }) {
         try {
           await queryFulfilled;
+          removeToken();
           dispatch(logout());
         } catch {}
       },
@@ -88,6 +116,7 @@ export const authApi = baseApi.injectEndpoints({
 });
 
 export const {
+  useLoginMutation,
   useRegisterMutation,
   useLogoutMutation,
   useRefreshTokenMutation,

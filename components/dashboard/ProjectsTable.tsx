@@ -19,6 +19,46 @@ export function ProjectsTable({ projects, isLoading }: ProjectsTableProps) {
     return <ProjectsTableSkeleton />;
   }
 
+  if (projects.length === 0) {
+    return (
+      <div className="overflow-x-auto">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="font-semibold">Recent Projects</h2>
+          <Button size={"lg"}>+ New Project</Button>
+        </div>
+        <div className="bg-white rounded-2xl flex flex-col items-center justify-center p-12 text-center border border-dashed border-gray-200">
+          <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-4">
+            <svg
+              width="24"
+              height="24"
+              fill="none"
+              viewBox="0 0 24 24"
+              className="text-primary"
+            >
+              <path
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+              />
+            </svg>
+          </div>
+          <h3 className="text-lg font-semibold text-[#4B4B4B] mb-2">
+            No projects yet
+          </h3>
+          <p className="text-[#7E859A] mb-6 max-w-sm">
+            Get started by creating your first project to manage estimates and
+            generate BOQs.
+          </p>
+          <Button size="lg" className="rounded-full">
+            + Create New Project
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="overflow-x-auto">
       <div className="flex justify-between items-center mb-4">

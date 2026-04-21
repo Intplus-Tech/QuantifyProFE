@@ -1,65 +1,98 @@
 "use client";
 import { RootState } from "@/store";
 import { useGetProfileQuery } from "@/store/api/userApi";
-import { setAuth } from "@/store/slices/authSlice";
-import { LoginResponse } from "@/types/auth";
-import { Loader, Loader2 } from "lucide-react";
-import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { logout, setAuth } from "@/store/slices/authSlice";
+import {
+  getToken,
+  getTokenExpiryTime,
+  removeToken,
+} from "@/utils/tokenManager";
+import { Loader2 } from "lucide-react";
+import { useRouter, usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
+import { toast } from "sonner";
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const dispatch = useDispatch();
-  const { data, status } = useSession();
-  const { currentUser } = useSelector((state: RootState) => state.auth);
   const router = useRouter();
-  console.log(data, "userData");
+  const pathname = usePathname();
+
+  const { currentUser, user } = useSelector((state: RootState) => state.auth);
+
+  const [hasToken, setHasToken] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const token = getToken();
+    setHasToken(!!token);
+  }, []);
+
+  useEffect(() => {
+    if (!hasToken) return;
+
+    const interval = setInterval(() => {
+      const expiry = getTokenExpiryTime();
+      if (expiry && Date.now() > expiry) {
+        removeToken();
+        setHasToken(false);
+        dispatch(logout());
+        toast.info("Your session has expired. Please log in again.");
+      }
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [hasToken, dispatch]);
+
   const {
     data: profileResponse,
     isLoading: isProfileLoading,
     isError,
   } = useGetProfileQuery(undefined, {
-    skip: status !== "authenticated",
+    skip: !hasToken,
   });
 
+  // Sync profile response back to currentUser so app state remains unified
   useEffect(() => {
-    if (status === "authenticated") {
-      const Data = data as unknown as {
-        accessToken: string;
-        refreshToken: string;
-        user: LoginResponse["data"]["user"];
-      };
-      dispatch(
-        setAuth({
-          accessToken: Data.accessToken,
-          currentUser: Data.user,
-          user: null,
-          company: null,
-        }),
-      );
+    if (profileResponse?.data && !currentUser) {
+      const token = getToken();
+      if (token) {
+        dispatch(
+          setAuth({
+            accessToken: token,
+            currentUser: profileResponse.data,
+            user: profileResponse.data,
+            company: null,
+          }),
+        );
+      }
     }
-  }, [status, data, dispatch]);
+  }, [profileResponse, currentUser, dispatch]);
 
   useEffect(() => {
-    if ((data as any)?.user?.role === "company") {
-      router.push("/enterprise/dashboard");
+    if (hasToken === false) {
+      if (!pathname.startsWith("/auth")) {
+        router.push("/auth/login");
+      }
     }
-  }, [data]);
-
-  useEffect(() => {
-    if (status === "unauthenticated" && !currentUser) {
-      router.push("/auth/login");
-    }
-  }, [status, currentUser, router]);
+  }, [hasToken, pathname, router]);
 
   useEffect(() => {
     if (isError) {
-      router.push("/auth/login");
+      removeToken();
+      dispatch(logout());
+      if (!pathname.startsWith("/auth")) {
+        router.push("/auth/login");
+      }
     }
-  }, [isError]);
+  }, [isError, dispatch, pathname, router]);
 
-  if (status === "loading" || isProfileLoading || !currentUser) {
+  if (pathname.startsWith("/auth")) {
+    return <>{children}</>;
+  }
+
+  const activeUser = currentUser || profileResponse?.data;
+
+  if (hasToken === null || isProfileLoading || !activeUser) {
     return (
       <div className="flex h-screen items-center justify-center">
         <Loader2 size={60} className="animate-spin text-amber-500" />
