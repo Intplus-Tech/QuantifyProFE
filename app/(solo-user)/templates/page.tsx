@@ -102,7 +102,7 @@ export default function TemplatesPage() {
   const uiTemplates = apiResponse?.data?.map(mapApiTemplateToUi) || [];
 
   return (
-    <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-8 bg-muted/30 min-h-screen">
+    <div className=" mx-auto space-y-8 bg-muted/30 min-h-screen">
       {/* Header Section */}
       <div>
         <h1 className="text-2xl font-bold text-foreground mb-2">Template</h1>

@@ -174,6 +174,10 @@ export const pdfBoq = {
   createProject: (jobId: string) => `/pdf-boq/jobs/${jobId}/create-project`,
 };
 
+export const dashboard = {
+  summary: "/dashboard",
+};
+
 export const ApiEndpoints = {
   baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL!,
   auth,
@@ -190,4 +194,5 @@ export const ApiEndpoints = {
   pdfBoq,
   uploads,
   template,
+  dashboard,
 };
