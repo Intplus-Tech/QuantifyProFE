@@ -161,6 +161,12 @@ export const projectsApi = baseApi.injectEndpoints({
         method: ApiMethods.GET,
       }),
     }),
+    submitBimBoqJob: builder.mutation<ApiResponse<{ jobId: string; status: string }>, string>({
+      query: (urn) => ({
+        url: ApiEndpoints.bim.generateBoq(urn),
+        method: ApiMethods.POST,
+      }),
+    }),
     getBimJobs: builder.query<
       PaginatedResponse<BimJob>,
       { page?: number; limit?: number }
@@ -192,6 +198,16 @@ export const projectsApi = baseApi.injectEndpoints({
         url: ApiEndpoints.bim.jobPdf(jobId),
         method: ApiMethods.GET,
         responseHandler: (response) => response.blob(),
+      }),
+    }),
+    createProjectFromBimBoq: builder.mutation<
+      ApiResponse<PdfBoqCreateProjectResponse>,
+      { jobId: string; body: PdfBoqCreateProjectRequest }
+    >({
+      query: ({ jobId, body }) => ({
+        url: ApiEndpoints.bim.createProject(jobId),
+        method: ApiMethods.POST,
+        body,
       }),
     }),
     uploadPdfBoq: builder.mutation<
@@ -361,6 +377,8 @@ export const {
   useGetBimJobByIdQuery,
   useUpdateBimJobMutation,
   useGetBimJobPdfQuery,
+  useSubmitBimBoqJobMutation,
+  useCreateProjectFromBimBoqMutation,
   useUploadPdfBoqMutation,
   useGetPdfBoqJobsQuery,
   useGetPdfBoqJobByIdQuery,

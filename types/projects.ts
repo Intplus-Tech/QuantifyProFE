@@ -231,7 +231,7 @@ export interface PdfBoqCreateProjectRequest {
   projectCode?: string;
   projectType?: string;
   projectLocation?: string;
-  drawingType?: string;
+  drawingType?: string[];
   source?: string;
   sourceJobId?: string;
   boqResult?: any;

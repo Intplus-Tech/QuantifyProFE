@@ -7,6 +7,9 @@ import { useSelector } from "react-redux";
 import { Button } from "@/components/ui/button";
 import {
   useGetBimStatusQuery,
+  useGetBimJobByIdQuery,
+  useSubmitBimBoqJobMutation,
+  useCreateProjectFromBimBoqMutation,
   useGetPdfBoqJobByIdQuery,
   useCreateProjectFromPdfBoqMutation,
 } from "@/store/api/projectsApi";
@@ -40,15 +43,26 @@ export function ProcessingView({
 
   const [createPdfProject, { isLoading: isCreatingPdfProject }] =
     useCreateProjectFromPdfBoqMutation();
+  const [createBimProject, { isLoading: isCreatingBimProject }] =
+    useCreateProjectFromBimBoqMutation();
+  const [submitBimBoqJob] = useSubmitBimBoqJobMutation();
+
   const [createdProjectId, setCreatedProjectId] = useState<string | null>(null);
 
+  const [bimJobId, setBimJobId] = useState<string | null>(null);
   const [bimPollStr, setBimPollStr] = useState(10000);
+  const [bimJobPollStr, setBimJobPollStr] = useState(10000);
   const [pdfPollStr, setPdfPollStr] = useState(10000);
   const [isReviewOpen, setIsReviewOpen] = useState(false);
 
   const bimQuery = useGetBimStatusQuery(sourceJobId, {
-    skip: !sourceJobId || uploadedFileType !== "bim",
+    skip: !sourceJobId || uploadedFileType !== "bim" || !!bimJobId,
     pollingInterval: bimPollStr,
+  });
+
+  const bimJobQuery = useGetBimJobByIdQuery(bimJobId || "", {
+    skip: !bimJobId || uploadedFileType !== "bim",
+    pollingInterval: bimJobPollStr,
   });
 
   const pdfQuery = useGetPdfBoqJobByIdQuery(sourceJobId, {
@@ -65,10 +79,45 @@ export function ProcessingView({
   useEffect(() => {
     if (
       bimQuery.data?.data?.status === "completed" ||
-      bimQuery.data?.data?.status === "failed"
-    )
+      bimQuery.data?.data?.status === "failed" ||
+      bimQuery.data?.data?.status === "success"
+    ) {
       setBimPollStr(0);
-  }, [bimQuery.data?.data?.status]);
+      if (
+        uploadedFileType === "bim" &&
+        bimQuery.data?.data?.status === "success" &&
+        !bimJobId
+      ) {
+        const invokeSubmitJob = async () => {
+          try {
+            const response = await submitBimBoqJob(sourceJobId).unwrap();
+            if (response.success && response.data?.jobId) {
+              setBimJobId(response.data.jobId);
+            }
+          } catch (err) {
+            console.error("Failed to submit BIM BOQ job", err);
+            toast.error("Failed to submit BIM processing job");
+          }
+        };
+
+        invokeSubmitJob();
+      }
+    }
+  }, [
+    bimQuery.data?.data?.status,
+    uploadedFileType,
+    bimJobId,
+    sourceJobId,
+    submitBimBoqJob,
+  ]);
+
+  useEffect(() => {
+    if (
+      bimJobQuery.data?.data?.status === "completed" ||
+      bimJobQuery.data?.data?.status === "failed"
+    )
+      setBimJobPollStr(0);
+  }, [bimJobQuery.data?.data?.status]);
 
   useEffect(() => {
     if (
@@ -78,13 +127,17 @@ export function ProcessingView({
       setPdfPollStr(0);
   }, [pdfQuery.data?.data?.status]);
 
-  const apiStatus = pdfQuery.data?.data?.status || bimQuery.data?.data?.status;
+  const apiStatus =
+    uploadedFileType === "pdf"
+      ? pdfQuery.data?.data?.status
+      : bimJobQuery.data?.data?.status || bimQuery.data?.data?.status;
 
   // Dynamic progress calculation based on polling status
   const getProgress = () => {
     if (apiStatus === "completed") return 100;
     if (apiStatus === "processing") return 65;
     if (apiStatus === "pending") return 30;
+    if (apiStatus === "success") return 65;
     if (apiStatus === "failed") return 100;
     return state.progress; // Default to mock progress if status is unknown/initial
   };
@@ -93,7 +146,7 @@ export function ProcessingView({
 
   // Map API status to ProcessingStatus union
   const mappedStatus: any =
-    apiStatus === "pending"
+    apiStatus === "pending" || apiStatus === "success"
       ? "processing"
       : apiStatus === "failed"
         ? "error"
@@ -121,7 +174,7 @@ export function ProcessingView({
         projectCode: newProjectDraft.projectCode,
         projectType: newProjectDraft.projectType,
         projectLocation: newProjectDraft.location,
-        drawingType: newProjectDraft.drawingType,
+        drawingType: [newProjectDraft.drawingType.toLowerCase()],
         source: uploadedFileType === "pdf" ? "pdf_boq" : "bim",
         sourceJobId: sourceJobId,
         // companyId: "string",
@@ -146,9 +199,38 @@ export function ProcessingView({
           err?.data?.message || "Failed to create project. Please try again.",
         );
       }
-    } else if (uploadedFileType === "bim" && bimQuery.data?.success) {
-      console.log("BIM Project Creation to be hooked up!");
-      toast.info("BIM Project creation is coming soon.");
+    } else if (uploadedFileType === "bim" && bimJobQuery.data?.success) {
+      const payload = {
+        name: newProjectDraft.projectTitle,
+        description: newProjectDraft.description,
+        clientName: newProjectDraft.clientName,
+        projectCode: newProjectDraft.projectCode,
+        projectType: newProjectDraft.projectType,
+        projectLocation: newProjectDraft.location,
+        drawingType: [newProjectDraft.drawingType.toLowerCase()],
+        source: "bim",
+        sourceJobId: bimJobId || sourceJobId,
+        libraryItems: [""],
+        boqResult: bimJobQuery.data?.data?.result,
+      };
+
+      try {
+        const response = await createBimProject({
+          jobId: bimJobId || sourceJobId,
+          body: payload as any,
+        }).unwrap();
+        if (response.success && response.data?._id) {
+          setCreatedProjectId(response.data._id);
+          toast.success(
+            response.message || "Project created successfully from BIM BOQ!",
+          );
+        }
+      } catch (err: any) {
+        console.error("Failed to create BIM Boq Project", err);
+        toast.error(
+          err?.data?.message || "Failed to create project. Please try again.",
+        );
+      }
     }
   };
 
@@ -188,15 +270,15 @@ export function ProcessingView({
         onReviewBOQ={handleReviewBOQ}
         onCreateProject={handleCreateProject}
         isProjectCreated={!!createdProjectId}
-        isCreatingProject={isCreatingPdfProject}
+        isCreatingProject={isCreatingPdfProject || isCreatingBimProject}
       />
 
       <ReviewBOQModal
         isOpen={isReviewOpen}
         onClose={() => setIsReviewOpen(false)}
-        data={pdfQuery.data?.data || bimQuery.data?.data}
+        data={pdfQuery.data?.data || bimJobQuery.data?.data}
         onCreateProject={handleCreateProject}
-        isCreatingProject={isCreatingPdfProject}
+        isCreatingProject={isCreatingPdfProject || isCreatingBimProject}
         previewBoq={() => router.push(`${basePath}/${createdProjectId}/boq`)}
       />
     </div>

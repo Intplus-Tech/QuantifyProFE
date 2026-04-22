@@ -153,10 +153,12 @@ export const template = {
 export const bim = {
   upload: "/bim/upload",
   status: (urn: string) => `/bim/status/${urn}`,
+  generateBoq: (urn: string) => `/bim/boq/${urn}`,
   jobs: "/bim/jobs",
   jobDetails: (jobId: string) => `/bim/jobs/${jobId}`,
   updateJob: (jobId: string) => `/bim/jobs/${jobId}`,
   jobPdf: (jobId: string) => `/bim/jobs/${jobId}/pdf`,
+  createProject: (jobId: string) => `/bim/jobs/${jobId}/create-project`,
 };
 
 export const uploads = {
