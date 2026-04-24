@@ -6,7 +6,17 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, BookOpen, Building, Plus, Home, Building2, Factory, ShoppingBag, Hotel } from "lucide-react";
+import {
+  Search,
+  BookOpen,
+  Building,
+  Plus,
+  Home,
+  Building2,
+  Factory,
+  ShoppingBag,
+  Hotel,
+} from "lucide-react";
 import { type Template } from "@/components/templates/mock-data";
 import { TemplateDetailsModal } from "@/components/templates/TemplateDetailsModal";
 import { TemplateCard } from "@/components/templates/TemplateCard";
@@ -18,17 +28,39 @@ import { Template as ApiTemplate } from "@/types/templates";
 import { toast } from "sonner";
 import { useDebounce } from "@/hooks/use-debounce";
 
+import { useSelector } from "react-redux";
+import type { RootState } from "@/store";
+
 export default function TemplatesPage() {
-  const [activeTab, setActiveTab] = useState<"system" | "organization">("system");
+  const [activeTab, setActiveTab] = useState<"system" | "organization">(
+    "system",
+  );
   const [systemSearch, setSystemSearch] = useState("");
   const debouncedSystemSearch = useDebounce(systemSearch, 500);
   const [organizationSearch, setOrganizationSearch] = useState("");
   const debouncedOrgSearch = useDebounce(organizationSearch, 500);
-  
-  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
+
+  const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(
+    null,
+  );
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const { data: apiResponse, isLoading } = useGetTemplatesQuery({});
+  const user = useSelector(
+    (state: RootState) => state.auth.user || state.auth.currentUser,
+  );
+
+  const { data: baseResponse, isLoading: isBaseLoading } = useGetTemplatesQuery(
+    {},
+  );
+
+  const isOwner = user?.role === "company" || user?.role === "admin";
+  const { data: orgResponse, isLoading: isOrgLoading } = useGetTemplatesQuery(
+    { type: "organization", companyId: user?.companyId },
+    { skip: isOwner || !user?.companyId },
+  );
+
+  const isLoading =
+    isBaseLoading || (isOrgLoading && activeTab === "organization");
   const [deleteTemplate] = useDeleteTemplateMutation();
 
   const handleOpenModal = (template: Template) => {
@@ -80,18 +112,27 @@ export default function TemplatesPage() {
         "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&q=80&w=800&h=450",
       boqGenerated: apiTemplate.boqCount || 0,
       estValue: "₦50M - ₦150M",
-      sections: apiTemplate.boqResult?.sections?.map((s) => s.sectionName) || [],
+      sections:
+        apiTemplate.boqResult?.sections?.map((s) => s.sectionName) || [],
       features: apiTemplate.keyFeatures || [],
       tags: apiTemplate.tags || [],
       templateType:
-        apiTemplate.type === "system" ? "System Provided" : "Organization Template",
+        apiTemplate.type === "system"
+          ? "System Provided"
+          : "Organization Template",
       lastUpdated: apiTemplate.updatedAt
         ? new Date(apiTemplate.updatedAt).toLocaleDateString()
         : "Aug 15, 2024",
     };
   };
 
-  const uiTemplates = apiResponse?.data?.map(mapApiTemplateToUi) || [];
+  const allTemplates = isOwner
+    ? baseResponse?.data || []
+    : [...(baseResponse?.data || []), ...(orgResponse?.data || [])].filter(
+        (v, i, a) => a.findIndex((t) => t._id === v._id) === i,
+      );
+
+  const uiTemplates = allTemplates.map(mapApiTemplateToUi);
 
   const matchesSearch = (template: Template, searchQuery: string) => {
     const normalizedQuery = searchQuery.trim().toLowerCase();

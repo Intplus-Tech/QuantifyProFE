@@ -12,6 +12,8 @@ import {
   useCreateProjectFromBimBoqMutation,
   useGetPdfBoqJobByIdQuery,
   useCreateProjectFromPdfBoqMutation,
+  useGetMultiBoqJobByIdQuery,
+  useCreateProjectFromMultiBoqMutation,
 } from "@/store/api/projectsApi";
 import { ProcessingHeader } from "./ProcessingHeader";
 import { DrawingViewer } from "./DrawingViewer";
@@ -45,6 +47,8 @@ export function ProcessingView({
     useCreateProjectFromPdfBoqMutation();
   const [createBimProject, { isLoading: isCreatingBimProject }] =
     useCreateProjectFromBimBoqMutation();
+  const [createMultiProject, { isLoading: isCreatingMultiProject }] =
+    useCreateProjectFromMultiBoqMutation();
   const [submitBimBoqJob] = useSubmitBimBoqJobMutation();
 
   const [createdProjectId, setCreatedProjectId] = useState<string | null>(null);
@@ -53,6 +57,7 @@ export function ProcessingView({
   const [bimPollStr, setBimPollStr] = useState(10000);
   const [bimJobPollStr, setBimJobPollStr] = useState(10000);
   const [pdfPollStr, setPdfPollStr] = useState(10000);
+  const [multiPollStr, setMultiPollStr] = useState(10000);
   const [isReviewOpen, setIsReviewOpen] = useState(false);
 
   const bimQuery = useGetBimStatusQuery(sourceJobId, {
@@ -68,6 +73,11 @@ export function ProcessingView({
   const pdfQuery = useGetPdfBoqJobByIdQuery(sourceJobId, {
     skip: !sourceJobId || uploadedFileType !== "pdf",
     pollingInterval: pdfPollStr,
+  });
+
+  const multiQuery = useGetMultiBoqJobByIdQuery(sourceJobId, {
+    skip: !sourceJobId || uploadedFileType !== "multi",
+    pollingInterval: multiPollStr,
   });
 
   useEffect(() => {
@@ -127,38 +137,57 @@ export function ProcessingView({
       setPdfPollStr(0);
   }, [pdfQuery.data?.data?.status]);
 
+  useEffect(() => {
+    if (
+      multiQuery.data?.data?.status === "completed" ||
+      multiQuery.data?.data?.status === "failed"
+    )
+      setMultiPollStr(0);
+  }, [multiQuery.data?.data?.status]);
+
   const apiStatus =
     uploadedFileType === "pdf"
       ? pdfQuery.data?.data?.status
-      : bimJobQuery.data?.data?.status || bimQuery.data?.data?.status;
+      : uploadedFileType === "multi"
+        ? multiQuery.data?.data?.status
+        : bimJobQuery.data?.data?.status || bimQuery.data?.data?.status;
 
   // Dynamic progress calculation based on polling status
   const getProgress = () => {
     if (apiStatus === "completed") return 100;
-    if (apiStatus === "processing") return 65;
-    if (apiStatus === "pending") return 30;
-    if (apiStatus === "success") return 65;
     if (apiStatus === "failed") return 100;
+    if (apiStatus === "generating") return 85;
+    if (apiStatus === "embedding") return 65;
+    if (apiStatus === "extracting") return 30;
+    if (apiStatus === "processing") return 65;
+    if (apiStatus === "success") return 65;
+    if (apiStatus === "pending") return 15;
     return state.progress; // Default to mock progress if status is unknown/initial
   };
 
   const computedProgress = getProgress();
 
   // Map API status to ProcessingStatus union
-  const mappedStatus: any =
-    apiStatus === "pending" || apiStatus === "success"
-      ? "processing"
-      : apiStatus === "failed"
-        ? "error"
-        : apiStatus;
+  const mappedStatus: any = [
+    "pending",
+    "success",
+    "processing",
+    "extracting",
+    "embedding",
+    "generating",
+  ].includes(apiStatus as string)
+    ? "processing"
+    : apiStatus === "failed"
+      ? "error"
+      : apiStatus;
 
   const mergedState: any = {
     ...state,
     status: mappedStatus || state.status,
     progress: computedProgress,
     logs:
-      apiStatus === "completed"
-        ? state.logs.map((log) => ({ ...log, type: "success" as const }))
+      apiStatus === "completed" || apiStatus === "success"
+        ? state.logs.map((log: any) => ({ ...log, type: "success" as const }))
         : state.logs,
   };
   console.log(apiStatus, "realStatus");
@@ -231,6 +260,39 @@ export function ProcessingView({
           err?.data?.message || "Failed to create project. Please try again.",
         );
       }
+    } else if (uploadedFileType === "multi" && multiQuery.data?.success) {
+      const payload = {
+        name: newProjectDraft.projectTitle,
+        description: newProjectDraft.description,
+        clientName: newProjectDraft.clientName,
+        projectCode: newProjectDraft.projectCode,
+        projectType: newProjectDraft.projectType,
+        projectLocation: newProjectDraft.location,
+        drawingType: [newProjectDraft.drawingType.toLowerCase()],
+        source: "multi",
+        sourceJobId: sourceJobId,
+        libraryItems: [""],
+        boqResult: multiQuery.data?.data?.result,
+      };
+
+      try {
+        const response = await createMultiProject({
+          jobId: sourceJobId,
+          body: payload as any,
+        }).unwrap();
+        if (response.success && response.data?._id) {
+          setCreatedProjectId(response.data._id);
+          toast.success(
+            response.message ||
+              "Project created successfully from multi files!",
+          );
+        }
+      } catch (err: any) {
+        console.error("Failed to create multi files Project", err);
+        toast.error(
+          err?.data?.message || "Failed to create project. Please try again.",
+        );
+      }
     }
   };
 
@@ -255,6 +317,7 @@ export function ProcessingView({
             detections={mergedState.detections}
             fileUrl={newProjectDraft?.fileUrl}
             fileType={uploadedFileType}
+            fileName={newProjectDraft?.fileName}
           />
         </div>
         <div className="lg:col-span-4 h-full">
@@ -264,21 +327,29 @@ export function ProcessingView({
 
       {/* Footer (stats + actions) */}
       <ProcessingFooter
+        apiStatus={apiStatus as string}
         state={mergedState}
         onPause={pause}
         onCancel={handleCancel}
         onReviewBOQ={handleReviewBOQ}
         onCreateProject={handleCreateProject}
         isProjectCreated={!!createdProjectId}
-        isCreatingProject={isCreatingPdfProject || isCreatingBimProject}
+        isCreatingProject={
+          isCreatingPdfProject || isCreatingBimProject || isCreatingMultiProject
+        }
       />
 
       <ReviewBOQModal
         isOpen={isReviewOpen}
         onClose={() => setIsReviewOpen(false)}
-        data={pdfQuery.data?.data || bimJobQuery.data?.data}
+        data={
+          pdfQuery.data?.data || bimJobQuery.data?.data || multiQuery.data?.data
+        }
+        jobType={uploadedFileType}
         onCreateProject={handleCreateProject}
-        isCreatingProject={isCreatingPdfProject || isCreatingBimProject}
+        isCreatingProject={
+          isCreatingPdfProject || isCreatingBimProject || isCreatingMultiProject
+        }
         previewBoq={() => router.push(`${basePath}/${createdProjectId}/boq`)}
       />
     </div>

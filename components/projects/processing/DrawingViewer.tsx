@@ -8,12 +8,14 @@ interface DrawingViewerProps {
   fileUrl?: string | null;
   fileType?: string;
   boqData?: BoqResult | null;
+  fileName?: string;
 }
 
 export function DrawingViewer({
   detections,
   fileUrl,
   fileType,
+  fileName,
 }: DrawingViewerProps) {
   const [zoom, setZoom] = useState(1);
   const [isImageLoading, setIsImageLoading] = useState(true);
@@ -28,10 +30,13 @@ export function DrawingViewer({
       y: Math.round(e.clientY - rect.top),
     });
   };
-  console.log(fileUrl, "file", fileType, "type");
+  
   const handleResetZoom = () => setZoom(1);
 
-  const isPdf = fileType === "pdf" || fileUrl?.toLowerCase().endsWith(".pdf");
+  const isPdf =
+    fileType === "pdf" ||
+    fileUrl?.toLowerCase().endsWith(".pdf") ||
+    fileName?.toLowerCase().endsWith(".pdf");
 
   return (
     <div className="relative group border rounded-2xl bg-slate-50 dark:bg-slate-900 text-card-foreground shadow-sm overflow-hidden flex flex-col h-full min-h-[600px]">

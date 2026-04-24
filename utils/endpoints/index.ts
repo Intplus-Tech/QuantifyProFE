@@ -176,6 +176,14 @@ export const pdfBoq = {
   createProject: (jobId: string) => `/pdf-boq/jobs/${jobId}/create-project`,
 };
 
+export const multiBoq = {
+  generate: "/boq/multi-generate",
+  jobDetails: (jobId: string) => `/boq/multi-jobs/${jobId}`,
+  updateJob: (jobId: string) => `/boq/multi-jobs/${jobId}`,
+  jobPdf: (jobId: string) => `/boq/multi-jobs/${jobId}/pdf`,
+  createProject: (jobId: string) => `/boq/multi-jobs/${jobId}/create-project`,
+};
+
 export const dashboard = {
   summary: "/dashboard",
 };
@@ -194,6 +202,7 @@ export const ApiEndpoints = {
   projects,
   bim,
   pdfBoq,
+  multiBoq,
   uploads,
   template,
   dashboard,

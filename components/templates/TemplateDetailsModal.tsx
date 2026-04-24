@@ -9,8 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CheckCircle2, Copy, Calendar, Sparkles } from "lucide-react";
+import { CheckCircle2, Copy, Calendar, Sparkles, Trash2, Loader2 } from "lucide-react";
 import type { Template } from "@/components/templates/mock-data";
+import { useGetTemplateByIdQuery, useDeleteTemplateMutation } from "@/store/api/templatesApi";
+import { toast } from "sonner";
+import { Home, Building2, Factory, ShoppingBag, Hotel } from "lucide-react";
 
 export type TemplateDetails = Template;
 
@@ -19,26 +22,72 @@ interface TemplateDetailsModalProps {
   onClose: () => void;
   template: TemplateDetails | null;
   onApply?: (template: TemplateDetails) => void;
+  onDeleteSuccess?: () => void;
 }
 
 export function TemplateDetailsModal({
   isOpen,
   onClose,
-  template,
+  template: initialTemplate,
   onApply,
+  onDeleteSuccess
 }: TemplateDetailsModalProps) {
-  const [isLoading, setIsLoading] = useState(true);
+  const { data: apiResponse, isLoading, isFetching } = useGetTemplateByIdQuery(
+    initialTemplate?.id as string, 
+    { skip: !isOpen || !initialTemplate?.id }
+  );
+  
+  const [deleteTemplate, { isLoading: isDeleting }] = useDeleteTemplateMutation();
 
-  useEffect(() => {
-    if (isOpen) {
-      // Simulate network request to fetch detailed template data
-      setIsLoading(true);
-      const timer = setTimeout(() => {
-        setIsLoading(false);
-      }, 800);
-      return () => clearTimeout(timer);
-    }
-  }, [isOpen, template]);
+  const handleRemove = async () => {
+     if (!initialTemplate?.id) return;
+     try {
+       await deleteTemplate(initialTemplate.id as string).unwrap();
+       toast.success("Template deleted successfully");
+       onClose();
+       if (onDeleteSuccess) {
+         onDeleteSuccess();
+       }
+     } catch (error: any) {
+       toast.error(error?.data?.message || "Failed to delete template");
+     }
+  };
+
+  const apiData = apiResponse?.data;
+  
+  const mapApiTemplateToUi = (apiData: any): Template => {
+    const iconMap: Record<string, any> = {
+      "🏠": Home,
+      "🏢": Building2,
+      "🏭": Factory,
+      "🛍️": ShoppingBag,
+      "🏨": Hotel,
+    };
+    return {
+      id: apiData._id,
+      title: apiData.name,
+      description: apiData.description,
+      icon: iconMap[apiData.icon] || Home,
+      iconBg: "bg-primary/10",
+      iconColor: "text-primary",
+      openedAt: apiData.updatedAt
+        ? `updated ${new Date(apiData.updatedAt).toLocaleDateString()}`
+        : "recently opened",
+      team: [{ avatar: `https://i.pravatar.cc/150?u=${apiData._id}`, initials: apiData.name.substring(0, 2).toUpperCase() }],
+      extraUsers: "+0",
+      badge: apiData.type === "system" ? "SYSTEM DEFAULT" : "ORGANIZATION",
+      image: "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&q=80&w=800&h=450",
+      boqGenerated: apiData.boqCount || 0,
+      estValue: "₦50M - ₦150M",
+      sections: apiData.boqResult?.sections?.map((s: any) => s.sectionName) || [],
+      features: apiData.keyFeatures || [],
+      tags: apiData.tags || [],
+      templateType: apiData.type === "system" ? "System Provided" : "Organization Template",
+      lastUpdated: apiData.updatedAt ? new Date(apiData.updatedAt).toLocaleDateString() : "Aug 15, 2024",
+    };
+  };
+
+  const template = apiData ? mapApiTemplateToUi(apiData) : initialTemplate;
 
   if (!template && !isLoading) return null;
 
@@ -240,15 +289,29 @@ export function TemplateDetailsModal({
                 {isLoading ? (
                   <Skeleton className="h-12 w-full rounded-xl" />
                 ) : (
-                  <Button
-                    className="w-full shadow-sm h-12 rounded-xl text-base font-semibold"
-                    onClick={() => {
-                      if (template) onApply?.(template);
-                      onClose();
-                    }}
-                  >
-                    Use Template
-                  </Button>
+                  <div className="flex flex-col gap-2">
+                    <Button
+                      className="w-full shadow-sm h-12 rounded-xl text-base font-semibold"
+                      onClick={() => {
+                        if (template) onApply?.(template);
+                        onClose();
+                      }}
+                    >
+                      Use Template
+                    </Button>
+                    
+                    {template?.badge !== "SYSTEM DEFAULT" && (
+                      <Button
+                        variant="destructive"
+                        className="w-full shadow-sm h-12 rounded-xl text-base font-semibold bg-red-500/10 text-red-500 hover:bg-red-500/20 hover:text-red-600 border-none"
+                        onClick={handleRemove}
+                        disabled={isDeleting}
+                      >
+                        {isDeleting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Trash2 className="w-5 h-5 mr-2" />}
+                        {isDeleting ? "Deleting..." : "Delete Template"}
+                      </Button>
+                    )}
+                  </div>
                 )}
 
                 {isLoading ? (

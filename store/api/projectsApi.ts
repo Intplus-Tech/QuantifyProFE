@@ -28,6 +28,8 @@ import {
   AddProjectMemberRequest,
   UpdateProjectMemberRequest,
   ProjectActivity,
+  MultiBoqJob,
+  MultiBoqGenerateResponse,
 } from "@/types/projects";
 
 export const projectsApi = baseApi.injectEndpoints({
@@ -263,6 +265,49 @@ export const projectsApi = baseApi.injectEndpoints({
         body,
       }),
     }),
+    uploadMultiBoq: builder.mutation<
+      ApiResponse<MultiBoqGenerateResponse>,
+      FormData
+    >({
+      query: (formData) => ({
+        url: ApiEndpoints.multiBoq.generate,
+        method: ApiMethods.POST,
+        body: formData,
+      }),
+    }),
+    getMultiBoqJobById: builder.query<ApiResponse<MultiBoqJob>, string>({
+      query: (jobId) => ({
+        url: ApiEndpoints.multiBoq.jobDetails(jobId),
+        method: ApiMethods.GET,
+      }),
+    }),
+    updateMultiBoqJob: builder.mutation<
+      ApiResponse<MultiBoqJob>,
+      { jobId: string; body: BimJobUpdateRequest }
+    >({
+      query: ({ jobId, body }) => ({
+        url: ApiEndpoints.multiBoq.updateJob(jobId),
+        method: ApiMethods.PATCH,
+        body,
+      }),
+    }),
+    getMultiBoqJobPdf: builder.query<Blob, string>({
+      query: (jobId) => ({
+        url: ApiEndpoints.multiBoq.jobPdf(jobId),
+        method: ApiMethods.GET,
+        responseHandler: (response) => response.blob(),
+      }),
+    }),
+    createProjectFromMultiBoq: builder.mutation<
+      ApiResponse<PdfBoqCreateProjectResponse>,
+      { jobId: string; body: PdfBoqCreateProjectRequest }
+    >({
+      query: ({ jobId, body }) => ({
+        url: ApiEndpoints.multiBoq.createProject(jobId),
+        method: ApiMethods.POST,
+        body,
+      }),
+    }),
     getProjectDashboard: builder.query<ApiResponse<ProjectDashboardSummary>, string>({
       query: (projectId) => ({
         url: ApiEndpoints.projects.dashboard(projectId),
@@ -386,6 +431,11 @@ export const {
   useGetPdfBoqJobPdfQuery,
   useLazyGetPdfBoqJobPdfQuery,
   useCreateProjectFromPdfBoqMutation,
+  useUploadMultiBoqMutation,
+  useGetMultiBoqJobByIdQuery,
+  useUpdateMultiBoqJobMutation,
+  useGetMultiBoqJobPdfQuery,
+  useCreateProjectFromMultiBoqMutation,
   useGetProjectDashboardQuery,
   useUpdateProjectThumbnailMutation,
   useGetBoqReportPreviewQuery,
