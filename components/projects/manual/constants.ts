@@ -17,11 +17,10 @@ import type {
 // ─── Stepper config ───────────────────────────────────────────────────────────
 
 export const WIZARD_STEPS = [
-  { id: 1, label: "Drawings", subtitle: "Upload files" },
-  { id: 2, label: "Project Details", subtitle: "Info & location" },
-  { id: 3, label: "Scope", subtitle: "Structural config" },
-  { id: 4, label: "Finishing", subtitle: "Materials" },
-  { id: 5, label: "Metrics", subtitle: "Currency & rates" },
+  { id: 1, label: "Project Details", subtitle: "Info & location" },
+  { id: 2, label: "Scope", subtitle: "Structural config" },
+  { id: 3, label: "Finishing", subtitle: "Materials" },
+  { id: 4, label: "Metrics", subtitle: "Currency & rates" },
 ] as const;
 
 // ─── Foundation type map ──────────────────────────────────────────────────────

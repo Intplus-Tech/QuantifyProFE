@@ -46,10 +46,9 @@ interface StepProjectDetailsProps {
   data: Step2Data;
   onChange: (data: Step2Data) => void;
   onNext: () => void;
-  onBack: () => void;
 }
 
-export function StepProjectDetails({ data, onChange, onNext, onBack }: StepProjectDetailsProps) {
+export function StepProjectDetails({ data, onChange, onNext }: StepProjectDetailsProps) {
   const {
     register,
     control,
@@ -254,15 +253,7 @@ export function StepProjectDetails({ data, onChange, onNext, onBack }: StepProje
         </div>
 
         {/* ── Footer ── */}
-        <div className="flex items-center justify-between pt-4 border-t border-border/40">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onBack}
-            className="gap-1.5"
-          >
-            ← Back to Drawings
-          </Button>
+        <div className="flex items-center justify-end pt-4 border-t border-border/40">
           <Button
             type="submit"
             className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"

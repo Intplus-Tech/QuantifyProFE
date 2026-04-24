@@ -1,10 +1,4 @@
-// ─── Wizard shared types ─────────────────────────────────────────────────────
-
-export interface UploadedFile {
-  file: File;
-  category: string; // "Architectural" | "Structural" | "MEP" | etc.
-  id: string;       // crypto.randomUUID() — stable key
-}
+// ─── Step 2 ──────────────────────────────────────────────────────────────────
 
 // ─── Step 2 ──────────────────────────────────────────────────────────────────
 
@@ -171,7 +165,6 @@ export interface Step5Data {
 // ─── Full Wizard State ────────────────────────────────────────────────────────
 
 export interface WizardState {
-  drawings: UploadedFile[];
   step2: Step2Data;
   scope: Step3Data;
   finishing: Step4Data;

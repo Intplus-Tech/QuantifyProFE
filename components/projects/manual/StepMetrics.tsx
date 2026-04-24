@@ -3,7 +3,7 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { CreditCard, RefreshCw } from "lucide-react";
+import { CreditCard, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -71,9 +71,10 @@ interface StepMetricsProps {
   onChange: (data: Step5Data) => void;
   onBack: () => void;
   onFinish: () => void;
+  isSubmitting?: boolean;
 }
 
-export function StepMetrics({ data, onChange, onBack, onFinish }: StepMetricsProps) {
+export function StepMetrics({ data, onChange, onBack, onFinish, isSubmitting = false }: StepMetricsProps) {
   const {
     register,
     handleSubmit,
@@ -214,9 +215,17 @@ export function StepMetrics({ data, onChange, onBack, onFinish }: StepMetricsPro
           </Button>
           <Button
             type="submit"
+            disabled={isSubmitting}
             className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold gap-2"
           >
-            Go to Workspace →
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Creating Project…
+              </>
+            ) : (
+              "Go to Workspace →"
+            )}
           </Button>
         </div>
       </form>

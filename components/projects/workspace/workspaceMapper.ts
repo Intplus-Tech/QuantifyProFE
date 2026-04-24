@@ -9,10 +9,6 @@ function toMoney(value: number): string {
   }).format(value);
 }
 
-function pickReferenceDrawings(drawings: WizardState["drawings"]): string[] {
-  return drawings.map((file) => file.file.name).slice(0, 3);
-}
-
 function deriveBuildingType(projectType: string): string {
   if (projectType.includes("Carcass")) return "Residential";
   if (projectType.includes("Foundation")) return "Mixed Use";
@@ -163,7 +159,7 @@ export function buildWorkspaceProjectFromWizard(
     description: wizard.step2.description || "Generated from manual setup",
     sections: buildSections(wizard),
     activities: buildActivities(projectName),
-    referenceDrawings: pickReferenceDrawings(wizard.drawings),
+    referenceDrawings: [],
     createdAt: new Date().toISOString(),
   };
 }

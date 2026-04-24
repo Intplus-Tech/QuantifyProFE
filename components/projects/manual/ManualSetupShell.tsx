@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, X, Save } from "lucide-react";
 import { toast } from "sonner";
@@ -11,9 +11,8 @@ import {
   goNextStep,
   markDraftSaved,
   resetWizard,
-  updateDrawings,
-  updateFinishing,
-  updateMetrics,
+  updateFinishing as setFinishingState,
+  updateMetrics as setMetricsState,
   updateScope,
   updateStep2,
 } from "@/store/slices/manualWizardSlice";
@@ -23,11 +22,25 @@ import {
   persistWorkspaceProjectSnapshot,
   registerWorkspaceProject,
 } from "@/store/slices/projectWorkspaceSlice";
-import { StepDrawings } from "./StepDrawings";
 import { StepProjectDetails } from "./StepProjectDetails";
 import { StepScope } from "./StepScope";
 import { StepFinishing } from "./StepFinishing";
 import { StepMetrics } from "./StepMetrics";
+import { useCreateProjectMutation } from "@/store/api/projectsApi";
+import {
+  useUpdateQsConfigMutation,
+  useUpsertStructuralScopeMutation,
+  useUpdateFinishingMutation,
+  useUpdateMetricsMutation,
+} from "@/store/api/manualProjectApi";
+import {
+  buildCreateProjectPayload,
+  buildQsConfigPayload,
+  buildStructuralScopeBody,
+  buildFinishingPayload,
+  buildMetricsPayload,
+  normaliseFoundationType,
+} from "./manualWizardTransformers";
 
 interface ManualSetupShellProps {
   basePath?: string; // "/projects" or "/enterprise/projects"
@@ -39,6 +52,14 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
   const currentStep = useAppSelector((state) => state.manualWizard.currentStep);
   const draftSavedAt = useAppSelector((state) => state.manualWizard.draftSavedAt);
   const wizardState = useAppSelector((state) => state.manualWizard.wizard);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // ── Manual-flow API mutations (isolated from AI flow) ──
+  const [createProject] = useCreateProjectMutation();
+  const [updateQsConfig] = useUpdateQsConfigMutation();
+  const [upsertStructuralScope] = useUpsertStructuralScopeMutation();
+  const [updateFinishing] = useUpdateFinishingMutation();
+  const [updateMetrics] = useUpdateMetricsMutation();
 
   useEffect(() => {
     if (!draftSavedAt) {
@@ -59,14 +80,104 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
     toast.success("Draft saved.");
   }
 
-  function handleFinish() {
-    const projectId = crypto.randomUUID();
-    const workspaceSnapshot = buildWorkspaceProjectFromWizard(projectId, wizardState);
+  async function handleFinish() {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
 
-    persistWorkspaceProjectSnapshot(workspaceSnapshot);
-    dispatch(registerWorkspaceProject(workspaceSnapshot));
-    dispatch(resetWizard());
-    router.push(`${basePath}/${projectId}`);
+    console.group("[ManualWizard] handleFinish — starting submission");
+    console.log("Wizard state snapshot:", JSON.parse(JSON.stringify(wizardState)));
+
+    try {
+      // ── Step 1: Create the project shell ──────────────────────────────────
+      const createPayload = buildCreateProjectPayload(wizardState.step2);
+      console.group("[ManualWizard] Step 1 — POST /projects");
+      console.log("Payload:", createPayload);
+      const t1 = performance.now();
+      const createResult = await createProject(createPayload).unwrap();
+      console.log(`Response (${(performance.now() - t1).toFixed(0)}ms):`, createResult);
+      console.groupEnd();
+
+      const projectId = createResult.data?._id;
+      if (!projectId) {
+        throw new Error("Project creation did not return a valid ID.");
+      }
+      console.log("[ManualWizard] Project ID assigned:", projectId);
+
+      // ── Step 2: QS Configuration ──────────────────────────────────────────
+      const qsPayload = buildQsConfigPayload(wizardState.scope.scopeConfig);
+      console.group("[ManualWizard] Step 2 — PATCH /takeoff/:id/qs-config");
+      console.log("Payload:", qsPayload);
+      const t2 = performance.now();
+      const qsResult = await updateQsConfig({ projectId, body: qsPayload }).unwrap();
+      console.log(`Response (${(performance.now() - t2).toFixed(0)}ms):`, qsResult);
+      console.groupEnd();
+
+      // ── Step 3: Structural Scope ──────────────────────────────────────────
+      const foundationType = normaliseFoundationType(wizardState.scope.scopeConfig.foundationType);
+      const scopeBody = buildStructuralScopeBody(wizardState.scope);
+      console.group(`[ManualWizard] Step 3 — PUT /takeoff/:id/structural-scope/${foundationType}`);
+      console.log("Foundation type:", foundationType);
+      console.log("Payload:", scopeBody);
+      const t3 = performance.now();
+      const scopeResult = await upsertStructuralScope({ projectId, foundationType, body: scopeBody }).unwrap();
+      console.log(`Response (${(performance.now() - t3).toFixed(0)}ms):`, scopeResult);
+      console.groupEnd();
+
+      // ── Step 4: Finishing ─────────────────────────────────────────────────
+      const finishingPayload = buildFinishingPayload(wizardState.finishing);
+      console.group("[ManualWizard] Step 4 — PATCH /projects/:id/finishing");
+      console.log("Payload:", finishingPayload);
+      const t4 = performance.now();
+      const finishingResult = await updateFinishing({ projectId, body: finishingPayload }).unwrap();
+      console.log(`Response (${(performance.now() - t4).toFixed(0)}ms):`, finishingResult);
+      console.groupEnd();
+
+      // ── Step 5: Financial Metrics ─────────────────────────────────────────
+      const metricsPayload = buildMetricsPayload(wizardState.metrics);
+      console.group("[ManualWizard] Step 5 — PATCH /projects/:id/metrics");
+      console.log("Payload:", metricsPayload);
+      const t5 = performance.now();
+      const metricsResult = await updateMetrics({ projectId, body: metricsPayload }).unwrap();
+      console.log(`Response (${(performance.now() - t5).toFixed(0)}ms):`, metricsResult);
+      console.groupEnd();
+
+      // ── Persist workspace snapshot locally (legacy support) ───────────────
+      const workspaceSnapshot = buildWorkspaceProjectFromWizard(projectId, wizardState);
+      persistWorkspaceProjectSnapshot(workspaceSnapshot);
+
+      dispatch(registerWorkspaceProject(workspaceSnapshot));
+
+      dispatch(resetWizard());
+      console.log("[ManualWizard] ✅ All steps complete — navigating to project:", projectId);
+      console.groupEnd(); // outer group
+      toast.success("Project created successfully!");
+      router.push(`${basePath}/${projectId}`);
+    } catch (err: unknown) {
+      // Close any open step group that threw before its groupEnd
+      console.groupEnd();
+
+      const rtkError = err as { status?: number; data?: { message?: string; errors?: unknown } };
+      const message =
+        rtkError?.data?.message ??
+        (err as Error)?.message ??
+        "Failed to create project. Please try again.";
+
+      console.error("[ManualWizard] ❌ Submission failed");
+      console.error("  HTTP status :", rtkError?.status ?? "N/A");
+      console.error("  Message     :", message);
+      console.error("  Server body :", rtkError?.data ?? null);
+      // Expand validation errors array so field-level failures are readable
+      const validationErrors = (rtkError?.data as { errors?: { body?: unknown[] } })?.errors?.body;
+      if (Array.isArray(validationErrors) && validationErrors.length > 0) {
+        console.error("  Validation errors:");
+        validationErrors.forEach((e, i) => console.error(`    [${i}]`, e));
+      }
+      console.error("  Raw error   :", err);
+      console.groupEnd(); // outer group
+      toast.error(message);
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -153,22 +264,13 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto px-6 py-8">
           {currentStep === 1 && (
-            <StepDrawings
-              drawings={wizardState.drawings}
-              onChange={(drawings) => dispatch(updateDrawings(drawings))}
-              onNext={goNext}
-              onSaveDraft={handleSaveDraft}
-            />
-          )}
-          {currentStep === 2 && (
             <StepProjectDetails
               data={wizardState.step2}
               onChange={(step2) => dispatch(updateStep2(step2))}
               onNext={goNext}
-              onBack={goBack}
             />
           )}
-          {currentStep === 3 && (
+          {currentStep === 2 && (
             <StepScope
               data={wizardState.scope}
               onChange={(scope) => dispatch(updateScope(scope))}
@@ -176,21 +278,22 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
               onBack={goBack}
             />
           )}
-          {currentStep === 4 && (
+          {currentStep === 3 && (
             <StepFinishing
               data={wizardState.finishing}
               scopeConfig={wizardState.scope.scopeConfig}
-              onChange={(finishing) => dispatch(updateFinishing(finishing))}
+              onChange={(finishing) => dispatch(setFinishingState(finishing))}
               onNext={goNext}
               onBack={goBack}
             />
           )}
-          {currentStep === 5 && (
+          {currentStep === 4 && (
             <StepMetrics
               data={wizardState.metrics}
-              onChange={(metrics) => dispatch(updateMetrics(metrics))}
+              onChange={(metrics) => dispatch(setMetricsState(metrics))}
               onBack={goBack}
               onFinish={handleFinish}
+              isSubmitting={isSubmitting}
             />
           )}
         </div>

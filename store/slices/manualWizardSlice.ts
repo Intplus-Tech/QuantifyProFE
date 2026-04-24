@@ -14,7 +14,6 @@ import type {
   Step3Data,
   Step4Data,
   Step5Data,
-  UploadedFile,
   WizardState,
 } from "@/components/projects/manual/types";
 
@@ -28,7 +27,6 @@ const initialState: ManualWizardState = {
   currentStep: 1,
   draftSavedAt: null,
   wizard: {
-    drawings: [],
     step2: defaultStep2(),
     scope: defaultStep3(),
     finishing: defaultStep4(),
@@ -41,16 +39,13 @@ const manualWizardSlice = createSlice({
   initialState,
   reducers: {
     setCurrentStep(state, action: PayloadAction<number>) {
-      state.currentStep = Math.max(1, Math.min(action.payload, 5));
+      state.currentStep = Math.max(1, Math.min(action.payload, 4));
     },
     goNextStep(state) {
-      state.currentStep = Math.min(state.currentStep + 1, 5);
+      state.currentStep = Math.min(state.currentStep + 1, 4);
     },
     goBackStep(state) {
       state.currentStep = Math.max(state.currentStep - 1, 1);
-    },
-    updateDrawings(state, action: PayloadAction<UploadedFile[]>) {
-      state.wizard.drawings = action.payload;
     },
     updateStep2(state, action: PayloadAction<Step2Data>) {
       state.wizard.step2 = action.payload;
@@ -79,7 +74,6 @@ const manualWizardSlice = createSlice({
       state.currentStep = initialState.currentStep;
       state.draftSavedAt = initialState.draftSavedAt;
       state.wizard = {
-        drawings: [],
         step2: defaultStep2(),
         scope: defaultStep3(),
         finishing: defaultStep4(),
@@ -93,7 +87,6 @@ export const {
   setCurrentStep,
   goNextStep,
   goBackStep,
-  updateDrawings,
   updateStep2,
   updateScope,
   updateFinishing,
