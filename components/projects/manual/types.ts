@@ -56,15 +56,71 @@ export interface ConcreteElement {
 
 export interface BlindingElement {
   gradeOfConcrete: string;
+  plasticizers?: string;
+  waterproof?: string;
   castingMethod: string;
+  castingLabourMethod?: string;
   wastePercent: string;
   blindingThickness: string;
+}
+
+export interface SubstructureLayer {
+  thicknessMm: string;
+  wastePercent: string;
+}
+
+export interface SubstructureFooting {
+  gradeOfConcrete: string;
+  plasticizers: string;
+  waterproof: string;
+  castingType: string;
+  castingLabourMethod: string;
+  wastePercent: string;
+}
+
+export interface SubstructureConcreteElement {
+  gradeOfConcrete: string;
+  plasticizers: string;
+  waterproof: string;
+  formworkType: string;
+  blockTypeOfFormwork: string;
+  blockworkFilling: string;
+  castingMethod: string;
+  castingLabourMethod: string;
+  castingFillingMethod: string;
+  wastePercent: string;
+}
+
+export interface SubstructureFrameElement {
+  gradeOfConcrete: string;
+  plasticizers: string;
+  waterproof: string;
+  formworkType: string;
+  castingMethod: string;
+  castingLabourMethod: string;
+  wastePercent: string;
+}
+
+export interface SubstructureData {
+  layers: {
+    totalFillingThickness: SubstructureLayer;
+    lateriteThickness: SubstructureLayer;
+    hardcoreThickness: SubstructureLayer;
+  };
+  columnFooting: SubstructureFooting;
+  elements: Record<string, SubstructureConcreteElement>;
+  pileCapFrames: SubstructureFrameElement;
+  blockworkInStripFoundation: {
+    blockworkForFormwork: string;
+    blockworkFilling: string;
+  };
 }
 
 export interface Step3Data {
   scopeConfig: ScopeConfig;
   pileSystem: PileSystem;
   blinding: Record<string, BlindingElement>;
+  substructure: SubstructureData;
   superstructure: Record<string, ConcreteElement>;
 }
 

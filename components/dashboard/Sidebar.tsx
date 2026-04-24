@@ -60,7 +60,9 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+
   const router = useRouter();
+
 
   return (
     <SidebarComponent collapsible="icon" variant="sidebar" className="max-w-md">
@@ -95,14 +97,13 @@ export function Sidebar() {
                   asChild
                   isActive={isActive}
                   tooltip={item.label}
-                  className={`my-2 px-8 py-6 ${
-                    isActive
+                  className={`my-2 px-8 py-6 ${isActive
                       ? "bg-primary! text-white! hover:bg-primary/90 [&_svg]:text-white!"
                       : "text-[A3A#D0] [&_svg]:text-[#A3AED0] hover:[&_svg]:text-[#2B3674]"
                     // isActive
                     //   ? "bg-primary! text-white! font-semibold hover:bg-primary/90! [&_svg]:text-white! py-3!"
                     //   : "text-[#A3AED0] hover:text-[#2B3674] [&_svg]:text-[#A3AED0] hover:[&_svg]:text-[#2B3674] py-1.5!"
-                  }`}
+                    }`}
                 >
                   <Link href={item.href}>
                     <Icon className="w-6 h-6" />

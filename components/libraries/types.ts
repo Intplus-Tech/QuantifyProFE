@@ -13,7 +13,9 @@ export interface LibraryItem {
   desc: string;
   unit: string;
   final: string;
-  [key: string]: string | number;
+  rate?: string;
+  lastUpdated?: string;
+  [key: string]: string | number | undefined;
 }
 
 /** Each column carries its own render function — eliminates category branching in the table */

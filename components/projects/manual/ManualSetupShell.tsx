@@ -1,17 +1,33 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, X, Save } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { WIZARD_STEPS, defaultStep2, defaultStep3, defaultStep4, defaultStep5 } from "./constants";
-import type { WizardState, UploadedFile, Step2Data, Step3Data, Step4Data, Step5Data } from "./types";
-import { StepDrawings }        from "./StepDrawings";
-import { StepProjectDetails }  from "./StepProjectDetails";
-import { StepScope }           from "./StepScope";
-import { StepFinishing }       from "./StepFinishing";
-import { StepMetrics }         from "./StepMetrics";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import {
+  goBackStep,
+  goNextStep,
+  markDraftSaved,
+  resetWizard,
+  updateDrawings,
+  updateFinishing,
+  updateMetrics,
+  updateScope,
+  updateStep2,
+} from "@/store/slices/manualWizardSlice";
+import { WIZARD_STEPS } from "./constants";
+import { buildWorkspaceProjectFromWizard } from "../workspace/workspaceMapper";
+import {
+  persistWorkspaceProjectSnapshot,
+  registerWorkspaceProject,
+} from "@/store/slices/projectWorkspaceSlice";
+import { StepDrawings } from "./StepDrawings";
+import { StepProjectDetails } from "./StepProjectDetails";
+import { StepScope } from "./StepScope";
+import { StepFinishing } from "./StepFinishing";
+import { StepMetrics } from "./StepMetrics";
 
 interface ManualSetupShellProps {
   basePath?: string; // "/projects" or "/enterprise/projects"
@@ -19,51 +35,37 @@ interface ManualSetupShellProps {
 
 export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellProps) {
   const router = useRouter();
-  const [currentStep, setCurrentStep] = useState(1);
+  const dispatch = useAppDispatch();
+  const currentStep = useAppSelector((state) => state.manualWizard.currentStep);
+  const draftSavedAt = useAppSelector((state) => state.manualWizard.draftSavedAt);
+  const wizardState = useAppSelector((state) => state.manualWizard.wizard);
 
-  const [wizardState, setWizardState] = useState<WizardState>({
-    drawings: [],
-    step2: defaultStep2(),
-    scope: defaultStep3(),
-    finishing: defaultStep4(),
-    metrics: defaultStep5(),
-  });
+  useEffect(() => {
+    if (!draftSavedAt) {
+      dispatch(resetWizard());
+    }
+  }, [dispatch, draftSavedAt]);
 
-  // ── Updaters passed to each step ──────────────────────────────────────────
-  const updateDrawings = useCallback((drawings: UploadedFile[]) => {
-    setWizardState((prev) => ({ ...prev, drawings }));
-  }, []);
-
-  const updateStep2 = useCallback((step2: Step2Data) => {
-    setWizardState((prev) => ({ ...prev, step2 }));
-  }, []);
-
-  const updateScope = useCallback((scope: Step3Data) => {
-    setWizardState((prev) => ({ ...prev, scope }));
-  }, []);
-
-  const updateFinishing = useCallback((finishing: Step4Data) => {
-    setWizardState((prev) => ({ ...prev, finishing }));
-  }, []);
-
-  const updateMetrics = useCallback((metrics: Step5Data) => {
-    setWizardState((prev) => ({ ...prev, metrics }));
-  }, []);
-
-  // ── Navigation ────────────────────────────────────────────────────────────
-  const goNext = useCallback(() => setCurrentStep((s) => Math.min(s + 1, 5)), []);
-  const goBack = useCallback(() => setCurrentStep((s) => Math.max(s - 1, 1)), []);
+  const goNext = () => dispatch(goNextStep());
+  const goBack = () => dispatch(goBackStep());
 
   function handleCancel() {
+    dispatch(resetWizard());
     router.push(basePath);
   }
 
   function handleSaveDraft() {
+    dispatch(markDraftSaved());
     toast.success("Draft saved.");
   }
 
   function handleFinish() {
     const projectId = crypto.randomUUID();
+    const workspaceSnapshot = buildWorkspaceProjectFromWizard(projectId, wizardState);
+
+    persistWorkspaceProjectSnapshot(workspaceSnapshot);
+    dispatch(registerWorkspaceProject(workspaceSnapshot));
+    dispatch(resetWizard());
     router.push(`${basePath}/${projectId}`);
   }
 
@@ -105,10 +107,10 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
       </header>
 
       {/* ── Stepper ── */}
-      <div className="border-b border-border/40 bg-background px-6 py-4 shrink-0">
-        <div className="max-w-5xl mx-auto flex items-center gap-2">
+      <div className="border-b border-border/40 bg-background p-6 py-4 shrink-0">
+        <div className="max-w-6xl mx-auto flex items-center gap-2">
           {WIZARD_STEPS.map((step, idx) => {
-            const isDone    = currentStep > step.id;
+            const isDone = currentStep > step.id;
             const isCurrent = currentStep === step.id;
             return (
               <div key={step.id} className="flex items-center gap-2 flex-1 min-w-0">
@@ -122,11 +124,10 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
                     </div>
                   ) : (
                     <div
-                      className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-xs font-bold ${
-                        isCurrent
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-muted-foreground"
-                      }`}
+                      className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-xs font-bold ${isCurrent
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground"
+                        }`}
                     >
                       {step.id}
                     </div>
@@ -150,11 +151,11 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
 
       {/* ── Step Content ── */}
       <main className="flex-1 overflow-y-auto">
-        <div className="max-w-5xl mx-auto px-6 py-8">
+        <div className="max-w-6xl mx-auto px-6 py-8">
           {currentStep === 1 && (
             <StepDrawings
               drawings={wizardState.drawings}
-              onChange={updateDrawings}
+              onChange={(drawings) => dispatch(updateDrawings(drawings))}
               onNext={goNext}
               onSaveDraft={handleSaveDraft}
             />
@@ -162,7 +163,7 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
           {currentStep === 2 && (
             <StepProjectDetails
               data={wizardState.step2}
-              onChange={updateStep2}
+              onChange={(step2) => dispatch(updateStep2(step2))}
               onNext={goNext}
               onBack={goBack}
             />
@@ -170,7 +171,7 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
           {currentStep === 3 && (
             <StepScope
               data={wizardState.scope}
-              onChange={updateScope}
+              onChange={(scope) => dispatch(updateScope(scope))}
               onNext={goNext}
               onBack={goBack}
             />
@@ -179,7 +180,7 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
             <StepFinishing
               data={wizardState.finishing}
               scopeConfig={wizardState.scope.scopeConfig}
-              onChange={updateFinishing}
+              onChange={(finishing) => dispatch(updateFinishing(finishing))}
               onNext={goNext}
               onBack={goBack}
             />
@@ -187,7 +188,7 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
           {currentStep === 5 && (
             <StepMetrics
               data={wizardState.metrics}
-              onChange={updateMetrics}
+              onChange={(metrics) => dispatch(updateMetrics(metrics))}
               onBack={goBack}
               onFinish={handleFinish}
             />
