@@ -6,20 +6,18 @@ import { Separator } from "@/components/ui/separator";
 import { StatsGrid } from "@/components/dashboard/StatsGrid";
 import { PromoSection } from "@/components/dashboard/PromoSection";
 import { ProjectsTable } from "@/components/dashboard/ProjectsTable";
-import { 
-  useGetProjectsQuery, 
-  useGetProjectDashboardQuery, 
-} from "@/store/api/projectsApi";
+import { useGetProjectsQuery } from "@/store/api/projectsApi";
+import { useGetDashboardStatsQuery } from "@/store/api/dashboardApi";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function DashboardPage() {
-  const { data: projectsRes, isLoading: projectsLoading } = useGetProjectsQuery({});
+  const { data: projectsRes, isLoading: projectsLoading } = useGetProjectsQuery(
+    {},
+  );
   const projectsList = projectsRes?.data || [];
-  const firstProjectId = projectsList[0]?._id;
 
-  const { data: dashboardRes, isLoading: dashboardLoading } = useGetProjectDashboardQuery(firstProjectId || "", {
-    skip: !firstProjectId,
-  });
+  const { data: dashboardRes, isLoading: dashboardLoading } =
+    useGetDashboardStatsQuery();
 
   const dashboardData = dashboardRes?.data;
 
@@ -34,13 +32,21 @@ export default function DashboardPage() {
   const statsData = [
     {
       label: "Total Project Value",
-      value: dashboardLoading ? <Skeleton className="h-9 w-32" /> : formatCurrency(dashboardData?.estimateTotal || 0),
+      value: dashboardLoading ? (
+        <Skeleton className="h-9 w-32" />
+      ) : (
+        formatCurrency(dashboardData?.totalProjectValue || 0)
+      ),
       icon: null,
       colorClass: "",
     },
     {
       label: "Projects",
-      value: projectsLoading ? <Skeleton className="h-9 w-16" /> : `${projectsList.length}/5`,
+      value: dashboardLoading ? (
+        <Skeleton className="h-9 w-16" />
+      ) : (
+        `${dashboardData?.projects.count || 0}`
+      ),
       icon: (
         <ChartNoAxesColumn className="text-primary" size={24} strokeWidth={4} />
       ),
@@ -48,7 +54,11 @@ export default function DashboardPage() {
     },
     {
       label: "BOQs",
-      value: dashboardLoading ? <Skeleton className="h-9 w-12" /> : (dashboardData as any)?.boqCount || "0",
+      value: dashboardLoading ? (
+        <Skeleton className="h-9 w-12" />
+      ) : (
+        dashboardData?.boqCount || "0"
+      ),
       icon: (
         <Image src="/icons/boq.svg" alt="BOQ Icon" width={32} height={32} />
       ),

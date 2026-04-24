@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
 import {
   DashboardIcon,
@@ -22,6 +22,8 @@ import {
 } from "@/components/ui/sidebar";
 import { Logo } from "./Logo";
 import { signOut } from "next-auth/react";
+import { removeToken } from "@/utils/tokenManager";
+import { useToastManager } from "@base-ui/react";
 
 const navItems = [
   {
@@ -58,7 +60,9 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  // console.log(pathname.split("/"), "pathname");
+
+  const router = useRouter();
+
 
   return (
     <SidebarComponent collapsible="icon" variant="sidebar" className="max-w-md">
@@ -118,7 +122,10 @@ export function Sidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton asChild tooltip="Logout">
               <button
-                onClick={() => signOut({ callbackUrl: "/auth/login" })}
+                onClick={() => {
+                  removeToken();
+                  router.push("/auth/login");
+                }}
                 className="cursor-pointer"
               >
                 <LogOut className="w-4 h-4" />

@@ -31,7 +31,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useUpdatePdfBoqJobMutation } from "@/store/api/projectsApi";
+import {
+  useUpdatePdfBoqJobMutation,
+  useUpdateMultiBoqJobMutation,
+  useUpdateBimJobMutation,
+} from "@/store/api/projectsApi";
 import { toast } from "sonner";
 import {
   CheckCircle2,
@@ -52,21 +56,21 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-interface BoqRow {
-  rowType: "header" | "item";
+interface WorkItem {
+  rowType?: "header" | "item";
   itemCode: string | null;
-  description: string;
+  item: string;
   specification: string | null;
   quantity: number | null;
   unit: string | null;
   rate: number | null;
-  amount: number | null;
+  total: number | null;
   notes: string | null;
 }
 
 interface BoqSection {
   sectionName: string;
-  rows: BoqRow[];
+  workItems: WorkItem[];
 }
 
 interface BoqData {
@@ -83,6 +87,7 @@ interface ReviewBOQModalProps {
   onCreateProject?: () => void;
   isCreatingProject?: boolean;
   previewBoq?: () => void;
+  jobType?: string;
 }
 
 const BOQRowItem = memo(
@@ -93,13 +98,13 @@ const BOQRowItem = memo(
     onUpdateRow,
     formatCurrency,
   }: {
-    row: BoqRow;
+    row: WorkItem;
     sIdx: number;
     rIdx: number;
     onUpdateRow: (
       sectionIndex: number,
       rowIndex: number,
-      field: keyof BoqRow,
+      field: keyof WorkItem,
       value: any,
     ) => void;
     formatCurrency: (value: number | null) => string;
@@ -117,7 +122,7 @@ const BOQRowItem = memo(
         <TableCell>
           <div className="space-y-1">
             <p className="text-sm font-bold text-slate-900 dark:text-slate-100">
-              {row.description}
+              {row.item}
             </p>
             {row.notes && (
               <div className="flex gap-2">
@@ -144,7 +149,7 @@ const BOQRowItem = memo(
                 View Calc
               </Button>
               {!row.quantity &&
-                row.description.toLowerCase().includes("mortar") && (
+                row.item.toLowerCase().includes("mortar") && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -211,7 +216,7 @@ const BOQRowItem = memo(
           </div>
         </TableCell>
         <TableCell className="text-right font-bold text-slate-600 dark:text-slate-400 text-xs">
-          {formatCurrency(row.amount)}
+          {formatCurrency(row.total)}
         </TableCell>
       </TableRow>
     );
@@ -227,18 +232,20 @@ export function ReviewBOQModal({
   onCreateProject,
   isCreatingProject,
   previewBoq,
+  jobType,
 }: ReviewBOQModalProps) {
   const [sections, setSections] = useState<BoqSection[]>([]);
   const boqResult = data?.result as BoqData;
 
   useEffect(() => {
     if (boqResult?.sections) {
-      // Map rows to include calculated amounts if missing
-      const initialSections = boqResult.sections.map((section) => ({
+      const initialSections = boqResult.sections.map((section: any) => ({
         ...section,
-        rows: section.rows.map((row) => ({
+        workItems: (section.workItems || section.rows || []).map((row: any) => ({
           ...row,
-          amount:
+          item: row.item || row.description,
+          total:
+            row.total ||
             row.amount ||
             (row.quantity && row.rate ? row.quantity * row.rate : null),
         })),
@@ -247,34 +254,40 @@ export function ReviewBOQModal({
     }
   }, [boqResult]);
 
-  const [updatePdfBoq, { isLoading: isUpdating }] =
+  const [updatePdfBoq, { isLoading: isPdfUpdating }] =
     useUpdatePdfBoqJobMutation();
+  const [updateMultiBoq, { isLoading: isMultiUpdating }] =
+    useUpdateMultiBoqJobMutation();
+  const [updateBimBoq, { isLoading: isBimUpdating }] =
+    useUpdateBimJobMutation();
+
+  const isUpdating = isPdfUpdating || isMultiUpdating || isBimUpdating;
 
   const handleUpdateRow = useCallback(
     (
       sectionIndex: number,
       rowIndex: number,
-      field: keyof BoqRow,
+      field: keyof WorkItem,
       value: any,
     ) => {
       setSections((prev) => {
         const updatedSections = [...prev];
         const section = { ...updatedSections[sectionIndex] };
-        const rows = [...section.rows];
-        const row = { ...rows[rowIndex] };
+        const workItems = [...section.workItems];
+        const row = { ...workItems[rowIndex] };
 
         // Update the field
         (row as any)[field] = value;
 
-        // Auto-calculate amount if quantity or rate changes
+        // Auto-calculate total if quantity or rate changes
         if (field === "quantity" || field === "rate") {
           const q = field === "quantity" ? Number(value) : row.quantity;
           const r = field === "rate" ? Number(value) : row.rate;
-          row.amount = q && r ? q * r : null;
+          row.total = q && r ? q * r : null;
         }
 
-        rows[rowIndex] = row;
-        section.rows = rows;
+        workItems[rowIndex] = row;
+        section.workItems = workItems;
         updatedSections[sectionIndex] = section;
         return updatedSections;
       });
@@ -284,15 +297,33 @@ export function ReviewBOQModal({
 
   const handleAcceptAll = async () => {
     try {
-      const response = await updatePdfBoq({
-        jobId: data._id,
-        body: {
-          sections: sections as any,
-        },
-      }).unwrap();
+      let response;
+      
+      const body = {
+        result: {
+          ...boqResult,
+          sections: sections
+        }
+      };
 
-      toast.success(response?.message);
-      // onClose();
+      if (jobType === "multi") {
+        response = await updateMultiBoq({
+          jobId: data._id,
+          body: body as any,
+        }).unwrap();
+      } else if (jobType === "bim") {
+        response = await updateBimBoq({
+          jobId: data._id,
+          body: body as any,
+        }).unwrap();
+      } else {
+        response = await updatePdfBoq({
+          jobId: data._id,
+          body: body as any,
+        }).unwrap();
+      }
+
+      toast.success(response?.message || "BOQ updated successfully");
     } catch (error: any) {
       console.error("Failed to update BOQ:", error);
       toast.error(error?.data?.message || "Failed to update BOQ");
@@ -444,7 +475,7 @@ export function ReviewBOQModal({
               disabled={isUpdating}
             >
               <Check className="w-4 h-4 mr-2" />
-              {isUpdating ? "Updating..." : "Accept All"}
+              {isUpdating ? "Updating..." : "Update BOQ"}
             </Button>
             <Button
               variant="outline"
@@ -503,8 +534,8 @@ export function ReviewBOQModal({
         <ScrollArea className="flex-1 p-6 bg-white">
           <div className="space-y-8 pb-10">
             {sections.map((section, sIdx) => {
-              const sectionTotal = section.rows.reduce(
-                (sum, row) => sum + (row.amount || 0),
+              const sectionTotal = section.workItems.reduce(
+                (sum, row) => sum + (row.total || 0),
                 0,
               );
 
@@ -513,7 +544,7 @@ export function ReviewBOQModal({
                   <div className="flex items-center justify-between border-b pb-2">
                     <h3 className="text-sm font-bold uppercase tracking-widest text-slate-800 dark:text-slate-100 flex items-center gap-2">
                       {section.sectionName.toUpperCase()} -{" "}
-                      {section.rows[0]?.description.toUpperCase() || ""}
+                      {section.workItems[0]?.item.toUpperCase() || ""}
                     </h3>
                   </div>
 
@@ -527,7 +558,7 @@ export function ReviewBOQModal({
                           Item Code
                         </TableHead>
                         <TableHead className="min-w-[300px] font-bold text-slate-900 dark:text-slate-100 uppercase text-[10px]">
-                          Description
+                          Item
                         </TableHead>
                         <TableHead className="w-[180px] font-bold text-slate-900 dark:text-slate-100 uppercase text-[10px]">
                           Specification
@@ -542,12 +573,12 @@ export function ReviewBOQModal({
                           Rate (₦)
                         </TableHead>
                         <TableHead className="w-[150px] font-bold text-slate-900 dark:text-slate-100 uppercase text-[10px] text-right">
-                          Amount (₦)
+                          Total (₦)
                         </TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {section.rows.map((row, rIdx) => (
+                      {section.workItems.map((row, rIdx) => (
                         <BOQRowItem
                           key={`${sIdx}-${rIdx}`}
                           row={row}
@@ -566,7 +597,7 @@ export function ReviewBOQModal({
                         Total {section.sectionName} Volume:
                       </span>
                       <span className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                        {section.rows
+                        {section.workItems
                           .reduce((sum, r) => sum + (r.quantity || 0), 0)
                           .toFixed(2)}{" "}
                         m³

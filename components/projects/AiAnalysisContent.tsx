@@ -8,6 +8,7 @@ import { setNewProjectDraft } from "@/store/slices/projectsSlice";
 import {
   useUploadBimFileMutation,
   useUploadPdfBoqMutation,
+  useUploadMultiBoqMutation,
 } from "@/store/api/projectsApi";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -61,8 +62,7 @@ const aiFormSchema = z.object({
   drawingType: z.string().min(1, "Drawing Type is required"),
   drawings: z
     .array(z.any())
-    .min(1, "Please upload a drawing")
-    .max(1, "Only one drawing is allowed"),
+    .min(1, "Please upload a drawing"),
   sourceJobId: z.string().optional(),
   uploadedFileType: z.string().optional(),
 });
@@ -111,7 +111,9 @@ export function AiAnalysisContent({
 
   const [uploadBimFile] = useUploadBimFileMutation();
   const [uploadPdfBoq] = useUploadPdfBoqMutation();
+  const [uploadMultiBoq] = useUploadMultiBoqMutation();
   const [isUploading, setIsUploading] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const drawings = watch("drawings");
 
@@ -120,46 +122,64 @@ export function AiAnalysisContent({
       if (acceptedFiles.length === 0) return;
       setIsUploading(true);
       try {
-        const file = acceptedFiles[0];
+        setValue("drawings", acceptedFiles, { shouldValidate: true });
 
-        const fileUrl = URL.createObjectURL(file);
-        console.log(fileUrl, "fileUrl", file, "file");
-        setValue("drawings", [file], { shouldValidate: true });
-        // Store technical metadata for display
-        setValue(
-          "uploadedFileType",
-          file.name.endsWith(".pdf") ? "pdf" : "bim",
-        );
-        // We'll use this fileUrl specifically for the ProcessingView display
-        setValue("fileUrl" as any, fileUrl);
+        // Build preview relying on the first file
+        const firstFile = acceptedFiles[0];
+        const fileUrl = URL.createObjectURL(firstFile);
+        setPreviewUrl(fileUrl);
 
-        const formData = new FormData();
-        formData.append("file", file);
+        if (acceptedFiles.length > 1) {
+          setValue("uploadedFileType", "multi");
+          const formData = new FormData();
+          acceptedFiles.forEach((f) => formData.append("files", f));
 
-        const extension = file.name
-          .substring(file.name.lastIndexOf("."))
-          .toLowerCase();
-        const isBimOrCad =
-          SUPPORTED_FORMATS["3D_BIM"].includes(extension) ||
-          SUPPORTED_FORMATS["2D_CAD"].includes(extension);
-
-        if (isBimOrCad) {
-          setValue("uploadedFileType", "bim");
-          const response = await uploadBimFile(formData).unwrap();
-          if (response.success && response.data?.urn) {
-            setValue("sourceJobId", response.data.urn);
-            toast.success(
-              response.message || "BIM file uploaded and translation started.",
-            );
+          // Try to compile a document hint from the current form fields, if filled.
+          const { projectType, location, description } = getValues();
+          const hintParams = [projectType, location, description].filter(Boolean);
+          if (hintParams.length > 0) {
+            formData.append("documentHint", hintParams.join(", "));
           }
-        } else if (extension === ".pdf") {
-          setValue("uploadedFileType", "pdf");
-          const response = await uploadPdfBoq(formData).unwrap();
+
+          const response = await uploadMultiBoq(formData).unwrap();
           if (response.success && response.data?.jobId) {
             setValue("sourceJobId", response.data.jobId);
             toast.success(
-              response.message || "PDF BOQ job submitted successfully.",
+              response.message ||
+                "Multiple files uploaded and processing started.",
             );
+          }
+        } else {
+          const file = firstFile;
+          const formData = new FormData();
+          formData.append("file", file);
+
+          const extension = file.name
+            .substring(file.name.lastIndexOf("."))
+            .toLowerCase();
+          const isBimOrCad =
+            SUPPORTED_FORMATS["3D_BIM"].includes(extension) ||
+            SUPPORTED_FORMATS["2D_CAD"].includes(extension);
+
+          if (isBimOrCad) {
+            setValue("uploadedFileType", "bim");
+            const response = await uploadBimFile(formData).unwrap();
+            if (response.success && response.data?.urn) {
+              setValue("sourceJobId", response.data.urn);
+              toast.success(
+                response.message ||
+                  "BIM file uploaded and translation started.",
+              );
+            }
+          } else if (extension === ".pdf") {
+            setValue("uploadedFileType", "pdf");
+            const response = await uploadPdfBoq(formData).unwrap();
+            if (response.success && response.data?.jobId) {
+              setValue("sourceJobId", response.data.jobId);
+              toast.success(
+                response.message || "PDF BOQ job submitted successfully.",
+              );
+            }
           }
         }
       } catch (error: any) {
@@ -171,14 +191,15 @@ export function AiAnalysisContent({
         setIsUploading(false);
       }
     },
-    [setValue, uploadBimFile, uploadPdfBoq],
+    [setValue, uploadBimFile, uploadPdfBoq, uploadMultiBoq],
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    multiple: false,
+    multiple: true,
     accept: {
       "application/pdf": [".pdf"],
+      "image/*": [".png", ".jpg", ".jpeg", ".webp"],
       "application/octet-stream": [
         ...SUPPORTED_FORMATS["3D_BIM"],
         ...SUPPORTED_FORMATS["2D_CAD"],
@@ -199,13 +220,10 @@ export function AiAnalysisContent({
     // API integration: replace this with a real POST that returns a projectId
     console.log("Form Data:", data);
 
-    // Capture fileUrl directly from form state since it's not in the schema
-    const fileUrl = getValues("fileUrl" as any);
-
     // Ensure fileUrl is included in the draft
     const finalData = {
       ...data,
-      fileUrl,
+      fileUrl: previewUrl,
       fileName: data.drawings[0]?.name || "drawing.file",
     };
 
