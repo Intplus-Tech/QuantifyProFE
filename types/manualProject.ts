@@ -9,6 +9,16 @@
 import { ApiResponse } from "./common";
 import { Project } from "./projects";
 
+/**
+ * Extends the shared Project type with the processingMode field returned
+ * by the backend for manual-mode projects.
+ * We keep this isolated here to avoid modifying types/projects.ts
+ * (shared with the AI-flow developer).
+ */
+export interface ManualProject extends Project {
+  processingMode: "manual" | "ai" | string;
+}
+
 // ─── Step 1: Create Project Shell ────────────────────────────────────────────
 
 export interface CreateManualProjectPayload {

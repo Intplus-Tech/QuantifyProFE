@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, ArrowUpDown, Plus, Loader2 } from "lucide-react";
+import { Search, ArrowUpDown, Plus, Loader2, Wrench } from "lucide-react";
 import { NewProjectDialog } from "@/components/projects/NewProjectDialog";
 import { ProjectCard } from "@/components/projects/ProjectCard";
 import { useGetProjectsQuery } from "@/store/api/projectsApi";
@@ -37,6 +37,15 @@ export default function ProjectsPage() {
           >
             <ArrowUpDown className="w-4 h-4 mr-2" />
             Sort by: Recent
+          </Button>
+          {/* Manual workspaces button — links to dedicated manual projects page */}
+          <Button
+            variant="outline"
+            className="bg-background border-border/50 shadow-sm text-muted-foreground h-12"
+            onClick={() => router.push("/projects/manual")}
+          >
+            <Wrench className="w-4 h-4 mr-2" />
+            My Workspaces
           </Button>
           <Button
             className="bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm h-12"
