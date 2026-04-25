@@ -3,7 +3,7 @@
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { LibraryLocationTabs } from "./LibraryLocationTabs";
+import { LibraryLocationTabs } from "./LibraryLocationTabs"; // Re-checking import path
 import { LibraryTableLive } from "./LibraryTableLive";
 import { AddLibraryItemModal } from "./AddLibraryItemModal";
 import { Plus, Loader2 } from "lucide-react";
@@ -16,9 +16,10 @@ import {
 
 interface LibraryCategoryViewProps {
   categoryId: string;
+  basePath: string;
 }
 
-export function LibraryCategoryView({ categoryId }: LibraryCategoryViewProps) {
+export function LibraryCategoryView({ categoryId, basePath }: LibraryCategoryViewProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();

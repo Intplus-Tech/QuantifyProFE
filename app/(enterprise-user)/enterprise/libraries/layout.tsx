@@ -6,6 +6,6 @@ export default function EnterpriseLibrariesLayout({
   children: React.ReactNode;
 }) {
   return (
-    <LibrariesLayout>{children}</LibrariesLayout>
+    <LibrariesLayout basePath="/enterprise/libraries">{children}</LibrariesLayout>
   );
 }
