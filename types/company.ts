@@ -15,14 +15,23 @@ export interface CompanyProfile {
   [key: string]: any;
 }
 
-export interface TeamMember {
-  id: string;
-  _id?: string;
-  fullName: string;
+export interface TeamMemberUser {
+  _id: string;
+  firstName: string;
+  lastName: string;
   email: string;
+  profilePicture?: string;
+}
+
+export interface TeamMember {
+  _id: string;
+  id?: string;
+  userId: TeamMemberUser;
   role: string;
   status: string;
   permissions?: string[];
+}
+
 }
 
 export interface InviteMemberInput {

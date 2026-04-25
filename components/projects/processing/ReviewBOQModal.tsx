@@ -84,7 +84,7 @@ interface ReviewBOQModalProps {
   isOpen: boolean;
   onClose: () => void;
   data: any;
-  onCreateProject?: () => void;
+  onCreateProject?: (updatedResult: any) => void;
   isCreatingProject?: boolean;
   previewBoq?: () => void;
   jobType?: string;
@@ -299,27 +299,28 @@ export function ReviewBOQModal({
     try {
       let response;
       
-      const body = {
-        result: {
-          ...boqResult,
-          sections: sections
-        }
-      };
-
       if (jobType === "multi") {
+        const body = {
+          result: {
+            ...boqResult,
+            sections: sections
+          }
+        };
         response = await updateMultiBoq({
           jobId: data._id,
           body: body as any,
         }).unwrap();
       } else if (jobType === "bim") {
+        // BIM remains with top-level sections for now if that's the standard
         response = await updateBimBoq({
           jobId: data._id,
-          body: body as any,
+          body: { sections: sections } as any,
         }).unwrap();
       } else {
+        // PDF with top-level sections
         response = await updatePdfBoq({
           jobId: data._id,
-          body: body as any,
+          body: { sections: sections } as any,
         }).unwrap();
       }
 
@@ -503,7 +504,13 @@ export function ReviewBOQModal({
             </Button>
             <Button
               className="bg-amber-500 hover:bg-amber-600 text-white h-12 px-6 rounded-lg gap-2 shadow-sm border border-amber-600/20"
-              onClick={onCreateProject}
+              onClick={() => {
+                const updatedResult = {
+                  ...boqResult,
+                  sections: sections
+                };
+                onCreateProject?.(updatedResult);
+              }}
               disabled={isCreatingProject}
             >
               {isCreatingProject ? (
