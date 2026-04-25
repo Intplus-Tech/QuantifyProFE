@@ -8,7 +8,7 @@ export const templatesApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
     getTemplates: builder.query<
       PaginatedResponse<Template>,
-      { page?: number; limit?: number; type?: string; search?: string }
+      { page?: number; limit?: number; type?: string; search?: string; companyId?: string }
     >({
       query: (params) => ({
         url: ApiEndpoints.template.list,
@@ -24,7 +24,10 @@ export const templatesApi = baseApi.injectEndpoints({
       }),
       providesTags: (result, error, id) => [{ type: "Templates", id }],
     }),
-    createTemplate: builder.mutation<ApiResponse<Template>, CreateTemplateRequest>({
+    createTemplate: builder.mutation<
+      ApiResponse<Template>,
+      CreateTemplateRequest
+    >({
       query: (body) => ({
         url: ApiEndpoints.template.create,
         method: ApiMethods.POST,

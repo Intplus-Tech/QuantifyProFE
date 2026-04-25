@@ -28,6 +28,8 @@ import {
   AddProjectMemberRequest,
   UpdateProjectMemberRequest,
   ProjectActivity,
+  MultiBoqJob,
+  MultiBoqGenerateResponse,
 } from "@/types/projects";
 
 export const projectsApi = baseApi.injectEndpoints({
@@ -161,6 +163,12 @@ export const projectsApi = baseApi.injectEndpoints({
         method: ApiMethods.GET,
       }),
     }),
+    submitBimBoqJob: builder.mutation<ApiResponse<{ jobId: string; status: string }>, string>({
+      query: (urn) => ({
+        url: ApiEndpoints.bim.generateBoq(urn),
+        method: ApiMethods.POST,
+      }),
+    }),
     getBimJobs: builder.query<
       PaginatedResponse<BimJob>,
       { page?: number; limit?: number }
@@ -192,6 +200,16 @@ export const projectsApi = baseApi.injectEndpoints({
         url: ApiEndpoints.bim.jobPdf(jobId),
         method: ApiMethods.GET,
         responseHandler: (response) => response.blob(),
+      }),
+    }),
+    createProjectFromBimBoq: builder.mutation<
+      ApiResponse<PdfBoqCreateProjectResponse>,
+      { jobId: string; body: PdfBoqCreateProjectRequest }
+    >({
+      query: ({ jobId, body }) => ({
+        url: ApiEndpoints.bim.createProject(jobId),
+        method: ApiMethods.POST,
+        body,
       }),
     }),
     uploadPdfBoq: builder.mutation<
@@ -243,6 +261,49 @@ export const projectsApi = baseApi.injectEndpoints({
     >({
       query: ({ jobId, body }) => ({
         url: ApiEndpoints.pdfBoq.createProject(jobId),
+        method: ApiMethods.POST,
+        body,
+      }),
+    }),
+    uploadMultiBoq: builder.mutation<
+      ApiResponse<MultiBoqGenerateResponse>,
+      FormData
+    >({
+      query: (formData) => ({
+        url: ApiEndpoints.multiBoq.generate,
+        method: ApiMethods.POST,
+        body: formData,
+      }),
+    }),
+    getMultiBoqJobById: builder.query<ApiResponse<MultiBoqJob>, string>({
+      query: (jobId) => ({
+        url: ApiEndpoints.multiBoq.jobDetails(jobId),
+        method: ApiMethods.GET,
+      }),
+    }),
+    updateMultiBoqJob: builder.mutation<
+      ApiResponse<MultiBoqJob>,
+      { jobId: string; body: BimJobUpdateRequest }
+    >({
+      query: ({ jobId, body }) => ({
+        url: ApiEndpoints.multiBoq.updateJob(jobId),
+        method: ApiMethods.PATCH,
+        body,
+      }),
+    }),
+    getMultiBoqJobPdf: builder.query<Blob, string>({
+      query: (jobId) => ({
+        url: ApiEndpoints.multiBoq.jobPdf(jobId),
+        method: ApiMethods.GET,
+        responseHandler: (response) => response.blob(),
+      }),
+    }),
+    createProjectFromMultiBoq: builder.mutation<
+      ApiResponse<PdfBoqCreateProjectResponse>,
+      { jobId: string; body: PdfBoqCreateProjectRequest }
+    >({
+      query: ({ jobId, body }) => ({
+        url: ApiEndpoints.multiBoq.createProject(jobId),
         method: ApiMethods.POST,
         body,
       }),
@@ -361,6 +422,8 @@ export const {
   useGetBimJobByIdQuery,
   useUpdateBimJobMutation,
   useGetBimJobPdfQuery,
+  useSubmitBimBoqJobMutation,
+  useCreateProjectFromBimBoqMutation,
   useUploadPdfBoqMutation,
   useGetPdfBoqJobsQuery,
   useGetPdfBoqJobByIdQuery,
@@ -368,6 +431,11 @@ export const {
   useGetPdfBoqJobPdfQuery,
   useLazyGetPdfBoqJobPdfQuery,
   useCreateProjectFromPdfBoqMutation,
+  useUploadMultiBoqMutation,
+  useGetMultiBoqJobByIdQuery,
+  useUpdateMultiBoqJobMutation,
+  useGetMultiBoqJobPdfQuery,
+  useCreateProjectFromMultiBoqMutation,
   useGetProjectDashboardQuery,
   useUpdateProjectThumbnailMutation,
   useGetBoqReportPreviewQuery,

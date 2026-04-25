@@ -153,10 +153,12 @@ export const template = {
 export const bim = {
   upload: "/bim/upload",
   status: (urn: string) => `/bim/status/${urn}`,
+  generateBoq: (urn: string) => `/bim/boq/${urn}`,
   jobs: "/bim/jobs",
   jobDetails: (jobId: string) => `/bim/jobs/${jobId}`,
   updateJob: (jobId: string) => `/bim/jobs/${jobId}`,
   jobPdf: (jobId: string) => `/bim/jobs/${jobId}/pdf`,
+  createProject: (jobId: string) => `/bim/jobs/${jobId}/create-project`,
 };
 
 export const uploads = {
@@ -174,6 +176,18 @@ export const pdfBoq = {
   createProject: (jobId: string) => `/pdf-boq/jobs/${jobId}/create-project`,
 };
 
+export const multiBoq = {
+  generate: "/boq/multi-generate",
+  jobDetails: (jobId: string) => `/boq/multi-jobs/${jobId}`,
+  updateJob: (jobId: string) => `/boq/multi-jobs/${jobId}`,
+  jobPdf: (jobId: string) => `/boq/multi-jobs/${jobId}/pdf`,
+  createProject: (jobId: string) => `/boq/multi-jobs/${jobId}/create-project`,
+};
+
+export const dashboard = {
+  summary: "/dashboard",
+};
+
 export const ApiEndpoints = {
   baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL!,
   auth,
@@ -188,6 +202,8 @@ export const ApiEndpoints = {
   projects,
   bim,
   pdfBoq,
+  multiBoq,
   uploads,
   template,
+  dashboard,
 };

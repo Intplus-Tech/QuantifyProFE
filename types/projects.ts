@@ -231,7 +231,7 @@ export interface PdfBoqCreateProjectRequest {
   projectCode?: string;
   projectType?: string;
   projectLocation?: string;
-  drawingType?: string;
+  drawingType?: string[];
   source?: string;
   sourceJobId?: string;
   boqResult?: any;
@@ -253,6 +253,25 @@ export interface PdfBoqCreateProjectResponse {
   createdAt: string;
 }
 
+export interface MultiBoqFileItem {
+  originalFilename: string;
+  fileType: string;
+  status: string;
+}
+
+export interface MultiBoqJob {
+  _id: string;
+  status: string;
+  embeddingStatus: string;
+  files: MultiBoqFileItem[];
+  createdAt: string;
+  result?: any;
+  errorMessage?: string;
+}
+
+export interface MultiBoqGenerateResponse {
+  jobId: string;
+}
 export interface ProjectMember {
   _id: string;
   projectId: string;
