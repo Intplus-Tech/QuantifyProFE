@@ -32,8 +32,6 @@ export interface TeamMember {
   permissions?: string[];
 }
 
-}
-
 export interface InviteMemberInput {
   email: string;
   fullName: string;
