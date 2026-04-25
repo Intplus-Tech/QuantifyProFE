@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { ArrowRight, LayoutDashboard, PencilLine, SquareStack, Ruler, ChevronRight, FileText, Clock3, Activity, FolderOpen } from "lucide-react";
+import { ArrowRight, LayoutDashboard, PencilLine, SquareStack, Ruler, ChevronRight, FileText, Clock3, Activity, FolderOpen, Loader2 } from "lucide-react";
 import { formatWorkspaceCurrency } from "./workspaceMapper";
+import { useGetProjectByIdQuery, useGetProjectDashboardQuery } from "@/store/api/projectsApi";
 import type { WorkspaceProjectSnapshot } from "./types";
 
 interface ProjectWorkspaceViewProps {
@@ -77,13 +78,53 @@ function MissingWorkspaceState({ basePath, projectId }: { basePath: string; proj
 }
 
 export function ProjectWorkspaceView({ projectId, basePath, mode }: ProjectWorkspaceViewProps) {
-  const workspace = useAppSelector((state) => state.projectWorkspace.projectsById[projectId]);
+  const localSnapshot = useAppSelector((state) => state.projectWorkspace.projectsById[projectId]);
+  const { data: projectResponse, isLoading: isLoadingProject } = useGetProjectByIdQuery(projectId);
+  const { data: dashboardResponse, isLoading: isLoadingDashboard } = useGetProjectDashboardQuery(projectId);
 
-  if (!workspace) {
+  const backendProject = projectResponse?.data;
+  const dashboardData = dashboardResponse?.data;
+
+  // We require either a local snapshot or basic backend data to render
+  if (!localSnapshot && !backendProject && !isLoadingProject) {
     return <MissingWorkspaceState basePath={basePath} projectId={projectId} />;
   }
 
-  const project = workspace;
+  if (isLoadingProject || isLoadingDashboard) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] text-muted-foreground">
+        <Loader2 className="w-8 h-8 animate-spin mb-4" />
+        <p>Loading workspace...</p>
+      </div>
+    );
+  }
+
+  // Merge the backend data into the snapshot structure so the UI can render
+  const project: WorkspaceProjectSnapshot = {
+    ...localSnapshot, // Start with local snapshot (contains detailed sections/activities if available)
+    id: projectId,
+    projectId,
+    name: backendProject?.name ?? localSnapshot?.name ?? `Project ${projectId.slice(0, 8)}`,
+    projectType: backendProject?.projectType ?? localSnapshot?.projectType ?? "Manual Project",
+    buildingType: backendProject?.buildingType ?? dashboardData?.buildingType ?? localSnapshot?.buildingType ?? "Building",
+    grossFloorArea: backendProject?.grossFloorArea ?? dashboardData?.grossFloorArea ?? localSnapshot?.grossFloorArea ?? 0,
+    estimateTotal: backendProject?.estimateTotal ?? dashboardData?.estimateTotal ?? localSnapshot?.estimateTotal ?? 0,
+    completionStatus: backendProject?.completionStatus ?? dashboardData?.completionStatus ?? localSnapshot?.completionStatus ?? 0,
+    clientName: backendProject?.clientName ?? localSnapshot?.clientName ?? "Client name pending",
+    description: backendProject?.description ?? localSnapshot?.description ?? "Generated from manual setup",
+    // Fallbacks for fields that might only exist in the local snapshot right now
+    foundationType: localSnapshot?.foundationType ?? "Foundation",
+    floors: localSnapshot?.floors ?? 1,
+    hasPool: localSnapshot?.hasPool ?? false,
+    lift: localSnapshot?.lift ?? "none",
+    costPerSqm: dashboardData?.costPerSqm ?? localSnapshot?.costPerSqm ?? 0,
+    contingencies: localSnapshot?.contingencies ?? "5.0",
+    projectLocation: backendProject?.projectLocation ?? localSnapshot?.projectLocation ?? "Location not set",
+    sections: localSnapshot?.sections ?? [],
+    activities: localSnapshot?.activities ?? [],
+    referenceDrawings: backendProject?.libraryItems ?? localSnapshot?.referenceDrawings ?? [],
+    createdAt: backendProject?.createdAt ?? localSnapshot?.createdAt ?? new Date().toISOString(),
+  };
 
   const costBreakdown = [
     { label: "Structural Scope", value: 46, color: "bg-blue-500" },

@@ -19,6 +19,7 @@ import {
   SquareStack,
   Waves,
 } from "lucide-react";
+import { useGetProjectByIdQuery } from "@/store/api/projectsApi";
 
 interface ProjectWorkspaceLayoutProps {
   projectId: string;
@@ -66,9 +67,14 @@ export function ProjectWorkspaceLayout({
   children,
 }: ProjectWorkspaceLayoutProps) {
   const pathname = usePathname() || "";
-  const project = useAppSelector(
+  const { data: projectResponse } = useGetProjectByIdQuery(projectId);
+  const backendProject = projectResponse?.data;
+  
+  const localSnapshot = useAppSelector(
     (state) => state.projectWorkspace.projectsById[projectId],
   );
+
+  const projectName = backendProject?.name ?? localSnapshot?.name ?? `Project ${projectId.slice(0, 8)}`;
 
   const dashboardPath = basePath.startsWith("/enterprise")
     ? "/enterprise/dashboard"
@@ -115,7 +121,7 @@ export function ProjectWorkspaceLayout({
         <div className="px-4 py-4 border-b border-slate-200">
           <p className="text-xs font-semibold text-slate-800">QSCalc Pro Workspace</p>
           <p className="text-[11px] text-slate-500 mt-1 line-clamp-1">
-            {project?.name ?? `Project ${projectId.slice(0, 8)}`}
+            {projectName}
           </p>
         </div>
 
@@ -194,8 +200,8 @@ export function ProjectWorkspaceLayout({
           <p className="text-[10px] uppercase tracking-widest text-slate-400 px-1">
             Reference Drawings
           </p>
-          {(project?.referenceDrawings?.length
-            ? project.referenceDrawings
+          {(localSnapshot?.referenceDrawings?.length
+            ? localSnapshot.referenceDrawings
             : ["No drawings uploaded"]
           ).slice(0, 2).map((name) => (
             <div
