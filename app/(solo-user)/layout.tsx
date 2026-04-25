@@ -1,6 +1,7 @@
 "use client";
 
 import AuthGuard from "@/components/layout/AuthGuard";
+import { usePathname } from "next/navigation";
 
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { Sidebar } from "@/components/dashboard/Sidebar";
@@ -11,6 +12,19 @@ export default function SoloLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const pathname = usePathname();
+  const segments = pathname.split("/").filter(Boolean);
+  const isWorkspaceRoute =
+    segments[0] === "projects" && Boolean(segments[1]) && segments[1] !== "new";
+
+  if (isWorkspaceRoute) {
+    return (
+      <AuthGuard>
+        <main className="min-h-screen bg-[#dbe3eb]">{children}</main>
+      </AuthGuard>
+    );
+  }
+
   return (
     <AuthGuard>
       <SidebarProvider>
