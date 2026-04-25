@@ -25,6 +25,8 @@ export const baseApi = createApi({
     "Templates",
     "Clients",
     "Dashboard",
+    "Projects",
+    "Library",
   ],
   endpoints: () => ({}),
 });

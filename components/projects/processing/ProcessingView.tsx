@@ -152,7 +152,6 @@ export function ProcessingView({
         ? multiQuery.data?.data?.status
         : bimJobQuery.data?.data?.status || bimQuery.data?.data?.status;
 
-  // Dynamic progress calculation based on polling status
   const getProgress = () => {
     if (apiStatus === "completed") return 100;
     if (apiStatus === "failed") return 100;
@@ -162,7 +161,7 @@ export function ProcessingView({
     if (apiStatus === "processing") return 65;
     if (apiStatus === "success") return 65;
     if (apiStatus === "pending") return 15;
-    return state.progress; // Default to mock progress if status is unknown/initial
+    return state.progress;
   };
 
   const computedProgress = getProgress();
@@ -192,7 +191,7 @@ export function ProcessingView({
   };
   console.log(apiStatus, "realStatus");
 
-  const handleCreateProject = async () => {
+  const handleCreateProject = async (updatedResult?: any) => {
     if (!newProjectDraft) return;
 
     if (uploadedFileType === "pdf" && pdfQuery.data?.success) {

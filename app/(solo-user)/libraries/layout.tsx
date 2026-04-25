@@ -6,6 +6,6 @@ export default function SoloLibrariesLayout({
   children: React.ReactNode;
 }) {
   return (
-    <LibrariesLayout>{children}</LibrariesLayout>
+    <LibrariesLayout basePath="/libraries">{children}</LibrariesLayout>
   );
 }

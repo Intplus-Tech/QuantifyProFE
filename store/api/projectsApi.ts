@@ -49,6 +49,7 @@ export const projectsApi = baseApi.injectEndpoints({
         method: ApiMethods.GET,
         params,
       }),
+      providesTags: ["Projects"],
       async onQueryStarted(arg, { dispatch, queryFulfilled }) {
         try {
           const { data } = await queryFulfilled;
@@ -67,6 +68,7 @@ export const projectsApi = baseApi.injectEndpoints({
         url: ApiEndpoints.projects.details(projectId),
         method: ApiMethods.GET,
       }),
+      providesTags: (result, error, id) => [{ type: "Projects", id }],
       async onQueryStarted(arg, { dispatch, queryFulfilled }) {
         try {
           const { data } = await queryFulfilled;
@@ -86,6 +88,7 @@ export const projectsApi = baseApi.injectEndpoints({
         method: ApiMethods.POST,
         body,
       }),
+      invalidatesTags: ["Projects"],
       async onQueryStarted(arg, { dispatch, queryFulfilled }) {
         try {
           const { data } = await queryFulfilled;
@@ -107,6 +110,10 @@ export const projectsApi = baseApi.injectEndpoints({
         method: ApiMethods.PATCH,
         body,
       }),
+      invalidatesTags: (result, error, { projectId }) => [
+        { type: "Projects", id: projectId },
+        "Projects",
+      ],
       async onQueryStarted(arg, { dispatch, queryFulfilled }) {
         try {
           const { data } = await queryFulfilled;
@@ -124,6 +131,7 @@ export const projectsApi = baseApi.injectEndpoints({
         url: ApiEndpoints.projects.delete(projectId),
         method: ApiMethods.DELETE,
       }),
+      invalidatesTags: ["Projects"],
       async onQueryStarted(projectId, { dispatch, queryFulfilled }) {
         try {
           await queryFulfilled;
@@ -323,6 +331,24 @@ export const projectsApi = baseApi.injectEndpoints({
         method: ApiMethods.PATCH,
         body: { thumbnailUrl },
       }),
+      invalidatesTags: (result, error, { projectId }) => [
+        { type: "Projects", id: projectId },
+        "Projects",
+      ],
+      async onQueryStarted({ projectId, thumbnailUrl }, { dispatch, queryFulfilled }) {
+        try {
+          const { data } = await queryFulfilled;
+          if (data?.success && data?.data) {
+            // Update the project in the state with the new thumbnail
+            // Since updateProjectInState expects a Full Project, we cast it if needed 
+            // or we use a more granular update if available.
+            // For now, we utilize the dispatcher to update the UI immediately.
+            dispatch(updateProjectInState({ _id: projectId, thumbnailUrl } as any));
+          }
+        } catch (error) {
+          console.error("Failed to update project thumbnail state:", error);
+        }
+      },
     }),
     getBoqReportPreview: builder.query<ApiResponse<BoqReportPreview>, string>({
       query: (projectId) => ({
