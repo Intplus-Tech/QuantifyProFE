@@ -15,6 +15,7 @@ import {
   updateMetrics as setMetricsState,
   updateScope,
   updateStep2,
+  setCreatedProjectId,
 } from "@/store/slices/manualWizardSlice";
 import { WIZARD_STEPS } from "./constants";
 import { buildWorkspaceProjectFromWizard } from "../workspace/workspaceMapper";
@@ -51,6 +52,7 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
   const dispatch = useAppDispatch();
   const currentStep = useAppSelector((state) => state.manualWizard.currentStep);
   const draftSavedAt = useAppSelector((state) => state.manualWizard.draftSavedAt);
+  const createdProjectId = useAppSelector((state) => state.manualWizard.createdProjectId);
   const wizardState = useAppSelector((state) => state.manualWizard.wizard);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -89,19 +91,25 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
 
     try {
       // ── Step 1: Create the project shell ──────────────────────────────────
-      const createPayload = buildCreateProjectPayload(wizardState.step2);
-      console.group("[ManualWizard] Step 1 — POST /projects");
-      console.log("Payload:", createPayload);
-      const t1 = performance.now();
-      const createResult = await createProject(createPayload).unwrap();
-      console.log(`Response (${(performance.now() - t1).toFixed(0)}ms):`, createResult);
-      console.groupEnd();
-
-      const projectId = createResult.data?._id;
+      let projectId = createdProjectId;
       if (!projectId) {
-        throw new Error("Project creation did not return a valid ID.");
+        const createPayload = buildCreateProjectPayload(wizardState.step2);
+        console.group("[ManualWizard] Step 1 — POST /projects");
+        console.log("Payload:", createPayload);
+        const t1 = performance.now();
+        const createResult = await createProject(createPayload).unwrap();
+        console.log(`Response (${(performance.now() - t1).toFixed(0)}ms):`, createResult);
+        console.groupEnd();
+
+        projectId = createResult.data?._id;
+        if (!projectId) {
+          throw new Error("Project creation did not return a valid ID.");
+        }
+        dispatch(setCreatedProjectId(projectId));
+        console.log("[ManualWizard] Project ID assigned:", projectId);
+      } else {
+        console.log("[ManualWizard] Step 1 skipped — reusing existing project ID:", projectId);
       }
-      console.log("[ManualWizard] Project ID assigned:", projectId);
 
       // ── Step 2: QS Configuration ──────────────────────────────────────────
       const qsPayload = buildQsConfigPayload(wizardState.scope.scopeConfig);

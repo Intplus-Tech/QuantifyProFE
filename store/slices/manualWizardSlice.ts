@@ -21,11 +21,13 @@ interface ManualWizardState {
   currentStep: number;
   wizard: WizardState;
   draftSavedAt: number | null;
+  createdProjectId: string | null;
 }
 
 const initialState: ManualWizardState = {
   currentStep: 1,
   draftSavedAt: null,
+  createdProjectId: null,
   wizard: {
     step2: defaultStep2(),
     scope: defaultStep3(),
@@ -70,9 +72,13 @@ const manualWizardSlice = createSlice({
     markDraftSaved(state) {
       state.draftSavedAt = Date.now();
     },
+    setCreatedProjectId(state, action: PayloadAction<string>) {
+      state.createdProjectId = action.payload;
+    },
     resetWizard(state) {
       state.currentStep = initialState.currentStep;
       state.draftSavedAt = initialState.draftSavedAt;
+      state.createdProjectId = initialState.createdProjectId;
       state.wizard = {
         step2: defaultStep2(),
         scope: defaultStep3(),
@@ -92,6 +98,7 @@ export const {
   updateFinishing,
   updateMetrics,
   markDraftSaved,
+  setCreatedProjectId,
   resetWizard,
 } = manualWizardSlice.actions;
 
