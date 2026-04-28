@@ -8,6 +8,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { useForgotPasswordMutation } from "@/store/api/authApi";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,8 +19,6 @@ const forgotPasswordSchema = z.object({
 });
 
 type ForgotPasswordFormData = z.infer<typeof forgotPasswordSchema>;
-
-// ── Page Component ─────────────────────────────────────
 
 export default function ForgotPasswordPage() {
   const router = useRouter();
@@ -33,24 +32,24 @@ export default function ForgotPasswordPage() {
     resolver: zodResolver(forgotPasswordSchema),
     defaultValues: { email: "" },
   });
+
   const [forgotPassword, { isLoading: isSubmitting }] =
     useForgotPasswordMutation();
-  const [forgotError, setForgotError] = useState<string | null>(null);
 
   async function onSubmit(data: ForgotPasswordFormData) {
-    setForgotError(null);
     try {
       const response = await forgotPassword(data).unwrap();
       if (response.success) {
         setSubmitted(true);
+        toast.success("OTP sent! Check your email.");
         router.push(
-          `/auth/verification?email=${encodeURIComponent(data.email)}`,
+          `/auth/verification?email=${encodeURIComponent(data.email)}&mode=reset`,
         );
+      } else {
+        toast.error(response.message || "Failed to send reset code.");
       }
     } catch (err: any) {
-      setForgotError(
-        err.data?.message || err.message || "Failed to send reset link.",
-      );
+      toast.error(err.data?.message || err.message || "Failed to send reset code.");
     }
   }
 
@@ -75,14 +74,8 @@ export default function ForgotPasswordPage() {
                 Forgot Password?
               </h1>
               <p className="text-center text-xs text-muted-foreground">
-                Enter your email address to reset your password
+                Enter your email address and we&apos;ll send you a reset code
               </p>
-
-              {forgotError && (
-                <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                  {forgotError}
-                </p>
-              )}
 
               <form
                 onSubmit={handleSubmit(onSubmit)}
@@ -108,7 +101,7 @@ export default function ForgotPasswordPage() {
                   {isSubmitting && (
                     <Loader2 className="size-3.5 animate-spin" />
                   )}
-                  {isSubmitting ? "Sending..." : "Reset"}
+                  {isSubmitting ? "Sending..." : "Send Reset Code"}
                 </Button>
               </form>
             </div>

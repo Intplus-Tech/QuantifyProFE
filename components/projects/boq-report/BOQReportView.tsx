@@ -156,7 +156,7 @@ function mapApiToUiReport(data: BoqReportPreview): BOQReport {
 
 function BOQReportLoadingState() {
   return (
-    <div className="p-6 md:p-8 max-w-5xl mx-auto space-y-8 animate-pulse">
+    <div className=" mx-auto space-y-8 animate-pulse">
       <div className="flex justify-between items-start">
         <div className="space-y-3">
           <Skeleton className="h-8 w-64" />

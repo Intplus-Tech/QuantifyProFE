@@ -54,7 +54,7 @@ export function InviteMemberModal({
         projectId,
         body: {
           userId,
-          role: "contributor", // Default role
+          role: "editor", // Default role
         },
       }).unwrap();
       toast.success("Member invited successfully");

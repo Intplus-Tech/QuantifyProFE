@@ -10,6 +10,8 @@ import { useGetProjectsQuery } from "@/store/api/projectsApi";
 import { useGetDashboardStatsQuery } from "@/store/api/dashboardApi";
 import { Skeleton } from "@/components/ui/skeleton";
 
+const BASE_PATH = "/projects";
+
 export default function DashboardPage() {
   const { data: projectsRes, isLoading: projectsLoading } = useGetProjectsQuery(
     {},
@@ -20,6 +22,9 @@ export default function DashboardPage() {
     useGetDashboardStatsQuery();
 
   const dashboardData = dashboardRes?.data;
+
+  // Most recent project for the promo section shortcut
+  const mostRecentProjectId = projectsList[0]?._id ?? null;
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat("en-NG", {
@@ -51,6 +56,7 @@ export default function DashboardPage() {
         <ChartNoAxesColumn className="text-primary" size={24} strokeWidth={4} />
       ),
       colorClass: "",
+      href: "/projects",
     },
     {
       label: "BOQs",
@@ -63,6 +69,7 @@ export default function DashboardPage() {
         <Image src="/icons/boq.svg" alt="BOQ Icon" width={32} height={32} />
       ),
       colorClass: "",
+      href: "/projects", // Usually BOQs are managed within projects
     },
     {
       label: "Invite a user",
@@ -77,10 +84,11 @@ export default function DashboardPage() {
       ),
       colorClass: "text-primary",
       border: true,
+      href: "/settings",
       extra: (
         <>
           <Separator orientation="horizontal" className="my-2" />
-          <div className="text-xs text-muted-foreground mb-3 leading-relaxed">
+          <div className="text-xs text-primary font-medium mb-3 leading-relaxed hover:underline">
             Upgrade your plan
           </div>
         </>
@@ -91,8 +99,15 @@ export default function DashboardPage() {
   return (
     <div className="mx-auto space-y-4">
       <StatsGrid stats={statsData} />
-      <PromoSection />
-      <ProjectsTable projects={projectsList} isLoading={projectsLoading} />
+      <PromoSection
+        basePath={BASE_PATH}
+        mostRecentProjectId={mostRecentProjectId}
+      />
+      <ProjectsTable
+        projects={projectsList}
+        isLoading={projectsLoading}
+        basePath={BASE_PATH}
+      />
     </div>
   );
 }

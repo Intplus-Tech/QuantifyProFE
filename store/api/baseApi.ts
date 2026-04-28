@@ -1,18 +1,11 @@
-import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
+import { createApi } from "@reduxjs/toolkit/query/react";
 import { ApiEndpoints } from "@/utils/endpoints";
-import { getToken } from "@/utils/tokenManager";
+import { axiosBaseQuery } from "./axiosBaseQuery";
 
 export const baseApi = createApi({
   reducerPath: "api",
-  baseQuery: fetchBaseQuery({
+  baseQuery: axiosBaseQuery({
     baseUrl: ApiEndpoints.baseUrl,
-    prepareHeaders: (headers) => {
-      const token = getToken();
-      if (token) {
-        headers.set("Authorization", `Bearer ${token}`);
-      }
-      return headers;
-    },
   }),
   tagTypes: [
     "User",

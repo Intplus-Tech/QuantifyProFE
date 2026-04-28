@@ -9,6 +9,7 @@ import { ArrowLeft, Eye, EyeOff, Loader2 } from "lucide-react";
 import { useResetPasswordMutation } from "@/store/api/authApi";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,14 +17,14 @@ import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 
 const resetSchema = z
   .object({
-    password: z
+    newPassword: z
       .string()
       .min(8, "Password must be at least 8 characters")
       .regex(/[A-Z]/, "Must contain at least one uppercase letter")
       .regex(/[0-9]/, "Must contain at least one number"),
     confirmPassword: z.string().min(1, "Please re-enter your password"),
   })
-  .refine((values) => values.password === values.confirmPassword, {
+  .refine((values) => values.newPassword === values.confirmPassword, {
     path: ["confirmPassword"],
     message: "Passwords do not match",
   });
@@ -41,7 +42,9 @@ export default function ResetPasswordPage() {
 function ResetPasswordContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const token = searchParams.get("token") || "";
+  const email = searchParams.get("email") || "";
+  const otp = searchParams.get("otp") || "";
+
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
@@ -52,28 +55,30 @@ function ResetPasswordContent() {
   } = useForm<ResetPasswordData>({
     resolver: zodResolver(resetSchema),
     defaultValues: {
-      password: "",
+      newPassword: "",
       confirmPassword: "",
     },
   });
 
   const [resetPassword, { isLoading: isSubmitting }] =
     useResetPasswordMutation();
-  const [resetError, setResetError] = useState<string | null>(null);
 
   async function onSubmit(data: ResetPasswordData): Promise<void> {
-    setResetError(null);
     try {
       const response = await resetPassword({
-        token,
-        password: data.password,
+        email,
+        otp,
+        newPassword: data.newPassword,
       }).unwrap();
 
-      router.push("/auth/login");
+      if (response.success) {
+        toast.success("Password reset successfully! Please log in.");
+        router.push("/auth/login");
+      } else {
+        toast.error(response.message || "Failed to reset password.");
+      }
     } catch (err: any) {
-      setResetError(
-        err.data?.message || err.message || "Failed to reset password.",
-      );
+      toast.error(err.data?.message || err.message || "Failed to reset password.");
     }
   }
 
@@ -101,24 +106,18 @@ function ResetPasswordContent() {
                 Reset Password
               </h1>
               <p className="text-center text-xs text-muted-foreground">
-                Create New Password
+                Create a new password for your account
               </p>
 
-              {resetError && (
-                <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                  {resetError}
-                </p>
-              )}
-
-              <Field data-invalid={!!errors.password}>
-                <FieldLabel htmlFor="password">New Password</FieldLabel>
+              <Field data-invalid={!!errors.newPassword}>
+                <FieldLabel htmlFor="newPassword">New Password</FieldLabel>
                 <div className="relative">
                   <Input
-                    id="password"
+                    id="newPassword"
                     type={showPassword ? "text" : "password"}
-                    placeholder="Enter your password"
+                    placeholder="Enter your new password"
                     className="h-10 pr-10"
-                    {...register("password")}
+                    {...register("newPassword")}
                   />
                   <button
                     type="button"
@@ -133,7 +132,7 @@ function ResetPasswordContent() {
                     )}
                   </button>
                 </div>
-                <FieldError>{errors.password?.message}</FieldError>
+                <FieldError>{errors.newPassword?.message}</FieldError>
               </Field>
 
               <Field data-invalid={!!errors.confirmPassword}>
@@ -144,7 +143,7 @@ function ResetPasswordContent() {
                   <Input
                     id="confirmPassword"
                     type={showConfirmPassword ? "text" : "password"}
-                    placeholder="Enter your password"
+                    placeholder="Confirm your new password"
                     className="h-10 pr-10"
                     {...register("confirmPassword")}
                   />
@@ -170,7 +169,7 @@ function ResetPasswordContent() {
                 className="h-10 w-full rounded-md text-xs"
               >
                 {isSubmitting && <Loader2 className="size-3.5 animate-spin" />}
-                {isSubmitting ? "Updating..." : "Login"}
+                {isSubmitting ? "Resetting..." : "Reset Password"}
               </Button>
             </form>
           </div>
