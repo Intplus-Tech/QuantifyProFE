@@ -34,19 +34,45 @@ export const FOUNDATION_TYPE_MAP: Record<string, string[]> = {
 
 // ─── Tab derivation ───────────────────────────────────────────────────────────
 
-export function getScopeTabs(projectType: string): string[] {
+export function getScopeTabs(projectType: string, foundationType?: string): string[] {
+  const foundationPlan = getFoundationSectionPlan(foundationType);
+  let tabs: string[] = [];
   switch (projectType) {
     case "Piling Alone":
-      return ["pile-system", "superstructure"];
+      tabs = foundationPlan.needsPileSystem
+        ? ["pile-system", "superstructure"]
+        : ["superstructure"];
+      break;
     case "Piling & Substructure":
-      return ["pile-system", "blinding", "substructure", "superstructure"];
+      tabs = foundationPlan.needsPileSystem
+        ? ["pile-system", "blinding", "substructure", "superstructure"]
+        : ["blinding", "substructure", "superstructure"];
+      break;
     case "Foundation & Carcass Only":
-      return ["blinding", "substructure", "superstructure"];
+      if (foundationPlan.isPile) {
+        tabs = ["pile-system", "superstructure"];
+      } else if (foundationPlan.isRaftPileWithBasement) {
+        tabs = ["pile-system", "blinding", "substructure", "superstructure"];
+      } else {
+        tabs = ["blinding", "substructure", "superstructure"];
+      }
+      break;
     case "Carcass with finishes":
-      return ["foundation-system", "blinding", "superstructure"];
+      if (foundationPlan.isPile) {
+        tabs = ["pile-system", "superstructure"];
+      } else if (foundationPlan.isRaftPileWithBasement) {
+        tabs = ["pile-system", "blinding", "substructure", "superstructure"];
+      } else {
+        tabs = ["blinding", "substructure", "superstructure"];
+      }
+      break;
     default:
-      return ["superstructure"];
+      tabs = foundationPlan.needsPileSystem
+        ? ["pile-system", "superstructure"]
+        : ["blinding", "substructure", "superstructure"];
   }
+
+  return tabs;
 }
 
 export function getFirstTabLabel(foundationType: string): string {
@@ -98,8 +124,7 @@ export const PROJECT_TYPES = [
 export const PROJECT_PHASES = [
   "Pre-Contract",
   "Post-Contract",
-  "Feasibility",
-  "Design Development",
+  "Design",
   "Construction",
 ];
 
@@ -109,6 +134,25 @@ export const SCOPE_PROJECT_TYPES = [
   "Foundation & Carcass Only",
   "Carcass with finishes",
 ];
+
+export function getFoundationSectionPlan(foundationType?: string) {
+  const normalizedFoundation = foundationType?.toLowerCase().replace(/\s+/g, "_");
+  const isPile = normalizedFoundation === "pile";
+  const isRaftPileWithBasement = normalizedFoundation === "raft_pile_with_basement";
+  const isRaft = normalizedFoundation === "raft";
+  const isStrip = normalizedFoundation === "strip";
+
+  return {
+    normalizedFoundation,
+    isPile,
+    isRaftPileWithBasement,
+    isRaft,
+    isStrip,
+    needsPileSystem: isPile || isRaftPileWithBasement,
+    needsBlinding: isRaftPileWithBasement || isRaft || isStrip,
+    needsSubstructure: isRaftPileWithBasement || isRaft || isStrip,
+  };
+}
 
 // Finishing dropdowns (placeholder options — replace with real values)
 export const SCREEDING_OPTIONS = ["Yes", "No"];

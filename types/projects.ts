@@ -29,25 +29,46 @@ export interface Project {
   name: string;
   description: string;
   userId: string;
-  companyId: string;
+  companyId: string | null;
+  clientId?: string | null;
   status: string;
   source: string;
-  sourceJobId: string;
-  boqResult: BoqResult;
+  sourceJobId: string | null;
+  processingMode?: string;
+  projectPhase?: string;
+  duration?: number;
+  currency?: string;
+  scopeCategories?: string[];
+  qsProjectType?: string;
+  foundationTypes?: string[];
+  hasSwimmingPool?: boolean;
+  poolLocations?: string[];
+  numberOfFloors?: number;
+  liftOption?: string;
+  globalConfiguration?: any;
+  finishingConfig?: any;
+  metricsConfig?: {
+    advancePayment: number;
+    fxRate: number;
+    markup: number;
+    retention: number;
+    contingency: number;
+    preliminaries: number;
+  };
+  boqResult: BoqResult | null;
   libraryItems: string[];
+  createdBy?: string;
   createdAt: string;
   updatedAt: string;
   thumbnailUrl?: string;
-  grossFloorArea?: number;
-  buildingType?: string;
-  completionStatus?: number;
+  grossFloorArea?: number | null;
+  buildingType?: string | null;
+  completionStatus?: number | null;
   estimateTotal?: number;
-  currency?: string;
   projectCode?: string;
   projectType?: string;
   projectLocation?: string;
   clientName?: string;
-  duration?: number;
 }
 
 export interface ProjectDashboardSummary {

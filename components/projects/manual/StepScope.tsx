@@ -394,28 +394,28 @@ function BlindingTab({
 
   const elements = isFoundationCarcassRaft || isCarcassRaft
     ? [
-        "Raft Foundation",
-        "Ground Beam",
-        "Oversite Slab",
-        "Pad Footing",
-        ...(hasPool ? ["Swimming Pool"] : []),
-      ]
+      "Raft Foundation",
+      "Ground Beam",
+      "Oversite Slab",
+      "Pad Footing",
+      ...(hasPool ? ["Swimming Pool"] : []),
+    ]
     : isFoundationCarcassRPWB || isCarcassRPWB
       ? [
-          "Pile Cap",
-          "Ground Beam",
-          "Oversite Slab",
-          ...(hasPool ? ["Swimming Pool"] : []),
-        ]
-    : isFoundationCarcassPile || isCarcassPile
-      ? ["Pile Cap", "Oversite Slab", ...(hasPool ? ["Swimming Pool"] : [])]
-      : isFoundationCarcassStrip || isCarcassStrip
-        ? ["Strip Foundation", "Oversite Slab", ...(hasPool ? ["Swimming Pool"] : [])]
-        : isPileFoundation
-          ? ["Pile Cap", "Oversite Slab", ...(hasPool ? ["Swimming Pool"] : [])]
-          : hasPool
-            ? [...BLINDING_ELEMENTS_ALWAYS, "Swimming Pool"]
-            : BLINDING_ELEMENTS_ALWAYS;
+        "Pile Cap",
+        "Ground Beam",
+        "Oversite Slab",
+        ...(hasPool ? ["Swimming Pool"] : []),
+      ]
+      : isFoundationCarcassPile || isCarcassPile
+        ? ["Pile Cap", "Oversite Slab", ...(hasPool ? ["Swimming Pool"] : [])]
+        : isFoundationCarcassStrip || isCarcassStrip
+          ? ["Strip Foundation", "Oversite Slab", ...(hasPool ? ["Swimming Pool"] : [])]
+          : isPileFoundation
+            ? ["Pile Cap", "Oversite Slab", ...(hasPool ? ["Swimming Pool"] : [])]
+            : hasPool
+              ? [...BLINDING_ELEMENTS_ALWAYS, "Swimming Pool"]
+              : BLINDING_ELEMENTS_ALWAYS;
 
   function updElement(name: string, key: keyof BlindingElement, val: string) {
     const current = data[name] ?? defaultBlindingElement();
@@ -786,7 +786,7 @@ export function StepScope({ data, onChange, onNext, onBack }: StepScopeProps) {
   const [activeTab, setActiveTab] = useState<string>("");
 
   const scopeConfig = data.scopeConfig;
-  const tabs = getScopeTabs(scopeConfig.projectType);
+  const tabs = getScopeTabs(scopeConfig.projectType, scopeConfig.foundationType);
   const hasLift = scopeConfig.lift === "Yes";
   const hasPool = scopeConfig.hasPool;
 
@@ -798,7 +798,7 @@ export function StepScope({ data, onChange, onNext, onBack }: StepScopeProps) {
   }, [tabs, activeTab]);
 
   function applyConfig(config: ScopeConfig) {
-    const newTabs = getScopeTabs(config.projectType);
+    const newTabs = getScopeTabs(config.projectType, config.foundationType);
     onChange({ ...data, scopeConfig: config });
     setActiveTab(newTabs[0] ?? "");
   }

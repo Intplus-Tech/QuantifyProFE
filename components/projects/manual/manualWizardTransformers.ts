@@ -15,6 +15,7 @@ import {
   ConcreteElement,
   BlindingElement,
 } from "./types";
+import { getFoundationSectionPlan } from "./constants";
 import {
   CreateManualProjectPayload,
   UpdateQsConfigPayload,
@@ -29,15 +30,15 @@ import {
 
 /**
  * Maps UI projectPhase display labels → backend enum values.
+ * Backend enum: 'pre_contract' | 'post_contract' | 'design' | 'construction'
  * UI labels come from PROJECT_PHASES in constants.ts.
  */
 function toProjectPhase(uiValue: string): string {
   const map: Record<string, string> = {
-    "Pre-Contract":       "pre_contract",
-    "Post-Contract":      "post_contract",
-    "Feasibility":        "feasibility",
-    "Design Development": "design_development",
-    "Construction":       "construction",
+    "Pre-Contract": "pre_contract",
+    "Post-Contract": "post_contract",
+    "Design": "design",
+    "Construction": "construction",
   };
   return map[uiValue] ?? uiValue.toLowerCase().replace(/[\s-]+/g, "_");
 }
@@ -48,11 +49,11 @@ function toProjectPhase(uiValue: string): string {
  */
 function toProjectType(uiValue: string): string {
   const map: Record<string, string> = {
-    "Residential":  "residential",
-    "Commercial":   "commercial",
+    "Residential": "residential",
+    "Commercial": "commercial",
     "Infrastructure": "infrastructure",
-    "Industrial":   "industrial",
-    "Mixed Use":    "mixed_use",
+    "Industrial": "industrial",
+    "Mixed Use": "mixed_use",
   };
   return map[uiValue] ?? uiValue.toLowerCase().replace(/[\s-]+/g, "_");
 }
@@ -83,11 +84,11 @@ export function buildCreateProjectPayload(
  */
 function toQsProjectType(uiValue: string): QsProjectType {
   const map: Record<string, QsProjectType> = {
-    "Piling Alone":            "piling_alone",
-    "Piling & Substructure":   "piling_and_substructure",
+    "Piling Alone": "piling_alone",
+    "Piling & Substructure": "piling_and_substructure",
     "Foundation & Carcass Only": "foundation_and_carcass",
-    "Carcass with Finishes":   "carcass_with_finishes",
-    "Carcass with finishes":   "carcass_with_finishes", // match constants.ts casing
+    "Carcass with Finishes": "carcass_with_finishes",
+    "Carcass with finishes": "carcass_with_finishes", // match constants.ts casing
   };
   return map[uiValue] ?? "foundation_and_carcass";
 }
@@ -123,11 +124,11 @@ function toPoolLocations(uiValue: string): PoolLocation[] {
  */
 function toFoundationType(uiValue: string): string {
   const map: Record<string, string> = {
-    "Pile":                     "pile",
-    "Raft":                     "raft",
-    "Strip":                    "strip",
-    "Raft Pile with Basement":  "raft_pile_with_basement",
-    "Raft Pile With Basement":  "raft_pile_with_basement",
+    "Pile": "pile",
+    "Raft": "raft",
+    "Strip": "strip",
+    "Raft Pile with Basement": "raft_pile_with_basement",
+    "Raft Pile With Basement": "raft_pile_with_basement",
   };
   // Fallback: lowercase + replace spaces with underscores
   return map[uiValue] ?? uiValue.toLowerCase().replace(/\s+/g, "_");
@@ -209,69 +210,111 @@ function normaliseConcreteElement(el: {
 export function buildStructuralScopeBody(
   scope: Step3Data
 ): Record<string, unknown> {
-  const { foundationType } = scope.scopeConfig;
-  const needsPile =
-    foundationType === "pile" || foundationType === "raft_pile_with_basement";
-  const needsBlinding = foundationType === "raft_pile_with_basement";
-  const needsSubstructure = foundationType === "raft_pile_with_basement";
+  const foundationType = normaliseFoundationType(scope.scopeConfig.foundationType);
+  const foundationPlan = getFoundationSectionPlan(foundationType);
 
-  const body: Record<string, unknown> = {
-    superstructure: Object.fromEntries(
-      (Object.entries(scope.superstructure) as [string, ConcreteElement][]).map(
-        ([key, el]) => [key, normaliseConcreteElement(el)]
-      )
-    ),
+  // Helper: convert our Record<string, ConcreteElement> -> backend array
+  const mapConcreteRecordToArray = (
+    rec: Record<string, ConcreteElement>
+  ): Array<Record<string, unknown>> => {
+    return Object.entries(rec).map(([key, el]) => {
+      const norm = normaliseConcreteElement(el as any);
+      return {
+        elementType: key,
+        concreteGrade: norm.gradeOfConcrete,
+        plasticizers: norm.plasticizers,
+        waterproofing: norm.waterproofing,
+        castingMethod: norm.castingMethod,
+        castingLabourMethod: norm.castingLabourMethod,
+        wastePercentage: norm.wastePercent,
+      };
+    });
   };
 
-  if (needsPile) {
-    body.pileSystem = normalisePileSystem(scope.pileSystem);
-  }
+  // Start building backend-shaped payload
+  const payload: Record<string, unknown> = {
+    superstructureElements: mapConcreteRecordToArray(scope.superstructure),
+  };
 
-  if (needsBlinding) {
-    body.blinding = Object.fromEntries(
-      (Object.entries(scope.blinding) as [string, BlindingElement][]).map(
-        ([key, el]) => [
-          key,
-          {
-            gradeOfConcrete: el.gradeOfConcrete || undefined,
-            castingMethod: el.castingMethod || undefined,
-            wastePercent: parseNumeric(el.wastePercent),
-            blindingThickness: parseNumeric(el.blindingThickness),
-          },
-        ]
-      )
-    );
-  }
-
-  if (needsSubstructure) {
-    const sub = scope.substructure;
-    body.substructure = {
-      layers: {
-        totalFillingThickness: {
-          thicknessMm: parseNumeric(sub.layers.totalFillingThickness.thicknessMm),
-          wastePercent: parseNumeric(sub.layers.totalFillingThickness.wastePercent),
-        },
-        lateriteThickness: {
-          thicknessMm: parseNumeric(sub.layers.lateriteThickness.thicknessMm),
-          wastePercent: parseNumeric(sub.layers.lateriteThickness.wastePercent),
-        },
-        hardcoreThickness: {
-          thicknessMm: parseNumeric(sub.layers.hardcoreThickness.thicknessMm),
-          wastePercent: parseNumeric(sub.layers.hardcoreThickness.wastePercent),
-        },
-      },
-      columnFooting: {
-        gradeOfConcrete: sub.columnFooting.gradeOfConcrete || undefined,
-        plasticizers: sub.columnFooting.plasticizers || undefined,
-        waterproof: sub.columnFooting.waterproof || undefined,
-        castingType: sub.columnFooting.castingType || undefined,
-        castingLabourMethod: sub.columnFooting.castingLabourMethod || undefined,
-        wastePercent: parseNumeric(sub.columnFooting.wastePercent),
-      },
+  if (foundationPlan.needsPileSystem) {
+    const p = normalisePileSystem(scope.pileSystem);
+    payload.pileSpecification = {
+      concreteGrade: p.gradeOfConcrete,
+      castingMethod: p.castingMethod,
+      castingLabourMethod: p.castingLabour,
+      depth: p.depth,
+      diameter: p.diameter,
+      centerToCenter: p.centerToCenter,
+      plasticizers: p.plasticizers,
+      mainBarNo: p.mainBarNo,
+      mainBarSize: p.mainBarSize,
+      ringBarSize: p.ringBarSize,
+      rebarDepth: p.rebarDepth,
     };
   }
 
-  return body;
+  if (foundationPlan.needsBlinding) {
+    payload.blindingElements = Object.entries(scope.blinding).map(
+      ([key, el]) => ({
+        elementType: key,
+        concreteGrade: el.gradeOfConcrete || undefined,
+        castingMethod: el.castingMethod || undefined,
+        wastePercentage: parseNumeric(el.wastePercent),
+        blindingThickness: parseNumeric(el.blindingThickness),
+      })
+    );
+  }
+
+  if (foundationPlan.needsSubstructure) {
+    const sub = scope.substructure;
+    // convert thicknessMm -> thickness (m)
+    const toMetres = (mm?: number) => (mm === undefined ? undefined : mm / 1000);
+
+    payload.substructureFilling = {
+      totalFilling: {
+        thickness: toMetres(
+          parseNumeric(sub.layers.totalFillingThickness.thicknessMm)
+        ),
+        wastePercentage: parseNumeric(sub.layers.totalFillingThickness.wastePercent),
+      },
+      laterite: {
+        thickness: toMetres(parseNumeric(sub.layers.lateriteThickness.thicknessMm)),
+        wastePercentage: parseNumeric(sub.layers.lateriteThickness.wastePercent),
+      },
+      hardcore: {
+        thickness: toMetres(parseNumeric(sub.layers.hardcoreThickness.thicknessMm)),
+        wastePercentage: parseNumeric(sub.layers.hardcoreThickness.wastePercent),
+      },
+    };
+
+    payload.substructureElements = Object.entries(sub.elements).map(
+      ([key, el]) => ({
+        elementType: key,
+        concreteGrade: el.gradeOfConcrete || undefined,
+        plasticizers: el.plasticizers || undefined,
+        waterproofing: el.waterproof || undefined,
+        formworkType: el.formworkType || undefined,
+        blockTypeOfFormwork: el.blockTypeOfFormwork || undefined,
+        blockworkFilling: el.blockworkFilling || undefined,
+        castingMethod: el.castingMethod || undefined,
+        castingLabourMethod: el.castingLabourMethod || undefined,
+        castingFillingMethod: el.castingFillingMethod || undefined,
+        wastePercentage: parseNumeric(el.wastePercent),
+      })
+    );
+
+    // columnFooting -> keep as object but rename fields
+    payload.columnFooting = {
+      concreteGrade: sub.columnFooting.gradeOfConcrete || undefined,
+      plasticizers: sub.columnFooting.plasticizers || undefined,
+      waterproofing: sub.columnFooting.waterproof || undefined,
+      castingMethod: sub.columnFooting.castingType || undefined,
+      castingLabourMethod: sub.columnFooting.castingLabourMethod || undefined,
+      wastePercentage: parseNumeric(sub.columnFooting.wastePercent),
+    };
+  }
+
+  return payload;
 }
 
 // ─── Step 4: Finishing ────────────────────────────────────────────────────────

@@ -49,13 +49,46 @@ export const manualProjectApi = baseApi.injectEndpoints({
      */
     upsertStructuralScope: builder.mutation<
       UpsertStructuralScopeResponse,
-      { projectId: string; foundationType: string; body: Record<string, unknown> }
+      {
+        projectId: string;
+        foundationType: string;
+        body: Record<string, unknown>;
+      }
     >({
       query: ({ projectId, foundationType, body }) => ({
         url: manualProjectEndpoints.structuralScope(projectId, foundationType),
         method: ApiMethods.PUT,
         body,
       }),
+      async onQueryStarted(arg, { queryFulfilled }) {
+        const endpoint = manualProjectEndpoints.structuralScope(
+          arg.projectId,
+          arg.foundationType,
+        );
+        console.log(
+          "[ManualWizard][Structural Scope] PAYLOAD (after transform)",
+          {
+            endpoint,
+            method: ApiMethods.PUT,
+            payload: arg.body,
+          }
+        );
+
+        try {
+          const { data } = await queryFulfilled;
+          console.log("[ManualWizard][Structural Scope] RESPONSE", {
+            endpoint,
+            success: data.success,
+            message: data.message,
+            response: data,
+          });
+        } catch (error) {
+          console.error("[ManualWizard][Structural Scope] Error", {
+            endpoint,
+            error,
+          });
+        }
+      },
     }),
 
     /**
