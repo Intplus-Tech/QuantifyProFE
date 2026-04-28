@@ -131,6 +131,7 @@ export const projects = {
   delete: (id: string) => `/projects/${id}`,
   archive: (id: string) => `/projects/${id}/archive`,
   dashboard: (id: string) => `/projects/${id}/dashboard`,
+  structuralScopes: (id: string) => `/takeoff/${id}/structural-scope`,
   updateThumbnail: (id: string) => `/projects/${id}/thumbnail`,
   boqReportPreview: (id: string) => `/projects/${id}/boq-report-preview`,
   saveBoqRowToLibrary: (id: string) => `/projects/${id}/boq/save-to-library`,

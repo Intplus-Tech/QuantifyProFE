@@ -51,8 +51,8 @@ function WorkspaceNavItem({
     <Link
       href={href}
       className={`flex items-center gap-2 rounded-md px-3 py-2 text-xs font-medium transition-colors ${active
-          ? "bg-amber-500 text-white"
-          : "text-slate-700 hover:bg-slate-100"
+        ? "bg-amber-500 text-white"
+        : "text-slate-700 hover:bg-slate-100"
         }`}
     >
       <Icon className="h-3.5 w-3.5" />
@@ -92,7 +92,12 @@ export function ProjectWorkspaceLayout({
   const activeSegment = pathname.replace(workspaceBase, "") || "/";
 
   const nav = [
-    { href: workspaceBase, label: "Dashboard", icon: LayoutDashboard, match: "/" },
+    {
+      href: workspaceBase,
+      label: "Workspace Dashboard",
+      icon: LayoutDashboard,
+      match: "/",
+    },
     {
       href: `${workspaceBase}/configuration`,
       label: "Configuration",
@@ -144,10 +149,10 @@ export function ProjectWorkspaceLayout({
         <ScrollArea className="flex-1">
           <div className="p-3 space-y-4">
             <div>
-              <p className="text-[10px] uppercase tracking-widest text-slate-400 px-2 mb-2">Dashboard</p>
+              <p className="text-[10px] uppercase tracking-widest text-slate-400 px-2 mb-2">Main App</p>
               <WorkspaceNavItem
                 href={dashboardPath}
-                label="Dashboard"
+                label="Main Dashboard"
                 icon={LayoutDashboard}
                 active={false}
               />

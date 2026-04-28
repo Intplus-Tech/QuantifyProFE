@@ -177,7 +177,7 @@ export function normalizeScopeState(scope: Step3Data): Step3Data {
         scope.blinding["Pile Cap"] ?? defaultBlindingElement();
       blindingElements["Oversite Slab"] =
         scope.blinding["Oversite Slab"] ?? defaultBlindingElement();
-      
+
       return {
         ...scope,
         blinding: blindingElements,

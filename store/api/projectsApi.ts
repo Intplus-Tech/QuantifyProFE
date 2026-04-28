@@ -32,6 +32,7 @@ import {
   MultiBoqGenerateResponse,
   MultiBoqJobUpdateRequest,
 } from "@/types/projects";
+import { ProjectStructuralScopesResponse } from "@/types/manualProject";
 
 export const projectsApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -82,6 +83,18 @@ export const projectsApi = baseApi.injectEndpoints({
           console.error("Failed to fetch project details:", error);
         }
       },
+    }),
+    getProjectStructuralScopes: builder.query<
+      ProjectStructuralScopesResponse,
+      string
+    >({
+      query: (projectId) => ({
+        url: ApiEndpoints.projects.structuralScopes(projectId),
+        method: ApiMethods.GET,
+      }),
+      providesTags: (result, error, projectId) => [
+        { type: "Projects", id: `${projectId}-structural-scopes` },
+      ],
     }),
     createProject: builder.mutation<ApiResponse<Project>, Partial<Project>>({
       query: (body) => ({
@@ -474,6 +487,7 @@ export const projectsApi = baseApi.injectEndpoints({
 export const {
   useGetProjectsQuery,
   useGetProjectByIdQuery,
+  useGetProjectStructuralScopesQuery,
   useCreateProjectMutation,
   useUpdateProjectMutation,
   useDeleteProjectMutation,

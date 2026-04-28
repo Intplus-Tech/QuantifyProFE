@@ -99,6 +99,25 @@ export interface StructuralScopeResponseData {
 export type UpsertStructuralScopeResponse =
   ApiResponse<StructuralScopeResponseData>;
 
+export interface StructuralScopeDocument {
+  _id: string;
+  projectId: string;
+  foundationType: string;
+  createdAt?: string;
+  createdBy?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+  pileSpecification?: Record<string, unknown>;
+  blindingElements?: Array<Record<string, unknown>>;
+  substructureFilling?: Record<string, unknown>;
+  substructureElements?: Array<Record<string, unknown>>;
+  columnFooting?: Record<string, unknown>;
+  superstructureElements?: Array<Record<string, unknown>>;
+  [key: string]: unknown;
+}
+
+export type ProjectStructuralScopesResponse = ApiResponse<StructuralScopeDocument[]>;
+
 // ─── Step 4: Finishing Configuration ─────────────────────────────────────────
 
 export interface TileEntry {
