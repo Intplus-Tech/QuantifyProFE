@@ -37,6 +37,7 @@ export function ProcessingView({
   const newProjectDraft = useSelector(
     (state: RootState) => state.projects.newProjectDraft,
   );
+  const currentUser = useSelector((state: RootState) => state.auth.currentUser);
   const { state, pause, cancel } = useMockProcessing(
     newProjectDraft?.fileName || "",
   );
@@ -150,19 +151,23 @@ export function ProcessingView({
       ? pdfQuery.data?.data?.status
       : uploadedFileType === "multi"
         ? multiQuery.data?.data?.status
-        : bimJobQuery.data?.data?.status || bimQuery.data?.data?.status;
+        : uploadedFileType === "bim"
+          ? bimJobQuery.data?.data?.status ||
+            (bimQuery.data?.data?.status === "success"
+              ? "processing"
+              : bimQuery.data?.data?.status)
+          : state.status;
 
-  // Dynamic progress calculation based on polling status
   const getProgress = () => {
     if (apiStatus === "completed") return 100;
-    if (apiStatus === "failed") return 100;
+    if (apiStatus === "failed") return 0;
     if (apiStatus === "generating") return 85;
     if (apiStatus === "embedding") return 65;
     if (apiStatus === "extracting") return 30;
     if (apiStatus === "processing") return 65;
     if (apiStatus === "success") return 65;
     if (apiStatus === "pending") return 15;
-    return state.progress; // Default to mock progress if status is unknown/initial
+    return state.progress;
   };
 
   const computedProgress = getProgress();
@@ -190,25 +195,26 @@ export function ProcessingView({
         ? state.logs.map((log: any) => ({ ...log, type: "success" as const }))
         : state.logs,
   };
-  console.log(apiStatus, "realStatus");
 
-  const handleCreateProject = async () => {
+  const handleCreateProject = async (updatedResult?: any) => {
     if (!newProjectDraft) return;
 
     if (uploadedFileType === "pdf" && pdfQuery.data?.success) {
       const payload = {
         name: newProjectDraft.projectTitle,
         description: newProjectDraft.description,
+        companyId: currentUser?._id || "",
+        clientId: newProjectDraft.clientId || "",
         clientName: newProjectDraft.clientName,
         projectCode: newProjectDraft.projectCode,
         projectType: newProjectDraft.projectType,
         projectLocation: newProjectDraft.location,
         drawingType: [newProjectDraft.drawingType.toLowerCase()],
-        source: uploadedFileType === "pdf" ? "pdf_boq" : "bim",
+        // These might be internal to the project service
+        source: "pdf_boq",
         sourceJobId: sourceJobId,
-        // companyId: "string",
         libraryItems: [""],
-        boqResult: pdfQuery.data?.data?.result,
+        boqResult: updatedResult || pdfQuery.data?.data?.result,
       };
 
       try {
@@ -232,6 +238,8 @@ export function ProcessingView({
       const payload = {
         name: newProjectDraft.projectTitle,
         description: newProjectDraft.description,
+        companyId: currentUser?._id || "",
+        clientId: newProjectDraft.clientId || "",
         clientName: newProjectDraft.clientName,
         projectCode: newProjectDraft.projectCode,
         projectType: newProjectDraft.projectType,
@@ -240,7 +248,7 @@ export function ProcessingView({
         source: "bim",
         sourceJobId: bimJobId || sourceJobId,
         libraryItems: [""],
-        boqResult: bimJobQuery.data?.data?.result,
+        boqResult: updatedResult || bimJobQuery.data?.data?.result,
       };
 
       try {
@@ -264,6 +272,8 @@ export function ProcessingView({
       const payload = {
         name: newProjectDraft.projectTitle,
         description: newProjectDraft.description,
+        companyId: currentUser?._id || "",
+        clientId: newProjectDraft.clientId || "",
         clientName: newProjectDraft.clientName,
         projectCode: newProjectDraft.projectCode,
         projectType: newProjectDraft.projectType,
@@ -272,7 +282,7 @@ export function ProcessingView({
         source: "multi",
         sourceJobId: sourceJobId,
         libraryItems: [""],
-        boqResult: multiQuery.data?.data?.result,
+        boqResult: updatedResult || multiQuery.data?.data?.result,
       };
 
       try {
@@ -301,6 +311,10 @@ export function ProcessingView({
     router.push(basePath);
   };
 
+  const handleTryAgain = () => {
+    router.push(basePath);
+  };
+
   const handleReviewBOQ = () => {
     setIsReviewOpen(true);
   };
@@ -311,8 +325,9 @@ export function ProcessingView({
       <ProcessingHeader state={mergedState} />
 
       {/* Main content: Drawing viewer + Detection log */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[600px]">
-        <div className="lg:col-span-8 h-full">
+      {/* <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[600px]"> */}
+      <div className="w-full gap-6 min-h-[600px]">
+        <div className="w-full h-full">
           <DrawingViewer
             detections={mergedState.detections}
             fileUrl={newProjectDraft?.fileUrl}
@@ -320,9 +335,9 @@ export function ProcessingView({
             fileName={newProjectDraft?.fileName}
           />
         </div>
-        <div className="lg:col-span-4 h-full">
+        {/* <div className="lg:col-span-4 h-full">
           <DetectionLog logs={mergedState.logs} />
-        </div>
+        </div> */}
       </div>
 
       {/* Footer (stats + actions) */}
@@ -331,6 +346,7 @@ export function ProcessingView({
         state={mergedState}
         onPause={pause}
         onCancel={handleCancel}
+        onTryAgain={handleTryAgain}
         onReviewBOQ={handleReviewBOQ}
         onCreateProject={handleCreateProject}
         isProjectCreated={!!createdProjectId}
@@ -350,6 +366,7 @@ export function ProcessingView({
         isCreatingProject={
           isCreatingPdfProject || isCreatingBimProject || isCreatingMultiProject
         }
+        isProjectCreated={!!createdProjectId}
         previewBoq={() => router.push(`${basePath}/${createdProjectId}/boq`)}
       />
     </div>

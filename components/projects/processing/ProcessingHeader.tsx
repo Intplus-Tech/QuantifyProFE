@@ -32,16 +32,26 @@ export function ProcessingHeader({ state }: ProcessingHeaderProps) {
           </p>
         </div>
         
-        <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 px-4 py-2 rounded-xl border border-blue-100 dark:border-blue-800/50 shadow-sm">
+        <div className={`flex items-center gap-2 px-4 py-2 rounded-xl border shadow-sm ${
+          state.status === "error"
+            ? "bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-100 dark:border-red-800/50"
+            : "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border-blue-100 dark:border-blue-800/50"
+        }`}>
           <span className="text-sm font-bold">{Math.round(state.progress)}%</span>
-          <span className="text-xs font-semibold uppercase tracking-wider opacity-80">Processing</span>
+          <span className="text-xs font-semibold uppercase tracking-wider opacity-80">
+            {state.status === "error" ? "Failed" : "Processing"}
+          </span>
         </div>
       </div>
 
       {/* Progress bar */}
       <div className="w-full h-2.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden mb-8">
         <div
-          className="h-full rounded-full bg-amber-500 transition-all duration-700 ease-in-out shadow-[0_0_10px_rgba(245,158,11,0.3)]"
+          className={`h-full rounded-full transition-all duration-700 ease-in-out ${
+            state.status === "error"
+              ? "bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.3)]"
+              : "bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.3)]"
+          }`}
           style={{ width: `${state.progress}%` }}
         />
       </div>

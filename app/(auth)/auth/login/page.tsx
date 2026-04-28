@@ -7,14 +7,8 @@ import { useLoginMutation } from "@/store/api/authApi";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import {
-  ChevronDown,
-  Eye,
-  EyeOff,
-  Loader2,
-  Search,
-  SquareStack,
-} from "lucide-react";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,7 +40,6 @@ function LoginForm() {
   const defaultEmail = searchParams.get("email") ?? "";
 
   const [showPassword, setShowPassword] = useState(false);
-  const [loginError, setLoginError] = useState<string | null>(null);
 
   const {
     register,
@@ -66,8 +59,7 @@ function LoginForm() {
   async function onSubmit(data: LoginFormData) {
     try {
       const result = await login({ email: data.email, password: data.password }).unwrap();
-      console.log(result, "result");
-      
+      toast.success("Login successful! Welcome back.");
       const role = result.data.user.role;
       if (role === "company") {
         router.push("/enterprise/dashboard");
@@ -75,7 +67,7 @@ function LoginForm() {
         router.push("/dashboard");
       }
     } catch (err: any) {
-      setLoginError(err?.data?.message || "Invalid email or password.");
+      toast.error(err?.data?.message || "Invalid email or password.");
     }
   }
 
@@ -85,12 +77,6 @@ function LoginForm() {
         <h1 className="text-4xl font-semibold tracking-tight">
           Login to your account
         </h1>
-
-        {loginError && (
-          <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            {loginError}
-          </p>
-        )}
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
           <Field data-invalid={!!errors.email}>

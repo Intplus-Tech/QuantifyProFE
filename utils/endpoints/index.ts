@@ -93,6 +93,7 @@ export const library = {
     create: "/library/categories",
     update: (id: string) => `/library/categories/${id}`,
     delete: (id: string) => `/library/categories/${id}`,
+    summary: "/library/categories/summary",
   },
   items: {
     list: "/library/items",
@@ -100,6 +101,9 @@ export const library = {
     details: (id: string) => `/library/items/${id}`,
     update: (id: string) => `/library/items/${id}`,
     delete: (id: string) => `/library/items/${id}`,
+    priceHistory: (id: string) => `/library/items/${id}/price-history`,
+    locations: "/library/items/locations",
+    units: "/library/items/units",
   },
 };
 

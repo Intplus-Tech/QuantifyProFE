@@ -40,10 +40,10 @@ const projectsSlice = createSlice({
         (p) => p._id === action.payload._id,
       );
       if (index !== -1) {
-        state.projects[index] = action.payload;
+        state.projects[index] = { ...state.projects[index], ...action.payload };
       }
       if (state.selectedProject?._id === action.payload._id) {
-        state.selectedProject = action.payload;
+        state.selectedProject = { ...state.selectedProject, ...action.payload };
       }
     },
     removeProject(state, action: PayloadAction<string>) {

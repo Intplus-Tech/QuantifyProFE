@@ -1,19 +1,9 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, memo } from "react";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogContent } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -38,23 +28,15 @@ import {
 } from "@/store/api/projectsApi";
 import { toast } from "sonner";
 import {
-  CheckCircle2,
   AlertCircle,
   FileText,
-  Clock,
-  Target,
-  Layers,
   Save,
   Download,
   Check,
   X,
   Plus,
-  Calculator,
-  Ruler,
-  Edit2,
   Eye,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 interface WorkItem {
   rowType?: "header" | "item";
@@ -84,8 +66,9 @@ interface ReviewBOQModalProps {
   isOpen: boolean;
   onClose: () => void;
   data: any;
-  onCreateProject?: () => void;
+  onCreateProject?: (updatedResult: any) => void;
   isCreatingProject?: boolean;
+  isProjectCreated?: boolean;
   previewBoq?: () => void;
   jobType?: string;
 }
@@ -131,7 +114,7 @@ const BOQRowItem = memo(
                 </p>
               </div>
             )}
-            <div className="flex items-center gap-2 mt-2">
+            {/* <div className="flex items-center gap-2 mt-2">
               <Button
                 variant="outline"
                 size="sm"
@@ -148,18 +131,17 @@ const BOQRowItem = memo(
                 <Eye className="w-4 h-4" />
                 View Calc
               </Button>
-              {!row.quantity &&
-                row.item.toLowerCase().includes("mortar") && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-12 text-[11px] font-bold px-4 gap-1.5 border-slate-200"
-                  >
-                    <Calculator className="w-4 h-4" />
-                    Calculate Quantity
-                  </Button>
-                )}
-            </div>
+              {!row.quantity && row.item.toLowerCase().includes("mortar") && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-12 text-[11px] font-bold px-4 gap-1.5 border-slate-200"
+                >
+                  <Calculator className="w-4 h-4" />
+                  Calculate Quantity
+                </Button>
+              )}
+            </div> */}
           </div>
         </TableCell>
         <TableCell>
@@ -231,26 +213,31 @@ export function ReviewBOQModal({
   data,
   onCreateProject,
   isCreatingProject,
+  isProjectCreated = false,
   previewBoq,
   jobType,
 }: ReviewBOQModalProps) {
   const [sections, setSections] = useState<BoqSection[]>([]);
+  const [isDirty, setIsDirty] = useState(false);
   const boqResult = data?.result as BoqData;
 
   useEffect(() => {
     if (boqResult?.sections) {
       const initialSections = boqResult.sections.map((section: any) => ({
         ...section,
-        workItems: (section.workItems || section.rows || []).map((row: any) => ({
-          ...row,
-          item: row.item || row.description,
-          total:
-            row.total ||
-            row.amount ||
-            (row.quantity && row.rate ? row.quantity * row.rate : null),
-        })),
+        workItems: (section.workItems || section.rows || []).map(
+          (row: any) => ({
+            ...row,
+            item: row.item || row.description,
+            total:
+              row.total ||
+              row.amount ||
+              (row.quantity && row.rate ? row.quantity * row.rate : null),
+          }),
+        ),
       }));
       setSections(initialSections);
+      setIsDirty(false);
     }
   }, [boqResult]);
 
@@ -270,6 +257,7 @@ export function ReviewBOQModal({
       field: keyof WorkItem,
       value: any,
     ) => {
+      setIsDirty(true);
       setSections((prev) => {
         const updatedSections = [...prev];
         const section = { ...updatedSections[sectionIndex] };
@@ -298,32 +286,34 @@ export function ReviewBOQModal({
   const handleAcceptAll = async () => {
     try {
       let response;
-      
-      const body = {
-        result: {
-          ...boqResult,
-          sections: sections
-        }
+
+      const updatePayload: any = {
+        projectTitle: boqResult?.projectTitle || "",
+        sections: sections,
+        generalNotes: boqResult?.generalNotes || "",
       };
 
       if (jobType === "multi") {
+        updatePayload.templateVersion = boqResult?.templateVersion || "";
         response = await updateMultiBoq({
           jobId: data._id,
-          body: body as any,
+          body: { result: updatePayload },
         }).unwrap();
       } else if (jobType === "bim") {
         response = await updateBimBoq({
           jobId: data._id,
-          body: body as any,
+          body: updatePayload,
         }).unwrap();
       } else {
         response = await updatePdfBoq({
           jobId: data._id,
-          body: body as any,
+          body: updatePayload,
         }).unwrap();
       }
 
       toast.success(response?.message || "BOQ updated successfully");
+      // Mark as clean so Generate BOQ becomes active again
+      setIsDirty(false);
     } catch (error: any) {
       console.error("Failed to update BOQ:", error);
       toast.error(error?.data?.message || "Failed to update BOQ");
@@ -467,12 +457,18 @@ export function ReviewBOQModal({
         </div>
 
         {/* Sticky Actions Bar */}
+        {/*
+          Button state machine:
+          - Update BOQ   → active ONLY when user has unsaved edits (isDirty)
+          - Generate BOQ → active when no unsaved edits AND project not yet created
+          - Preview BOQ  → active ONLY after project has been successfully created
+        */}
         <div className="px-6 py-4 bg-white border-b flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Button
-              className="bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg px-6 h-12 shadow-sm border border-emerald-600/20"
+              className="bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg px-6 h-12 shadow-sm border border-emerald-600/20 disabled:opacity-40 disabled:cursor-not-allowed"
               onClick={handleAcceptAll}
-              disabled={isUpdating}
+              disabled={!isDirty || isUpdating}
             >
               <Check className="w-4 h-4 mr-2" />
               {isUpdating ? "Updating..." : "Update BOQ"}
@@ -501,10 +497,17 @@ export function ReviewBOQModal({
               <Download className="w-4 h-4" />
               Export
             </Button>
+            {/* Generate BOQ: active when no unsaved edits & project not yet created */}
             <Button
-              className="bg-amber-500 hover:bg-amber-600 text-white h-12 px-6 rounded-lg gap-2 shadow-sm border border-amber-600/20"
-              onClick={onCreateProject}
-              disabled={isCreatingProject}
+              className="bg-amber-500 hover:bg-amber-600 text-white h-12 px-6 rounded-lg gap-2 shadow-sm border border-amber-600/20 disabled:opacity-40 disabled:cursor-not-allowed"
+              onClick={() => {
+                const updatedResult = {
+                  ...boqResult,
+                  sections: sections,
+                };
+                onCreateProject?.(updatedResult);
+              }}
+              disabled={isDirty || isCreatingProject || isProjectCreated}
             >
               {isCreatingProject ? (
                 "Generating..."
@@ -515,17 +518,17 @@ export function ReviewBOQModal({
                 </>
               )}
             </Button>
+            {/* Preview BOQ: active ONLY after project is successfully created */}
             <Button
-              className="bg-amber-500 hover:bg-amber-600 text-white h-12 px-6 rounded-lg gap-2 shadow-sm border border-amber-600/20"
+              className="bg-amber-500 hover:bg-amber-600 text-white h-12 px-6 rounded-lg gap-2 shadow-sm border border-amber-600/20 disabled:opacity-40 disabled:cursor-not-allowed"
               onClick={() => {
                 onClose();
                 previewBoq?.();
               }}
+              disabled={!isProjectCreated}
             >
-              <>
-                <Plus className="w-4 h-4" />
-                Preview BOQ
-              </>
+              <Eye className="w-4 h-4" />
+              Preview BOQ
             </Button>
           </div>
         </div>

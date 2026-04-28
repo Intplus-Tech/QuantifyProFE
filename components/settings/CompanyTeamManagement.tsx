@@ -149,17 +149,19 @@ export function CompanyTeamManagement() {
                             <AvatarFallback
                               className="text-[10px] font-semibold bg-primary/10 text-primary"
                             >
-                              {member.fullName
-                                ? member.fullName.split(" ").map((n) => n?.[0]).join("").toUpperCase()
-                                : member.email?.[0]?.toUpperCase() || "?"}
+                              {member.userId?.firstName || member.userId?.lastName
+                                ? `${member.userId.firstName?.[0] || ""}${member.userId.lastName?.[0] || ""}`.toUpperCase()
+                                : member.userId?.email?.[0]?.toUpperCase() || "?"}
                             </AvatarFallback>
                           </Avatar>
                           <div>
                             <p className="font-semibold text-foreground">
-                              {member.fullName || "Pending User"}
+                              {member.userId?.firstName || member.userId?.lastName
+                                ? `${member.userId.firstName} ${member.userId.lastName}`
+                                : "Pending User"}
                             </p>
                             <p className="text-muted-foreground">
-                              {member.email}
+                              {member.userId?.email || "No email"}
                             </p>
                           </div>
                         </div>
@@ -205,7 +207,7 @@ export function CompanyTeamManagement() {
                           <DropdownMenuContent align="end">
                             {(member.status === "invited" || member.status === "pending") && (
                               <DropdownMenuItem
-                                onClick={() => handleResend(member.id || member._id || "", member.email)}
+                                onClick={() => handleResend(member.id || member._id || "", member.userId?.email || "")}
                                 className="flex items-center gap-2"
                               >
                                 <RefreshCw className="w-3.5 h-3.5" />

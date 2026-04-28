@@ -30,6 +30,7 @@ import {
   ProjectActivity,
   MultiBoqJob,
   MultiBoqGenerateResponse,
+  MultiBoqJobUpdateRequest,
 } from "@/types/projects";
 
 export const projectsApi = baseApi.injectEndpoints({
@@ -49,6 +50,7 @@ export const projectsApi = baseApi.injectEndpoints({
         method: ApiMethods.GET,
         params,
       }),
+      providesTags: ["Projects"],
       async onQueryStarted(arg, { dispatch, queryFulfilled }) {
         try {
           const { data } = await queryFulfilled;
@@ -67,6 +69,7 @@ export const projectsApi = baseApi.injectEndpoints({
         url: ApiEndpoints.projects.details(projectId),
         method: ApiMethods.GET,
       }),
+      providesTags: (result, error, id) => [{ type: "Projects", id }],
       async onQueryStarted(arg, { dispatch, queryFulfilled }) {
         try {
           const { data } = await queryFulfilled;
@@ -86,6 +89,7 @@ export const projectsApi = baseApi.injectEndpoints({
         method: ApiMethods.POST,
         body,
       }),
+      invalidatesTags: ["Projects"],
       async onQueryStarted(arg, { dispatch, queryFulfilled }) {
         try {
           const { data } = await queryFulfilled;
@@ -107,6 +111,10 @@ export const projectsApi = baseApi.injectEndpoints({
         method: ApiMethods.PATCH,
         body,
       }),
+      invalidatesTags: (result, error, { projectId }) => [
+        { type: "Projects", id: projectId },
+        "Projects",
+      ],
       async onQueryStarted(arg, { dispatch, queryFulfilled }) {
         try {
           const { data } = await queryFulfilled;
@@ -124,6 +132,7 @@ export const projectsApi = baseApi.injectEndpoints({
         url: ApiEndpoints.projects.delete(projectId),
         method: ApiMethods.DELETE,
       }),
+      invalidatesTags: ["Projects"],
       async onQueryStarted(projectId, { dispatch, queryFulfilled }) {
         try {
           await queryFulfilled;
@@ -150,11 +159,21 @@ export const projectsApi = baseApi.injectEndpoints({
         }
       },
     }),
-    uploadBimFile: builder.mutation<ApiResponse<BimUploadResponse>, FormData>({
-      query: (formData) => ({
+    uploadBimFile: builder.mutation<
+      ApiResponse<BimUploadResponse>,
+      { formData: FormData; onProgress?: (percent: number) => void }
+    >({
+      query: ({ formData, onProgress }) => ({
         url: ApiEndpoints.bim.upload,
         method: ApiMethods.POST,
         body: formData,
+        onUploadProgress: (progressEvent) => {
+          if (onProgress && progressEvent.total) {
+            onProgress(
+              Math.round((progressEvent.loaded / progressEvent.total) * 100),
+            );
+          }
+        },
       }),
     }),
     getBimStatus: builder.query<ApiResponse<BimTranslationStatus>, string>({
@@ -163,7 +182,10 @@ export const projectsApi = baseApi.injectEndpoints({
         method: ApiMethods.GET,
       }),
     }),
-    submitBimBoqJob: builder.mutation<ApiResponse<{ jobId: string; status: string }>, string>({
+    submitBimBoqJob: builder.mutation<
+      ApiResponse<{ jobId: string; status: string }>,
+      string
+    >({
       query: (urn) => ({
         url: ApiEndpoints.bim.generateBoq(urn),
         method: ApiMethods.POST,
@@ -198,8 +220,8 @@ export const projectsApi = baseApi.injectEndpoints({
     getBimJobPdf: builder.query<Blob, string>({
       query: (jobId) => ({
         url: ApiEndpoints.bim.jobPdf(jobId),
-        method: ApiMethods.GET,
-        responseHandler: (response) => response.blob(),
+
+        responseHandler: (response: any) => response.blob(),
       }),
     }),
     createProjectFromBimBoq: builder.mutation<
@@ -214,12 +236,19 @@ export const projectsApi = baseApi.injectEndpoints({
     }),
     uploadPdfBoq: builder.mutation<
       ApiResponse<PdfBoqGenerateResponse>,
-      FormData
+      { formData: FormData; onProgress?: (percent: number) => void }
     >({
-      query: (formData) => ({
+      query: ({ formData, onProgress }) => ({
         url: ApiEndpoints.pdfBoq.generate,
         method: ApiMethods.POST,
         body: formData,
+        onUploadProgress: (progressEvent) => {
+          if (onProgress && progressEvent.total) {
+            onProgress(
+              Math.round((progressEvent.loaded / progressEvent.total) * 100),
+            );
+          }
+        },
       }),
     }),
     getPdfBoqJobs: builder.query<
@@ -252,7 +281,7 @@ export const projectsApi = baseApi.injectEndpoints({
       query: (jobId) => ({
         url: ApiEndpoints.pdfBoq.jobPdf(jobId),
         method: ApiMethods.GET,
-        responseHandler: (response) => response.blob(),
+        responseHandler: (response: any) => response.blob(),
       }),
     }),
     createProjectFromPdfBoq: builder.mutation<
@@ -267,12 +296,19 @@ export const projectsApi = baseApi.injectEndpoints({
     }),
     uploadMultiBoq: builder.mutation<
       ApiResponse<MultiBoqGenerateResponse>,
-      FormData
+      { formData: FormData; onProgress?: (percent: number) => void }
     >({
-      query: (formData) => ({
+      query: ({ formData, onProgress }) => ({
         url: ApiEndpoints.multiBoq.generate,
         method: ApiMethods.POST,
         body: formData,
+        onUploadProgress: (progressEvent) => {
+          if (onProgress && progressEvent.total) {
+            onProgress(
+              Math.round((progressEvent.loaded / progressEvent.total) * 100),
+            );
+          }
+        },
       }),
     }),
     getMultiBoqJobById: builder.query<ApiResponse<MultiBoqJob>, string>({
@@ -283,7 +319,7 @@ export const projectsApi = baseApi.injectEndpoints({
     }),
     updateMultiBoqJob: builder.mutation<
       ApiResponse<MultiBoqJob>,
-      { jobId: string; body: BimJobUpdateRequest }
+      { jobId: string; body: MultiBoqJobUpdateRequest }
     >({
       query: ({ jobId, body }) => ({
         url: ApiEndpoints.multiBoq.updateJob(jobId),
@@ -295,7 +331,7 @@ export const projectsApi = baseApi.injectEndpoints({
       query: (jobId) => ({
         url: ApiEndpoints.multiBoq.jobPdf(jobId),
         method: ApiMethods.GET,
-        responseHandler: (response) => response.blob(),
+        responseHandler: (response: any) => response.blob(),
       }),
     }),
     createProjectFromMultiBoq: builder.mutation<
@@ -308,7 +344,10 @@ export const projectsApi = baseApi.injectEndpoints({
         body,
       }),
     }),
-    getProjectDashboard: builder.query<ApiResponse<ProjectDashboardSummary>, string>({
+    getProjectDashboard: builder.query<
+      ApiResponse<ProjectDashboardSummary>,
+      string
+    >({
       query: (projectId) => ({
         url: ApiEndpoints.projects.dashboard(projectId),
         method: ApiMethods.GET,
@@ -323,6 +362,29 @@ export const projectsApi = baseApi.injectEndpoints({
         method: ApiMethods.PATCH,
         body: { thumbnailUrl },
       }),
+      invalidatesTags: (result, error, { projectId }) => [
+        { type: "Projects", id: projectId },
+        "Projects",
+      ],
+      async onQueryStarted(
+        { projectId, thumbnailUrl },
+        { dispatch, queryFulfilled },
+      ) {
+        try {
+          const { data } = await queryFulfilled;
+          if (data?.success && data?.data) {
+            // Update the project in the state with the new thumbnail
+            // Since updateProjectInState expects a Full Project, we cast it if needed
+            // or we use a more granular update if available.
+            // For now, we utilize the dispatcher to update the UI immediately.
+            dispatch(
+              updateProjectInState({ _id: projectId, thumbnailUrl } as any),
+            );
+          }
+        } catch (error) {
+          console.error("Failed to update project thumbnail state:", error);
+        }
+      },
     }),
     getBoqReportPreview: builder.query<ApiResponse<BoqReportPreview>, string>({
       query: (projectId) => ({

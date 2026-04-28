@@ -12,6 +12,7 @@ interface ProcessingFooterProps {
   state: ProcessingState;
   onPause: () => void;
   onCancel: () => void;
+  onTryAgain: () => void;
   onReviewBOQ: () => void;
   onCreateProject?: () => void;
   isProjectCreated?: boolean;
@@ -23,6 +24,7 @@ export function ProcessingFooter({
   state,
   onPause,
   onCancel,
+  onTryAgain,
   onReviewBOQ,
   onCreateProject,
   isProjectCreated,
@@ -30,8 +32,7 @@ export function ProcessingFooter({
 }: ProcessingFooterProps) {
   const isCompleted =
     state.status === "completed" ||
-    apiStatus === "completed" ||
-    apiStatus === "success";
+    apiStatus === "completed";
 
   const getStatusText = () => {
     switch (apiStatus) {
@@ -84,6 +85,17 @@ export function ProcessingFooter({
               </p>
             </div>
           </div>
+
+          {apiStatus === "failed" && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-12! border-red-200 dark:border-red-900/50 hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 px-6 font-bold uppercase tracking-wider"
+              onClick={onTryAgain}
+            >
+              Try Again
+            </Button>
+          )}
 
           {isCompleted && (
             <Button

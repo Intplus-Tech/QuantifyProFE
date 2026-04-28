@@ -37,8 +37,9 @@ export interface ForgotPasswordInput {
 }
 
 export interface ResetPasswordInput {
-  token: string;
-  password: string;
+  email: string;
+  otp: string;
+  newPassword: string;
 }
 
 export interface ChangePasswordInput {
