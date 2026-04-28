@@ -5,6 +5,7 @@ import { EnterpriseSidebar } from "@/components/dashboard/EnterpriseSidebar";
 import { EnterpriseHeader } from "@/components/dashboard/EnterpriseHeader";
 import AuthGuard from "@/components/layout/AuthGuard";
 import { usePathname } from "next/navigation";
+import { useGetProjectByIdQuery } from "@/store/api/projectsApi";
 
 export default function EnterpriseDashboardLayout({
   children,
@@ -13,13 +14,21 @@ export default function EnterpriseDashboardLayout({
 }) {
   const pathname = usePathname();
   const segments = pathname.split("/").filter(Boolean);
-  const isWorkspaceRoute =
+  const projectId =
     segments[0] === "enterprise" &&
-    segments[1] === "projects" &&
-    Boolean(segments[2]) &&
-    segments[2] !== "new";
+      segments[1] === "projects" &&
+      Boolean(segments[2]) &&
+      segments[2] !== "new"
+      ? segments[2]
+      : "";
+  const { data: projectResponse } = useGetProjectByIdQuery(projectId, {
+    skip: !projectId,
+  });
 
-  if (isWorkspaceRoute) {
+  const isManualWorkspace =
+    Boolean(projectId) && projectResponse?.data?.processingMode !== "ai";
+
+  if (isManualWorkspace) {
     return (
       <AuthGuard>
         <main className="min-h-screen bg-[#dbe3eb]">{children}</main>

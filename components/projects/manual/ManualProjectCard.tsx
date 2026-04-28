@@ -4,7 +4,14 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { MoreVertical, Wrench, MapPin, Calendar, ArrowRight } from "lucide-react";
+import {
+  MoreVertical,
+  Wrench,
+  Sparkles,
+  MapPin,
+  Calendar,
+  ArrowRight,
+} from "lucide-react";
 import type { Project } from "@/types/projects";
 
 interface ManualProjectCardProps {
@@ -20,9 +27,13 @@ export function ManualProjectCard({
   basePath = "/projects",
 }: ManualProjectCardProps) {
   const router = useRouter();
+  const processingMode = project.processingMode === "ai" ? "ai" : "manual";
+  const isAiMode = processingMode === "ai";
 
   function handleOpen() {
-    router.push(`${basePath}/${project._id}`);
+    router.push(
+      isAiMode ? `${basePath}/${project._id}/boq` : `${basePath}/${project._id}`
+    );
   }
 
   return (
@@ -37,11 +48,20 @@ export function ManualProjectCard({
           alt={project.name}
           className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-300"
         />
-        {/* Manual mode badge overlay */}
+        {/* Processing mode badge overlay */}
         <div className="absolute top-3 left-3">
-          <Badge className="bg-primary/90 text-primary-foreground text-[10px] font-semibold gap-1 shadow">
-            <Wrench className="w-2.5 h-2.5" />
-            Manual
+          <Badge
+            className={`text-[10px] font-semibold gap-1 shadow ${isAiMode
+              ? "bg-sky-500/90 text-white"
+              : "bg-primary/90 text-primary-foreground"
+              }`}
+          >
+            {isAiMode ? (
+              <Sparkles className="w-2.5 h-2.5" />
+            ) : (
+              <Wrench className="w-2.5 h-2.5" />
+            )}
+            {isAiMode ? "AI" : "Manual"}
           </Badge>
         </div>
       </div>

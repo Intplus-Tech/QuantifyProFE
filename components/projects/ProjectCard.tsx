@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   MoreVertical,
@@ -10,6 +11,8 @@ import {
   Trash2,
   Image as ImageIcon,
   FileX,
+  Wrench,
+  Sparkles,
 } from "lucide-react";
 import type { Project } from "@/types/projects";
 import {
@@ -45,6 +48,9 @@ export function ProjectCard({ project }: ProjectCardProps) {
     useState(false);
   const [showThumbnailModal, setShowThumbnailModal] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const isAiMode = project.processingMode === "ai";
+  const processingModeLabel = isAiMode ? "AI" : "Manual";
+  const projectRoute = isAiMode ? `/projects/${project._id}/boq` : `/projects/${project._id}`;
 
   const [deleteProject, { isLoading: isDeleting }] = useDeleteProjectMutation();
 
@@ -71,7 +77,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
     <>
       <Card
         className="group overflow-hidden flex flex-col shadow-sm hover:shadow-md transition-all duration-300 border-border/50 cursor-pointer relative"
-        onClick={() => router.push(`/projects/${project._id}/boq`)}
+        onClick={() => router.push(projectRoute)}
       >
         <div className="relative h-48 w-full bg-muted overflow-hidden">
           <img
@@ -79,6 +85,21 @@ export function ProjectCard({ project }: ProjectCardProps) {
             alt={project.name}
             className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500"
           />
+          <div className="absolute top-3 left-3">
+            <Badge
+              className={`text-[10px] font-semibold gap-1 shadow ${isAiMode
+                ? "bg-sky-500/90 text-white"
+                : "bg-primary/90 text-primary-foreground"
+                }`}
+            >
+              {isAiMode ? (
+                <Sparkles className="w-2.5 h-2.5" />
+              ) : (
+                <Wrench className="w-2.5 h-2.5" />
+              )}
+              {processingModeLabel}
+            </Badge>
+          </div>
           <div className="absolute inset-0 bg-black/5 opacity-0 group-hover:opacity-100 transition-opacity" />
         </div>
 
@@ -103,14 +124,14 @@ export function ProjectCard({ project }: ProjectCardProps) {
                 <DropdownMenuItem
                   onClick={(e) => {
                     e.stopPropagation();
-                    router.push(`/projects/${project._id}/boq`);
+                    router.push(projectRoute);
                   }}
                   className="gap-2 px-3 py-2 cursor-pointer"
                 >
                   <ExternalLink className="w-4 h-4 text-muted-foreground" />
                   <span>Open</span>
                 </DropdownMenuItem>
-                
+
                 <DropdownMenuItem
                   onClick={(e) => {
                     e.stopPropagation();
@@ -145,7 +166,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
                 </DropdownMenuItem>
 
                 <DropdownMenuSeparator />
-                
+
                 <DropdownMenuItem
                   onClick={(e) => {
                     e.stopPropagation();
@@ -159,8 +180,8 @@ export function ProjectCard({ project }: ProjectCardProps) {
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-          
-          <p className="text-sm text-muted-foreground mb-6 line-clamp-2 min-h-[40px]">
+
+          <p className="text-sm text-muted-foreground mb-6 line-clamp-2 min-h-10">
             {project.description || "Project Draft"}
           </p>
 

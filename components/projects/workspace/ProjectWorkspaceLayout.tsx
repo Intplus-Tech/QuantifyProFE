@@ -14,6 +14,7 @@ import {
   FolderOpen,
   LayoutDashboard,
   Layers,
+  Loader2,
   Save,
   Settings2,
   SquareStack,
@@ -49,11 +50,10 @@ function WorkspaceNavItem({
   return (
     <Link
       href={href}
-      className={`flex items-center gap-2 rounded-md px-3 py-2 text-xs font-medium transition-colors ${
-        active
+      className={`flex items-center gap-2 rounded-md px-3 py-2 text-xs font-medium transition-colors ${active
           ? "bg-amber-500 text-white"
           : "text-slate-700 hover:bg-slate-100"
-      }`}
+        }`}
     >
       <Icon className="h-3.5 w-3.5" />
       <span>{label}</span>
@@ -67,14 +67,15 @@ export function ProjectWorkspaceLayout({
   children,
 }: ProjectWorkspaceLayoutProps) {
   const pathname = usePathname() || "";
-  const { data: projectResponse } = useGetProjectByIdQuery(projectId);
+  const { data: projectResponse, isLoading: isLoadingProject } = useGetProjectByIdQuery(projectId);
   const backendProject = projectResponse?.data;
-  
+
   const localSnapshot = useAppSelector(
     (state) => state.projectWorkspace.projectsById[projectId],
   );
 
   const projectName = backendProject?.name ?? localSnapshot?.name ?? `Project ${projectId.slice(0, 8)}`;
+  const isAiProject = backendProject?.processingMode === "ai";
 
   const dashboardPath = basePath.startsWith("/enterprise")
     ? "/enterprise/dashboard"
@@ -115,9 +116,24 @@ export function ProjectWorkspaceLayout({
     },
   ];
 
+  if (isLoadingProject && !backendProject) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#dbe3eb] text-slate-600">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-amber-500" />
+          <p className="text-sm">Loading project workspace...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isAiProject) {
+    return <>{children}</>;
+  }
+
   return (
     <div className="min-h-screen bg-[#dbe3eb] flex">
-      <aside className="w-[240px] shrink-0 border-r border-slate-200 bg-[#f8fafc] flex flex-col">
+      <aside className="w-60 shrink-0 border-r border-slate-200 bg-[#f8fafc] flex flex-col">
         <div className="px-4 py-4 border-b border-slate-200">
           <p className="text-xs font-semibold text-slate-800">QSCalc Pro Workspace</p>
           <p className="text-[11px] text-slate-500 mt-1 line-clamp-1">
