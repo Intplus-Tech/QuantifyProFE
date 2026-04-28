@@ -204,6 +204,15 @@ export interface BimJobUpdateRequest {
   generalNotes?: string;
 }
 
+export interface MultiBoqJobUpdateRequest {
+  result: {
+    projectTitle?: string;
+    templateVersion?: string;
+    sections?: any[];
+    generalNotes?: string;
+  };
+}
+
 export interface PdfBoqGenerateResponse {
   jobId: string;
   status: string;
@@ -285,11 +294,11 @@ export interface ProjectMember {
 
 export interface AddProjectMemberRequest {
   userId: string;
-  role: string;
+  role: "editor" | "viewer";
 }
 
 export interface UpdateProjectMemberRequest {
-  role: string;
+  role: "editor" | "viewer";
 }
 
 export interface ProjectActivity {

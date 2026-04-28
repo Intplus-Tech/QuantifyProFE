@@ -3,15 +3,12 @@
 import { Suspense, useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, CheckCircle2, Loader2 } from "lucide-react";
-import {
-  useVerifyOtpMutation,
-  useResendVerificationEmailMutation,
-} from "@/store/api/authApi";
+import { ArrowLeft, Loader2 } from "lucide-react";
+import { useResendVerificationEmailMutation } from "@/store/api/authApi";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export default function VerificationPage() {
   return (
@@ -24,7 +21,9 @@ export default function VerificationPage() {
 function VerificationContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const email = searchParams.get("email") ?? "davidgoliath12@initplus.co";
+  const email = searchParams.get("email") ?? "";
+  const mode = searchParams.get("mode") ?? ""; // "reset" = from forgot-password flow
+
   const hiddenEmail = useMemo(() => {
     const [name, domain] = email.split("@");
     if (!name || !domain) return email;
@@ -34,9 +33,7 @@ function VerificationContent() {
 
   const [code, setCode] = useState(["", "", "", "", "", ""]);
   const [error, setError] = useState<string | null>(null);
-  const [resent, setResent] = useState(false);
 
-  const [verifyOtp, { isLoading: isSubmitting }] = useVerifyOtpMutation();
   const [resendOtp, { isLoading: isResending }] =
     useResendVerificationEmailMutation();
 
@@ -51,7 +48,6 @@ function VerificationContent() {
   }, [countdown]);
 
   function handleChange(index: number, value: string) {
-    // Handle autofill/paste natively if sent to a single input
     if (value.length > 1) {
       const pastedData = value.replace(/\D/g, "").slice(0, 6);
       if (pastedData.length > 0) {
@@ -113,41 +109,39 @@ function VerificationContent() {
     document.getElementById(`otp-${nextIndex === 6 ? 5 : nextIndex}`)?.focus();
   }
 
-  async function verifyCode() {
+  function handleContinue() {
     const joined = code.join("");
     setError(null);
 
     if (joined.length !== 6) {
-      setError("Enter all 6 digits of your verification code.");
+      setError("Enter all 6 digits of your code.");
       return;
     }
 
-    try {
-      const response = await verifyOtp({
-        email,
-        otp: joined,
-      }).unwrap();
-
-      if (response.success) {
-        router.push("/auth/login");
-      }
-    } catch (err: any) {
-      setError(err.data?.message || err.message || "Invalid code.");
+    if (mode === "reset") {
+      // Store OTP and route to reset-password — do NOT call verifyOtp
+      router.push(
+        `/auth/reset-password?email=${encodeURIComponent(email)}&otp=${encodeURIComponent(joined)}`,
+      );
+    } else {
+      // Default: this is an email verification scenario — also just navigate
+      router.push("/auth/login");
     }
   }
 
   async function resendCode() {
     if (countdown > 0 || isResending) return;
-    setResent(false);
     setError(null);
     try {
       const response = await resendOtp({ email }).unwrap();
       if (response.success) {
-        setResent(true);
         setCountdown(30);
+        toast.success("A new verification code has been sent to your email.");
+      } else {
+        toast.error(response.message || "Failed to resend code.");
       }
     } catch (err: any) {
-      setError(err.data?.message || err.message || "Failed to resend code.");
+      toast.error(err.data?.message || err.message || "Failed to resend code.");
     }
   }
 
@@ -202,12 +196,10 @@ function VerificationContent() {
 
               <Button
                 type="button"
-                onClick={verifyCode}
-                disabled={isSubmitting}
+                onClick={handleContinue}
                 className="h-10 w-full rounded-md text-xs"
               >
-                {isSubmitting && <Loader2 className="size-3.5 animate-spin" />}
-                {isSubmitting ? "Verifying..." : "Verify"}
+                Continue
               </Button>
 
               <p className="text-center text-xs text-muted-foreground">
@@ -227,17 +219,6 @@ function VerificationContent() {
               </p>
             </div>
           </div>
-
-          {resent && (
-            <div className="mx-auto mb-2 w-full max-w-md">
-              <Alert className="border-green-200 bg-green-50 text-green-800">
-                <CheckCircle2 className="size-4 text-green-600" />
-                <AlertDescription>
-                  A new verification code is sent to your email.
-                </AlertDescription>
-              </Alert>
-            </div>
-          )}
         </div>
       </section>
     </div>

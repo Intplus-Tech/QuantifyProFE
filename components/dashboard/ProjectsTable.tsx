@@ -5,18 +5,26 @@ import { useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Project } from "@/types/projects";
 import { format } from "date-fns";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 interface ProjectsTableProps {
   projects: Project[];
   isLoading?: boolean;
+  basePath?: string; // "/projects" or "/enterprise/projects"
 }
 
-export function ProjectsTable({ projects, isLoading }: ProjectsTableProps) {
+export function ProjectsTable({
+  projects,
+  isLoading,
+  basePath = "/projects",
+}: ProjectsTableProps) {
+  const router = useRouter();
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
-  const [menuOpenIdx, setMenuOpenIdx] = useState<number | null>(0);
+  const [menuOpenIdx, setMenuOpenIdx] = useState<number | null>(null);
 
   if (isLoading) {
-    return <ProjectsTableSkeleton />;
+    return <ProjectsTableSkeleton basePath={basePath} />;
   }
 
   if (projects.length === 0) {
@@ -24,7 +32,9 @@ export function ProjectsTable({ projects, isLoading }: ProjectsTableProps) {
       <div className="overflow-x-auto">
         <div className="flex justify-between items-center mb-4">
           <h2 className="font-semibold">Recent Projects</h2>
-          <Button size={"lg"}>+ New Project</Button>
+          <Button size={"lg"} asChild>
+            <Link href={`${basePath}/new`}>+ New Project</Link>
+          </Button>
         </div>
         <div className="bg-white rounded-2xl flex flex-col items-center justify-center p-12 text-center border border-dashed border-gray-200">
           <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-4">
@@ -51,8 +61,8 @@ export function ProjectsTable({ projects, isLoading }: ProjectsTableProps) {
             Get started by creating your first project to manage estimates and
             generate BOQs.
           </p>
-          <Button size="lg" className="rounded-full">
-            + Create New Project
+          <Button size="lg" className="rounded-full" asChild>
+            <Link href={`${basePath}/new`}>+ Create New Project</Link>
           </Button>
         </div>
       </div>
@@ -63,8 +73,8 @@ export function ProjectsTable({ projects, isLoading }: ProjectsTableProps) {
     <div className="overflow-x-auto">
       <div className="flex justify-between items-center mb-4">
         <h2 className="font-semibold">Recent Projects</h2>
-        <Button size={"lg"}>
-          + New Project
+        <Button size={"lg"} asChild>
+          <Link href={`${basePath}/new`}>+ New Project</Link>
         </Button>
       </div>
 
@@ -72,9 +82,17 @@ export function ProjectsTable({ projects, isLoading }: ProjectsTableProps) {
         <thead />
         <tbody>
           {projects.map((project, i) => {
-            const dateCreated = project.createdAt ? format(new Date(project.createdAt), "dd/MM/yyyy") : "N/A";
-            const dateUpdated = project.updatedAt ? format(new Date(project.updatedAt), "dd/MM/yyyy") : "N/A";
-            const costDate = project.updatedAt ? format(new Date(project.updatedAt), "dd.MM.yyyy") : "N/A";
+            const dateCreated = project.createdAt
+              ? format(new Date(project.createdAt), "dd/MM/yyyy")
+              : "N/A";
+            const dateUpdated = project.updatedAt
+              ? format(new Date(project.updatedAt), "dd/MM/yyyy")
+              : "N/A";
+            const costDate = project.updatedAt
+              ? format(new Date(project.updatedAt), "dd.MM.yyyy")
+              : "N/A";
+            const projectUrl = `${basePath}/${project._id}`;
+            const boqUrl = `${basePath}/${project._id}/boq`;
 
             return (
               <tr
@@ -88,10 +106,13 @@ export function ProjectsTable({ projects, isLoading }: ProjectsTableProps) {
                 </td>
 
                 <td className="py-5 px-4 align-top relative min-w-[330px]">
-                  <div className="font-medium text-[#4B4B4B] underline underline-offset-2 cursor-pointer">
+                  <Link
+                    href={projectUrl}
+                    className="font-medium text-[#4B4B4B] underline underline-offset-2 cursor-pointer hover:text-primary"
+                  >
                     {project.name}
-                  </div>
-                  <div className=" mt-1 leading-tight">
+                  </Link>
+                  <div className="mt-1 leading-tight">
                     #{project.projectCode || project._id.slice(-6)} Opened{" "}
                     {dateUpdated} by{" "}
                     <span className="font-semibold text-[#3A3A3A]">
@@ -108,8 +129,8 @@ export function ProjectsTable({ projects, isLoading }: ProjectsTableProps) {
                         {project.description ||
                           "No description provided for this project."}
                       </div>
-                      <Button className="rounded-full">
-                        Open Project
+                      <Button className="rounded-full" asChild>
+                        <Link href={projectUrl}>Open Project</Link>
                       </Button>
                     </div>
                   )}
@@ -127,12 +148,12 @@ export function ProjectsTable({ projects, isLoading }: ProjectsTableProps) {
                       <rect x="2" y="2" width="12" height="12" rx="2" fill="#F79C00" />
                       <rect x="4" y="4" width="8" height="8" rx="1" fill="#fff" />
                     </svg>
-                    <a
-                      href="#"
-                      className="text-primary underline text-xs font-medium"
+                    <Link
+                      href={boqUrl}
+                      className="text-primary underline text-xs font-medium hover:text-primary/80"
                     >
                       {costDate} (Updated)
-                    </a>
+                    </Link>
                   </div>
                 </td>
 
@@ -140,7 +161,9 @@ export function ProjectsTable({ projects, isLoading }: ProjectsTableProps) {
                   <div className="flex items-center justify-end">
                     <button
                       className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-[#F4F7FE]"
-                      onClick={() => setMenuOpenIdx(menuOpenIdx === i ? null : i)}
+                      onClick={() =>
+                        setMenuOpenIdx(menuOpenIdx === i ? null : i)
+                      }
                     >
                       <svg width="20" height="20" fill="none" viewBox="0 0 20 20">
                         <circle cx="10" cy="4" r="1.5" fill="#1A2954" />
@@ -151,8 +174,24 @@ export function ProjectsTable({ projects, isLoading }: ProjectsTableProps) {
                   </div>
                   {menuOpenIdx === i && (
                     <div className="absolute right-5 top-11 z-20 bg-white border border-[#D8DCE8] rounded-xl shadow-md py-2 w-32">
-                      <button className="w-full text-left px-4 py-1.5 text-xs text-[#6D7592] hover:bg-[#F4F7FE]">Open Project</button>
-                      <button className="w-full text-left px-4 py-1.5 text-xs text-[#6D7592] hover:bg-[#F4F7FE]">View Drawings</button>
+                      <button
+                        className="w-full text-left px-4 py-1.5 text-xs text-[#6D7592] hover:bg-[#F4F7FE]"
+                        onClick={() => {
+                          setMenuOpenIdx(null);
+                          router.push(projectUrl);
+                        }}
+                      >
+                        Open Project
+                      </button>
+                      <button
+                        className="w-full text-left px-4 py-1.5 text-xs text-[#6D7592] hover:bg-[#F4F7FE]"
+                        onClick={() => {
+                          setMenuOpenIdx(null);
+                          router.push(boqUrl);
+                        }}
+                      >
+                        View Drawings
+                      </button>
                     </div>
                   )}
                 </td>
@@ -165,7 +204,7 @@ export function ProjectsTable({ projects, isLoading }: ProjectsTableProps) {
   );
 }
 
-function ProjectsTableSkeleton() {
+function ProjectsTableSkeleton({ basePath = "/projects" }: { basePath?: string }) {
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center mb-4">

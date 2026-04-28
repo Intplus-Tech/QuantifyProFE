@@ -3,26 +3,15 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { setNewProjectDraft } from "@/store/slices/projectsSlice";
-import {
-  useUploadBimFileMutation,
-  useUploadPdfBoqMutation,
-  useUploadMultiBoqMutation,
-} from "@/store/api/projectsApi";
+import { RootState } from "@/store";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useDropzone } from "react-dropzone";
 import { toast } from "sonner";
-import {
-  Upload,
-  FileType,
-  FileText,
-  Zap,
-  Shield,
-  Sparkles,
-  X,
-} from "lucide-react";
+import { FileType, FileText, Zap, Shield, Sparkles, X } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 
 import {
   DialogContent,
@@ -46,6 +35,9 @@ import {
   FieldError,
 } from "@/components/ui/field";
 
+import { useFileAnalysisUpload } from "@/hooks/useFileAnalysisUpload";
+import { useGetClientsQuery } from "@/store/api/clientsApi";
+
 const SUPPORTED_FORMATS = {
   "3D_BIM": [".rvt", ".ifc", ".nwd", ".skp", ".fbx", ".obj"],
   "2D_CAD": [".dwg", ".dxf", ".dgn"],
@@ -55,16 +47,16 @@ const aiFormSchema = z.object({
   projectTitle: z.string().min(1, "Project Title is required"),
   projectCode: z.string().optional(),
   clientName: z.string().min(1, "Client Name is required"),
+  clientId: z.string().min(1, "Please select a client"),
   projectType: z.string().min(1, "Project Type is required"),
   location: z.string().optional(),
   source: z.string().min(1, "Source is required"),
   description: z.string().optional(),
   drawingType: z.string().min(1, "Drawing Type is required"),
-  drawings: z
-    .array(z.any())
-    .min(1, "Please upload a drawing"),
+  drawings: z.array(z.any()).min(1, "Please upload a drawing"),
   sourceJobId: z.string().optional(),
   uploadedFileType: z.string().optional(),
+  companyId: z.string().optional(),
 });
 
 type AiFormValues = z.infer<typeof aiFormSchema>;
@@ -84,6 +76,10 @@ export function AiAnalysisContent({
 }: AiAnalysisContentProps) {
   const router = useRouter();
   const dispatch = useDispatch();
+  const currentUser = useSelector((state: RootState) => state.auth.currentUser);
+
+  const { data: clientsRes } = useGetClientsQuery({ limit: 100 });
+  const clientsList = clientsRes?.data || [];
   const {
     register,
     handleSubmit,
@@ -98,6 +94,7 @@ export function AiAnalysisContent({
       projectTitle: "",
       projectCode: "",
       clientName: "",
+      clientId: "",
       projectType: "",
       location: "",
       source: "",
@@ -109,10 +106,7 @@ export function AiAnalysisContent({
     },
   });
 
-  const [uploadBimFile] = useUploadBimFileMutation();
-  const [uploadPdfBoq] = useUploadPdfBoqMutation();
-  const [uploadMultiBoq] = useUploadMultiBoqMutation();
-  const [isUploading, setIsUploading] = useState(false);
+  const { isUploading, uploadProgress, handleUpload } = useFileAnalysisUpload();
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const drawings = watch("drawings");
@@ -120,78 +114,39 @@ export function AiAnalysisContent({
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
       if (acceptedFiles.length === 0) return;
-      setIsUploading(true);
+
       try {
         setValue("drawings", acceptedFiles, { shouldValidate: true });
 
         // Build preview relying on the first file
         const firstFile = acceptedFiles[0];
-        const fileUrl = URL.createObjectURL(firstFile);
-        setPreviewUrl(fileUrl);
+        setPreviewUrl(URL.createObjectURL(firstFile));
 
-        if (acceptedFiles.length > 1) {
-          setValue("uploadedFileType", "multi");
-          const formData = new FormData();
-          acceptedFiles.forEach((f) => formData.append("files", f));
+        const { projectType, location, description } = getValues();
 
-          // Try to compile a document hint from the current form fields, if filled.
-          const { projectType, location, description } = getValues();
-          const hintParams = [projectType, location, description].filter(Boolean);
-          if (hintParams.length > 0) {
-            formData.append("documentHint", hintParams.join(", "));
-          }
+        const { type, response } = await handleUpload(
+          acceptedFiles,
+          { projectType, location, description },
+          SUPPORTED_FORMATS,
+        );
 
-          const response = await uploadMultiBoq(formData).unwrap();
-          if (response.success && response.data?.jobId) {
-            setValue("sourceJobId", response.data.jobId);
+        if (response.success) {
+          setValue("uploadedFileType", type);
+          const responseData = response.data as any;
+          const jobId = responseData?.jobId || responseData?.urn;
+          if (jobId) {
+            setValue("sourceJobId", jobId);
             toast.success(
-              response.message ||
-                "Multiple files uploaded and processing started.",
+              response.message || "File uploaded and processing started.",
             );
           }
-        } else {
-          const file = firstFile;
-          const formData = new FormData();
-          formData.append("file", file);
-
-          const extension = file.name
-            .substring(file.name.lastIndexOf("."))
-            .toLowerCase();
-          const isBimOrCad =
-            SUPPORTED_FORMATS["3D_BIM"].includes(extension) ||
-            SUPPORTED_FORMATS["2D_CAD"].includes(extension);
-
-          if (isBimOrCad) {
-            setValue("uploadedFileType", "bim");
-            const response = await uploadBimFile(formData).unwrap();
-            if (response.success && response.data?.urn) {
-              setValue("sourceJobId", response.data.urn);
-              toast.success(
-                response.message ||
-                  "BIM file uploaded and translation started.",
-              );
-            }
-          } else if (extension === ".pdf") {
-            setValue("uploadedFileType", "pdf");
-            const response = await uploadPdfBoq(formData).unwrap();
-            if (response.success && response.data?.jobId) {
-              setValue("sourceJobId", response.data.jobId);
-              toast.success(
-                response.message || "PDF BOQ job submitted successfully.",
-              );
-            }
-          }
         }
-      } catch (error: any) {
+      } catch (error) {
+        // Error handling is managed inside the hook's toast
         console.error("Upload failed", error);
-        toast.error(
-          error?.data?.message || "File upload failed. Please try again.",
-        );
-      } finally {
-        setIsUploading(false);
       }
     },
-    [setValue, uploadBimFile, uploadPdfBoq, uploadMultiBoq],
+    [getValues, handleUpload, setValue],
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -225,6 +180,10 @@ export function AiAnalysisContent({
       ...data,
       fileUrl: previewUrl,
       fileName: data.drawings[0]?.name || "drawing.file",
+      companyId:
+        currentUser?.role === "company" || currentUser?._id
+          ? currentUser._id
+          : currentUser?._id,
     };
 
     dispatch(setNewProjectDraft(finalData));
@@ -295,15 +254,42 @@ export function AiAnalysisContent({
 
               <Field>
                 <FieldLabel>Client Name</FieldLabel>
-                <FieldContent>
-                  <Input
-                    {...register("clientName")}
-                    placeholder="Real Estate Development Corp."
-                    className="h-12"
+                <FieldContent className="text-card-foreground!">
+                  <Controller
+                    control={control}
+                    name="clientId"
+                    render={({ field }) => (
+                      <Select
+                        onValueChange={(val) => {
+                          field.onChange(val);
+                          const client = clientsList.find((c) => c._id === val);
+                          if (client) {
+                            setValue("clientName", client.name);
+                          }
+                        }}
+                        defaultValue={field.value}
+                      >
+                        <SelectTrigger className="h-12! py-3! w-full">
+                          <SelectValue placeholder="Select Client" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {clientsList.map((client) => (
+                            <SelectItem key={client._id} value={client._id}>
+                              {client.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                   />
                 </FieldContent>
                 <FieldError
-                  errors={[{ message: errors.clientName?.message }]}
+                  errors={[
+                    {
+                      message:
+                        errors.clientId?.message || errors.clientName?.message,
+                    },
+                  ]}
                 />
               </Field>
 
@@ -461,9 +447,17 @@ export function AiAnalysisContent({
 
                 <h4 className="text-xl font-bold text-foreground mb-1.5 drop-shadow-sm">
                   {isUploading
-                    ? "Uploading file..."
+                    ? `Uploading... ${uploadProgress}%`
                     : "Drag and drop your drawing here"}
                 </h4>
+                {isUploading && (
+                  <div className="w-full max-w-xs mt-2 mb-4">
+                    <Progress
+                      value={uploadProgress}
+                      className="h-2 bg-amber-100"
+                    />
+                  </div>
+                )}
                 <p className="text-sm text-muted-foreground mb-8">
                   {isUploading ? (
                     "Please wait while we process the upload."
