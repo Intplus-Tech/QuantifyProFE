@@ -14,11 +14,13 @@ import {
   FolderOpen,
   LayoutDashboard,
   Layers,
+  Loader2,
   Save,
   Settings2,
   SquareStack,
   Waves,
 } from "lucide-react";
+import { useGetProjectByIdQuery } from "@/store/api/projectsApi";
 
 interface ProjectWorkspaceLayoutProps {
   projectId: string;
@@ -48,11 +50,10 @@ function WorkspaceNavItem({
   return (
     <Link
       href={href}
-      className={`flex items-center gap-2 rounded-md px-3 py-2 text-xs font-medium transition-colors ${
-        active
-          ? "bg-amber-500 text-white"
-          : "text-slate-700 hover:bg-slate-100"
-      }`}
+      className={`flex items-center gap-2 rounded-md px-3 py-2 text-xs font-medium transition-colors ${active
+        ? "bg-amber-500 text-white"
+        : "text-slate-700 hover:bg-slate-100"
+        }`}
     >
       <Icon className="h-3.5 w-3.5" />
       <span>{label}</span>
@@ -66,9 +67,15 @@ export function ProjectWorkspaceLayout({
   children,
 }: ProjectWorkspaceLayoutProps) {
   const pathname = usePathname() || "";
-  const project = useAppSelector(
+  const { data: projectResponse, isLoading: isLoadingProject } = useGetProjectByIdQuery(projectId);
+  const backendProject = projectResponse?.data;
+
+  const localSnapshot = useAppSelector(
     (state) => state.projectWorkspace.projectsById[projectId],
   );
+
+  const projectName = backendProject?.name ?? localSnapshot?.name ?? `Project ${projectId.slice(0, 8)}`;
+  const isAiProject = backendProject?.processingMode === "ai";
 
   const dashboardPath = basePath.startsWith("/enterprise")
     ? "/enterprise/dashboard"
@@ -85,7 +92,12 @@ export function ProjectWorkspaceLayout({
   const activeSegment = pathname.replace(workspaceBase, "") || "/";
 
   const nav = [
-    { href: workspaceBase, label: "Dashboard", icon: LayoutDashboard, match: "/" },
+    {
+      href: workspaceBase,
+      label: "Workspace Dashboard",
+      icon: LayoutDashboard,
+      match: "/",
+    },
     {
       href: `${workspaceBase}/configuration`,
       label: "Configuration",
@@ -109,23 +121,38 @@ export function ProjectWorkspaceLayout({
     },
   ];
 
+  if (isLoadingProject && !backendProject) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#dbe3eb] text-slate-600">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-amber-500" />
+          <p className="text-sm">Loading project workspace...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isAiProject) {
+    return <>{children}</>;
+  }
+
   return (
     <div className="min-h-screen bg-[#dbe3eb] flex">
-      <aside className="w-[240px] shrink-0 border-r border-slate-200 bg-[#f8fafc] flex flex-col">
+      <aside className="w-60 shrink-0 border-r border-slate-200 bg-[#f8fafc] flex flex-col">
         <div className="px-4 py-4 border-b border-slate-200">
           <p className="text-xs font-semibold text-slate-800">QSCalc Pro Workspace</p>
           <p className="text-[11px] text-slate-500 mt-1 line-clamp-1">
-            {project?.name ?? `Project ${projectId.slice(0, 8)}`}
+            {projectName}
           </p>
         </div>
 
         <ScrollArea className="flex-1">
           <div className="p-3 space-y-4">
             <div>
-              <p className="text-[10px] uppercase tracking-widest text-slate-400 px-2 mb-2">Dashboard</p>
+              <p className="text-[10px] uppercase tracking-widest text-slate-400 px-2 mb-2">Main App</p>
               <WorkspaceNavItem
                 href={dashboardPath}
-                label="Dashboard"
+                label="Main Dashboard"
                 icon={LayoutDashboard}
                 active={false}
               />
@@ -194,8 +221,8 @@ export function ProjectWorkspaceLayout({
           <p className="text-[10px] uppercase tracking-widest text-slate-400 px-1">
             Reference Drawings
           </p>
-          {(project?.referenceDrawings?.length
-            ? project.referenceDrawings
+          {(localSnapshot?.referenceDrawings?.length
+            ? localSnapshot.referenceDrawings
             : ["No drawings uploaded"]
           ).slice(0, 2).map((name) => (
             <div

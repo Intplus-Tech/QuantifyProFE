@@ -1,17 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, ArrowUpDown, Plus, Loader2 } from "lucide-react";
+import { Search, ArrowUpDown, Plus, Loader2, Wrench } from "lucide-react";
 import { NewProjectDialog } from "@/components/projects/NewProjectDialog";
 import { ProjectCard } from "@/components/projects/ProjectCard";
 import { useGetProjectsQuery } from "@/store/api/projectsApi";
 
 export default function ProjectsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
-  const router = useRouter();
 
   const { data: fetchResult, isLoading } = useGetProjectsQuery({
     page: 1,
@@ -49,7 +47,7 @@ export default function ProjectsPage() {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center p-16 col-span-full min-h-[400px]">
+        <div className="flex items-center justify-center p-16 col-span-full min-h-100">
           <Loader2 className="w-8 h-8 animate-spin text-amber-500" />
         </div>
       ) : projects.length === 0 ? (
@@ -59,7 +57,7 @@ export default function ProjectsPage() {
             onOpenChange={setDialogOpen}
             basePath="/projects"
           />
-          <div className="bg-white rounded-2xl flex flex-col items-center justify-center p-16 text-center border border-dashed border-gray-200 mt-8 min-h-[400px]">
+          <div className="bg-white rounded-2xl flex flex-col items-center justify-center p-16 text-center border border-dashed border-gray-200 mt-8 min-h-100">
             <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-4">
               <svg
                 width="24"

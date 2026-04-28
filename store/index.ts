@@ -29,6 +29,7 @@ import "./api/supportApi";
 import "./api/plansApi";
 import "./api/clientsApi";
 import "./api/projectsApi";
+import "./api/manualProjectApi";
 
 const persistedProjectWorkspace = loadPersistedProjectWorkspaceState();
 
@@ -66,12 +67,7 @@ export const store = configureStore({
     projectWorkspace: projectWorkspaceReducer,
   },
   middleware: (getDefaultMiddleware: any) =>
-    getDefaultMiddleware({
-      serializableCheck: {
-        ignoredActions: ["manualWizard/updateDrawings"],
-        ignoredPaths: ["manualWizard.wizard.drawings"],
-      },
-    }).concat(baseApi.middleware, projectWorkspacePersistenceMiddleware),
+    getDefaultMiddleware().concat(baseApi.middleware, projectWorkspacePersistenceMiddleware),
 });
 
 setupListeners(store.dispatch);

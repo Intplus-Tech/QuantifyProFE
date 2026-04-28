@@ -6,9 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { ArrowRight, LayoutDashboard, PencilLine, SquareStack, Ruler, ChevronRight, FileText, Clock3, Activity, FolderOpen } from "lucide-react";
+import { ArrowRight, LayoutDashboard, PencilLine, SquareStack, Ruler, ChevronRight, FileText, Clock3, Activity, FolderOpen, Loader2 } from "lucide-react";
 import { formatWorkspaceCurrency } from "./workspaceMapper";
+import { useGetProjectByIdQuery, useGetProjectDashboardQuery, useGetProjectActivityQuery, useGetProjectStructuralScopesQuery } from "@/store/api/projectsApi";
 import type { WorkspaceProjectSnapshot } from "./types";
+import { formatDistanceToNow } from "date-fns";
+import type { StructuralScopeDocument } from "@/types/manualProject";
 
 interface ProjectWorkspaceViewProps {
   projectId: string;
@@ -76,21 +79,220 @@ function MissingWorkspaceState({ basePath, projectId }: { basePath: string; proj
   );
 }
 
-export function ProjectWorkspaceView({ projectId, basePath, mode }: ProjectWorkspaceViewProps) {
-  const workspace = useAppSelector((state) => state.projectWorkspace.projectsById[projectId]);
+function describeStructuralScope(doc: StructuralScopeDocument): string {
+  const sections: string[] = [];
 
-  if (!workspace) {
+  if (doc.pileSpecification) sections.push("Pile system");
+  if (doc.blindingElements?.length) sections.push("Blinding");
+  if (doc.substructureFilling || doc.substructureElements?.length) sections.push("Substructure");
+  if (doc.superstructureElements?.length) sections.push("Superstructure");
+
+  return sections.length ? sections.join(" · ") : "No structural sections detected";
+}
+
+function formatScopeValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "Not set";
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "Empty";
+    return `${value.length} item${value.length === 1 ? "" : "s"}`;
+  }
+
+  if (typeof value === "boolean") {
+    return value ? "Yes" : "No";
+  }
+
+  if (typeof value === "object") {
+    const fieldCount = Object.keys(value as Record<string, unknown>).length;
+    return `${fieldCount} field${fieldCount === 1 ? "" : "s"}`;
+  }
+
+  return String(value);
+}
+
+function formatScopeKey(value: string): string {
+  return value
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function renderScopeValueCell(label: string, value: unknown) {
+  return (
+    <div key={label} className="rounded-lg border border-border/50 bg-background px-3 py-2">
+      <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">
+        {label}
+      </p>
+      <p className="text-xs font-medium text-foreground mt-1">{formatScopeValue(value)}</p>
+    </div>
+  );
+}
+
+function renderScopeObjectSection(title: string, value: Record<string, unknown>) {
+  return (
+    <details key={title} className="group rounded-xl border border-border/50 bg-white shadow-sm overflow-hidden">
+      <summary className="list-none cursor-pointer flex items-center justify-between gap-3 px-4 py-3 bg-slate-50/80 border-b border-border/40">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+          <p className="text-xs text-slate-500 mt-1">Returned by the backend for this project</p>
+        </div>
+        <ChevronRight className="h-4 w-4 text-slate-400 transition-transform duration-200 group-open:rotate-90" />
+      </summary>
+      <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {Object.entries(value).map(([key, entryValue]) => renderScopeValueCell(formatScopeKey(key), entryValue))}
+      </div>
+    </details>
+  );
+}
+
+function renderScopeElementSection(
+  title: string,
+  elements: Array<Record<string, unknown>>,
+  itemLabelKey: string,
+) {
+  return (
+    <details key={title} className="group rounded-xl border border-border/50 bg-white shadow-sm overflow-hidden">
+      <summary className="list-none cursor-pointer flex items-center justify-between gap-3 px-4 py-3 bg-slate-50/80 border-b border-border/40">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+          <p className="text-xs text-slate-500 mt-1">
+            {elements.length} returned {elements.length === 1 ? "element" : "elements"}
+          </p>
+        </div>
+        <ChevronRight className="h-4 w-4 text-slate-400 transition-transform duration-200 group-open:rotate-90" />
+      </summary>
+      <div className="p-4 grid grid-cols-1 gap-3">
+        {elements.map((element, index) => {
+          const itemLabel = String(element[itemLabelKey] ?? `item_${index + 1}`);
+          return (
+            <div key={`${title}-${itemLabel}-${index}`} className="rounded-lg border border-border/40 bg-slate-50/40 p-3 space-y-3">
+              <div className="flex items-start justify-between gap-3 flex-wrap border-b border-border/30 pb-2">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">{formatScopeKey(itemLabel)}</p>
+                  <p className="text-[11px] text-slate-500 mt-1">Element returned by the backend</p>
+                </div>
+                <Badge variant="outline" className="text-[10px] uppercase tracking-widest bg-white">{title}</Badge>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {Object.entries(element)
+                  .filter(([key]) => key !== itemLabelKey)
+                  .map(([key, entryValue]) => renderScopeValueCell(formatScopeKey(key), entryValue))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </details>
+  );
+}
+
+export function ProjectWorkspaceView({ projectId, basePath, mode }: ProjectWorkspaceViewProps) {
+  const localSnapshot = useAppSelector((state) => state.projectWorkspace.projectsById[projectId]);
+  const { data: projectResponse, isLoading: isLoadingProject } = useGetProjectByIdQuery(projectId);
+  const { data: dashboardResponse, isLoading: isLoadingDashboard } = useGetProjectDashboardQuery(projectId);
+  const { data: activityResponse, isLoading: isLoadingActivity } = useGetProjectActivityQuery({ projectId, limit: 5 });
+  const { data: structuralScopeResponse, isLoading: isLoadingStructuralScopes } = useGetProjectStructuralScopesQuery(projectId);
+
+  const backendProject = projectResponse?.data;
+  const dashboardData = dashboardResponse?.data;
+  const backendStructuralScopes = structuralScopeResponse?.data ?? [];
+
+  // We require either a local snapshot or basic backend data to render
+  if (!localSnapshot && !backendProject && !isLoadingProject) {
     return <MissingWorkspaceState basePath={basePath} projectId={projectId} />;
   }
 
-  const project = workspace;
+  if (isLoadingProject || isLoadingDashboard || isLoadingStructuralScopes) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-100 text-muted-foreground">
+        <Loader2 className="w-8 h-8 animate-spin mb-4" />
+        <p>Loading workspace...</p>
+      </div>
+    );
+  }
 
-  const costBreakdown = [
+  // Merge the backend data into the snapshot structure so the UI can render
+  const isBackendLoaded = !!backendProject;
+
+  const project: WorkspaceProjectSnapshot = {
+    ...localSnapshot, // Start with local snapshot (contains detailed sections/activities if available)
+    id: projectId,
+    projectId,
+    name: backendProject?.name ?? localSnapshot?.name ?? `Project ${projectId.slice(0, 8)}`,
+    projectType: backendProject?.projectType ?? localSnapshot?.projectType ?? "Manual Project",
+    buildingType: isBackendLoaded
+      ? (backendProject.projectType || backendProject.buildingType || "Not set")
+      : (localSnapshot?.buildingType ?? "Building"),
+    grossFloorArea: isBackendLoaded
+      ? (backendProject.grossFloorArea || 0)
+      : (localSnapshot?.grossFloorArea ?? 0),
+    estimateTotal: isBackendLoaded
+      ? (backendProject.estimateTotal || dashboardData?.estimateTotal || 0)
+      : (localSnapshot?.estimateTotal ?? 0),
+    completionStatus: isBackendLoaded
+      ? (backendProject.completionStatus || dashboardData?.completionStatus || 0)
+      : (localSnapshot?.completionStatus ?? 0),
+    clientName: isBackendLoaded
+      ? (backendProject.clientName || "Not set")
+      : (localSnapshot?.clientName ?? "Client name pending"),
+    description: backendProject?.description ?? localSnapshot?.description ?? "Generated from manual setup",
+    // Fields sourced from backend with fallbacks to local snapshot/defaults
+    foundationType: isBackendLoaded
+      ? (backendStructuralScopes[0]?.foundationType || backendProject.foundationTypes?.[0] || "Not set")
+      : (localSnapshot?.foundationType ?? "Foundation"),
+    floors: isBackendLoaded
+      ? (backendProject.numberOfFloors || 1)
+      : (localSnapshot?.floors ?? 1),
+    hasPool: isBackendLoaded
+      ? (backendProject.hasSwimmingPool || false)
+      : (localSnapshot?.hasPool ?? false),
+    lift: isBackendLoaded
+      ? (backendProject.liftOption || "none")
+      : (localSnapshot?.lift ?? "none"),
+    costPerSqm: dashboardData ? (dashboardData.costPerSqm || 0) : (localSnapshot?.costPerSqm ?? 0),
+    contingencies: isBackendLoaded
+      ? (backendProject.metricsConfig?.contingency?.toString() || "0")
+      : (localSnapshot?.contingencies ?? "5.0"),
+    projectLocation: backendProject?.projectLocation ?? localSnapshot?.projectLocation ?? "Location not set",
+    sections: localSnapshot?.sections ?? [],
+    activities: localSnapshot?.activities ?? [],
+    referenceDrawings: backendProject?.libraryItems ?? localSnapshot?.referenceDrawings ?? [],
+    createdAt: backendProject?.createdAt ?? localSnapshot?.createdAt ?? new Date().toISOString(),
+  };
+
+  // Process Cost Breakdown from Dashboard Data
+  let costBreakdown = [
     { label: "Structural Scope", value: 46, color: "bg-blue-500" },
     { label: "Finishes", value: 24, color: "bg-emerald-500" },
     { label: "MEP / Services", value: 18, color: "bg-amber-500" },
     { label: "Contingency", value: 12, color: "bg-violet-500" },
   ];
+
+  if (dashboardData?.costDistribution && dashboardData.costDistribution.length > 0) {
+    const totalAmount = dashboardData.costDistribution.reduce((sum, item) => sum + item.amount, 0);
+    const colors = ["bg-blue-500", "bg-emerald-500", "bg-amber-500", "bg-violet-500", "bg-pink-500", "bg-cyan-500"];
+
+    if (totalAmount > 0) {
+      costBreakdown = dashboardData.costDistribution.map((item, index) => ({
+        label: item.sectionName,
+        value: Math.round((item.amount / totalAmount) * 100),
+        color: colors[index % colors.length],
+      })).sort((a, b) => b.value - a.value);
+    }
+  }
+
+  // Process Project Activity
+  const backendActivities = activityResponse?.data ?? [];
+
+  let displayActivities = project.activities;
+
+  if (backendActivities && backendActivities.length > 0) {
+    displayActivities = backendActivities.map((act: any) => ({
+      label: act.action || "System Event",
+      actor: act.performedByName || "System",
+      time: formatDistanceToNow(new Date(act.timestamp || act.createdAt || new Date()), { addSuffix: true }),
+      action: act.detail || act.description || "Activity recorded",
+    }));
+  }
 
   const isDashboard = mode === "dashboard";
   const isLibrary = mode === "library";
@@ -145,7 +347,7 @@ export function ProjectWorkspaceView({ projectId, basePath, mode }: ProjectWorks
 
       {isDashboard ? (
         <DashboardView
-          project={project}
+          project={{ ...project, activities: displayActivities }}
           basePath={basePath}
           projectId={projectId}
           costBreakdown={costBreakdown}
@@ -153,7 +355,7 @@ export function ProjectWorkspaceView({ projectId, basePath, mode }: ProjectWorks
       ) : isLibrary ? (
         <LibraryView project={project} basePath={basePath} projectId={projectId} />
       ) : (
-        <ConfigurationView project={project} />
+        <ConfigurationView project={project} structuralScopes={backendStructuralScopes} />
       )}
     </div>
   );
@@ -254,7 +456,7 @@ function DashboardView({ project, basePath, projectId, costBreakdown }: { projec
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 items-start">
-        <Card className="xl:col-span-2 border-border/50 shadow-sm">
+        <Card className="xl:col-span-2 border-border/50 shadow-sm ">
           <CardContent className="p-6 space-y-5">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -267,11 +469,11 @@ function DashboardView({ project, basePath, projectId, costBreakdown }: { projec
               </Link>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-14">
               {costBreakdown.map((item) => (
                 <div key={item.label} className="grid grid-cols-[140px_minmax(0,1fr)_72px] items-center gap-3">
                   <span className="text-xs font-medium text-muted-foreground">{item.label}</span>
-                  <div className="h-3 rounded-full bg-muted overflow-hidden">
+                  <div className="h-4 rounded-full bg-muted overflow-hidden">
                     <div className={`${item.color} h-full rounded-full`} style={{ width: `${item.value}%` }} />
                   </div>
                   <span className="text-xs font-semibold text-right text-foreground">{item.value}%</span>
@@ -281,10 +483,11 @@ function DashboardView({ project, basePath, projectId, costBreakdown }: { projec
           </CardContent>
         </Card>
 
-        <Card className="border-border/50 shadow-sm">
+        <Card className="xl:col-start-3 border-border/50 shadow-sm">
           <CardContent className="p-6 space-y-4">
             <div>
               <h2 className="text-sm font-bold text-foreground">Project Data</h2>
+              {/* {JSON.stringify(project.id, null, 2)} */}
               <p className="text-xs text-muted-foreground mt-1">Snapshot derived from manual setup</p>
             </div>
 
@@ -301,68 +504,47 @@ function DashboardView({ project, basePath, projectId, costBreakdown }: { projec
             </Button>
           </CardContent>
         </Card>
-      </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 items-start">
-        <Card className="xl:col-span-2 border-border/50 shadow-sm">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between gap-3 mb-4">
-              <div>
-                <h2 className="text-sm font-bold text-foreground">Workspace Sections</h2>
-                <p className="text-xs text-muted-foreground mt-1">Jump into configuration or review the next workstream</p>
-              </div>
-              <Badge variant="outline" className="text-xs">UI only</Badge>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {project.sections.map((section) => (
-                <Card key={section.id} className="border-border/50 bg-background/60">
-                  <CardContent className="p-4 space-y-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">{section.title}</p>
-                        <p className="text-xs text-muted-foreground mt-1">{section.description}</p>
-                      </div>
-                      <SectionBadge status={section.status} />
-                    </div>
-                    <p className="text-xs font-medium text-muted-foreground">{section.summary}</p>
-                    <div className="flex flex-wrap gap-2">
-                      {section.metrics.map((metric) => (
-                        <Badge key={metric.label} variant="secondary" className="text-xs font-medium">
-                          {metric.label}: {metric.value}
-                        </Badge>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/50 shadow-sm">
+        <Card className="xl:col-span-3 border-border/50 shadow-sm">
           <CardContent className="p-6 space-y-4">
             <div>
               <h2 className="text-sm font-bold text-foreground">Recent Activity</h2>
               <p className="text-xs text-muted-foreground mt-1">Latest workspace events</p>
             </div>
-            <div className="space-y-3">
-              {activity.map((item) => (
-                <div key={`${item.label}-${item.time}`} className="rounded-xl border border-border/50 p-3">
-                  <p className="text-xs font-semibold text-foreground">{item.label}</p>
-                  <p className="text-[11px] text-muted-foreground mt-1">{item.action}</p>
-                  <div className="mt-2 flex items-center justify-between text-[10px] text-muted-foreground">
-                    <span>{item.actor}</span>
-                    <span>{item.time}</span>
-                  </div>
-                </div>
-              ))}
+            <div className="rounded-xl border border-border/50 overflow-hidden mt-4">
+              <div className="block md:grid md:grid-cols-[2fr_3fr_1.5fr_1fr] gap-4 p-3 bg-muted/30 border-b border-border/50 text-xs font-medium text-muted-foreground">
+                <div>Event</div>
+                <div>Details</div>
+                <div>Performed By</div>
+                <div className="text-right">Time</div>
+              </div>
+              <div className="divide-y divide-border/50">
+                {activity.length === 0 ? (
+                  <div className="p-6 text-center text-sm text-muted-foreground">No recent activity found</div>
+                ) : (
+                  activity.map((item) => (
+                    <div key={`${item.label}-${item.time}`} className="grid grid-cols-1 md:grid-cols-[2fr_3fr_1.5fr_1fr] gap-3 md:gap-4 p-4 md:p-3 items-center text-sm transition-colors hover:bg-muted/10">
+                      <div className="font-medium text-foreground truncate">
+                        <span className="md:hidden text-[10px] uppercase tracking-wider text-muted-foreground block mb-1">Event</span>
+                        {item.label}
+                      </div>
+                      <div className="text-muted-foreground truncate">
+                        <span className="md:hidden text-[10px] uppercase tracking-wider text-muted-foreground block mb-1">Details</span>
+                        {item.action}
+                      </div>
+                      <div className="text-muted-foreground truncate">
+                        <span className="md:hidden text-[10px] uppercase tracking-wider text-muted-foreground block mb-1">Performed By</span>
+                        {item.actor}
+                      </div>
+                      <div className="text-muted-foreground md:text-right whitespace-nowrap">
+                        <span className="md:hidden text-[10px] uppercase tracking-wider text-muted-foreground block mb-1">Time</span>
+                        {item.time}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
-            <Button variant="outline" className="w-full h-11" asChild>
-              <Link href={`${basePath}/${project.projectId}/processing`}>
-                <Clock3 className="w-4 h-4 mr-2" />
-                View Processing
-              </Link>
-            </Button>
           </CardContent>
         </Card>
       </div>
@@ -370,7 +552,7 @@ function DashboardView({ project, basePath, projectId, costBreakdown }: { projec
   );
 }
 
-function ConfigurationView({ project }: { project: WorkspaceProjectSnapshot }) {
+function ConfigurationView({ project, structuralScopes }: { project: WorkspaceProjectSnapshot; structuralScopes: StructuralScopeDocument[] }) {
   const params = [
     { label: "Foundation Type", value: project.foundationType },
     { label: "Number of Floors", value: `${project.floors}` },
@@ -384,7 +566,7 @@ function ConfigurationView({ project }: { project: WorkspaceProjectSnapshot }) {
         <CardContent className="p-6">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             {params.map((item) => (
-              <div key={item.label} className="min-w-[180px]">
+              <div key={item.label} className="min-w-45">
                 <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">{item.label}</p>
                 <p className="text-sm font-semibold text-foreground mt-2">{item.value}</p>
               </div>
@@ -393,32 +575,98 @@ function ConfigurationView({ project }: { project: WorkspaceProjectSnapshot }) {
         </CardContent>
       </Card>
 
-      <div className="space-y-3">
-        {project.sections.map((section) => (
-          <details key={section.id} className="group rounded-xl border border-border/50 bg-card shadow-sm" open={section.id === "blinding"}>
-            <summary className="list-none cursor-pointer px-5 py-4 flex items-center justify-between gap-4">
-              <div>
-                <p className="text-sm font-semibold text-foreground">{section.title}</p>
-                <p className="text-xs text-muted-foreground mt-1">{section.description}</p>
+      <div className="w-full space-y-3">
+        {structuralScopes.length > 0 && (
+          <Card className="border-border/50 shadow-sm bg-slate-50/70">
+            <CardContent className="p-5 sm:p-6 space-y-4">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div>
+                  <h2 className="text-sm font-bold text-slate-900">Saved Structural Scope</h2>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Only the sections returned by the backend are shown here
+                  </p>
+                </div>
+                <Badge variant="outline" className="text-[10px] uppercase tracking-widest bg-white">Backend</Badge>
               </div>
-              <div className="flex items-center gap-3">
-                <SectionBadge status={section.status} />
-                <ChevronRight className="w-4 h-4 text-muted-foreground transition-transform group-open:rotate-90" />
+              <div className="space-y-4">
+                {structuralScopes.map((scope) => {
+                  const scopeSections = [
+                    scope.pileSpecification
+                      ? renderScopeObjectSection("Pile Specification", scope.pileSpecification)
+                      : null,
+                    scope.blindingElements?.length
+                      ? renderScopeElementSection("Blinding Elements", scope.blindingElements, "elementType")
+                      : null,
+                    scope.substructureFilling
+                      ? renderScopeObjectSection("Substructure Filling", scope.substructureFilling)
+                      : null,
+                    scope.substructureElements?.length
+                      ? renderScopeElementSection("Substructure Elements", scope.substructureElements, "elementType")
+                      : null,
+                    scope.columnFooting
+                      ? renderScopeObjectSection("Column Footing", scope.columnFooting)
+                      : null,
+                    scope.superstructureElements?.length
+                      ? renderScopeElementSection("Superstructure Elements", scope.superstructureElements, "elementType")
+                      : null,
+                  ].filter(Boolean);
+
+                  return (
+                    <div
+                      key={scope._id}
+                      className="rounded-xl border border-border/40 bg-white shadow-sm overflow-hidden"
+                    >
+                      <div className="flex items-start justify-between gap-3 flex-wrap px-4 py-3 bg-slate-50/80 border-b border-border/40">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900 capitalize">
+                            {scope.foundationType.replace(/_/g, " ")}
+                          </p>
+                          <p className="text-xs text-slate-500 mt-1">
+                            {describeStructuralScope(scope)}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="text-[10px] uppercase tracking-widest bg-white">
+                          Backend
+                        </Badge>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-4 text-[11px] text-slate-500">
+                        <span className="rounded-full bg-slate-50 px-3 py-1.5 border border-border/40">
+                          Created: {scope.createdAt ? new Date(scope.createdAt).toLocaleString() : "Unknown"}
+                        </span>
+                        <span className="rounded-full bg-slate-50 px-3 py-1.5 border border-border/40">
+                          Updated: {scope.updatedAt ? new Date(scope.updatedAt).toLocaleString() : "Unknown"}
+                        </span>
+                        <span className="rounded-full bg-slate-50 px-3 py-1.5 border border-border/40">
+                          ID: {scope._id.slice(0, 8)}
+                        </span>
+                        <span className="rounded-full bg-slate-50 px-3 py-1.5 border border-border/40">
+                          Project: {scope.projectId.slice(0, 8)}
+                        </span>
+                      </div>
+
+                      <div className="space-y-3 px-4 pb-4">
+                        {scopeSections.length > 0 ? (
+                          scopeSections
+                        ) : (
+                          <div className="rounded-lg border border-dashed border-border/40 bg-slate-50 px-3 py-4 text-sm text-slate-500">
+                            No structural sections were returned for this scope.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            </summary>
-            <div className="border-t border-border/50 px-5 py-4 space-y-4">
-              <p className="text-sm text-muted-foreground">{section.summary}</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                {section.metrics.map((metric) => (
-                  <div key={metric.label} className="rounded-xl border border-border/50 bg-muted/30 p-4">
-                    <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">{metric.label}</p>
-                    <p className="text-base font-bold text-foreground mt-2">{metric.value}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </details>
-        ))}
+
+              {structuralScopes.length === 0 && (
+                <div className="rounded-xl border border-dashed border-border/40 bg-white p-4 text-sm text-slate-500">
+                  No backend structural scope has been saved for this project yet.
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );

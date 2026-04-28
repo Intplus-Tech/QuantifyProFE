@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, X, Save } from "lucide-react";
 import { toast } from "sonner";
@@ -11,23 +11,38 @@ import {
   goNextStep,
   markDraftSaved,
   resetWizard,
-  updateDrawings,
-  updateFinishing,
-  updateMetrics,
+  updateFinishing as setFinishingState,
+  updateMetrics as setMetricsState,
   updateScope,
   updateStep2,
+  setCreatedProjectId,
 } from "@/store/slices/manualWizardSlice";
-import { WIZARD_STEPS } from "./constants";
+import { WIZARD_STEPS, getScopeTabs } from "./constants";
 import { buildWorkspaceProjectFromWizard } from "../workspace/workspaceMapper";
 import {
   persistWorkspaceProjectSnapshot,
   registerWorkspaceProject,
 } from "@/store/slices/projectWorkspaceSlice";
-import { StepDrawings } from "./StepDrawings";
 import { StepProjectDetails } from "./StepProjectDetails";
 import { StepScope } from "./StepScope";
 import { StepFinishing } from "./StepFinishing";
 import { StepMetrics } from "./StepMetrics";
+import { useCreateProjectMutation } from "@/store/api/projectsApi";
+import {
+  useUpdateQsConfigMutation,
+  useUpsertStructuralScopeMutation,
+  useUpdateFinishingMutation,
+  useUpdateMetricsMutation,
+} from "@/store/api/manualProjectApi";
+import {
+  buildCreateProjectPayload,
+  buildQsConfigPayload,
+  buildStructuralScopeBody,
+  buildFinishingPayload,
+  buildMetricsPayload,
+  normaliseFoundationType,
+} from "./manualWizardTransformers";
+import { getFoundationSectionPlan } from "./constants";
 
 interface ManualSetupShellProps {
   basePath?: string; // "/projects" or "/enterprise/projects"
@@ -38,7 +53,16 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
   const dispatch = useAppDispatch();
   const currentStep = useAppSelector((state) => state.manualWizard.currentStep);
   const draftSavedAt = useAppSelector((state) => state.manualWizard.draftSavedAt);
+  const createdProjectId = useAppSelector((state) => state.manualWizard.createdProjectId);
   const wizardState = useAppSelector((state) => state.manualWizard.wizard);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // ── Manual-flow API mutations (isolated from AI flow) ──
+  const [createProject] = useCreateProjectMutation();
+  const [updateQsConfig] = useUpdateQsConfigMutation();
+  const [upsertStructuralScope] = useUpsertStructuralScopeMutation();
+  const [updateFinishing] = useUpdateFinishingMutation();
+  const [updateMetrics] = useUpdateMetricsMutation();
 
   useEffect(() => {
     if (!draftSavedAt) {
@@ -59,14 +83,83 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
     toast.success("Draft saved.");
   }
 
-  function handleFinish() {
-    const projectId = crypto.randomUUID();
-    const workspaceSnapshot = buildWorkspaceProjectFromWizard(projectId, wizardState);
+  function buildStructuralScopeLogSnapshot() {
+    const { scopeConfig, pileSystem, blinding, substructure, superstructure } = wizardState.scope;
+    const foundationType = normaliseFoundationType(scopeConfig.foundationType);
+    const foundationPlan = getFoundationSectionPlan(foundationType);
 
-    persistWorkspaceProjectSnapshot(workspaceSnapshot);
-    dispatch(registerWorkspaceProject(workspaceSnapshot));
-    dispatch(resetWizard());
-    router.push(`${basePath}/${projectId}`);
+    return {
+      scopeConfig,
+      activeTabs: getScopeTabs(scopeConfig.projectType, scopeConfig.foundationType),
+      activeSections: {
+        pileSystem: foundationPlan.needsPileSystem ? pileSystem : undefined,
+        blinding: foundationPlan.needsBlinding ? blinding : undefined,
+        substructure: foundationPlan.needsSubstructure ? substructure : undefined,
+        superstructure,
+      },
+    };
+  }
+
+  async function handleFinish() {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
+    try {
+      // ── Step 1: Create the project shell ──────────────────────────────────
+      let projectId = createdProjectId;
+      if (!projectId) {
+        const createPayload = buildCreateProjectPayload(wizardState.step2);
+        const createResult = await createProject(createPayload).unwrap();
+
+        projectId = createResult.data?._id;
+        if (!projectId) {
+          throw new Error("Project creation did not return a valid ID.");
+        }
+        dispatch(setCreatedProjectId(projectId));
+      }
+
+      // ── Step 2: QS Configuration ──────────────────────────────────────────
+      const qsPayload = buildQsConfigPayload(wizardState.scope.scopeConfig);
+      await updateQsConfig({ projectId, body: qsPayload }).unwrap();
+
+      // ── Step 3: Structural Scope ──────────────────────────────────────────
+      const foundationType = normaliseFoundationType(wizardState.scope.scopeConfig.foundationType);
+      const scopeBody = buildStructuralScopeBody(wizardState.scope);
+      console.log("[ManualWizard][Structural Scope] RAW SNAPSHOT (before API)", buildStructuralScopeLogSnapshot());
+      await upsertStructuralScope({
+        projectId,
+        foundationType,
+        body: scopeBody,
+      }).unwrap();
+
+      // ── Step 4: Finishing ─────────────────────────────────────────────────
+      const finishingPayload = buildFinishingPayload(wizardState.finishing);
+      await updateFinishing({ projectId, body: finishingPayload }).unwrap();
+
+      // ── Step 5: Financial Metrics ─────────────────────────────────────────
+      const metricsPayload = buildMetricsPayload(wizardState.metrics);
+      await updateMetrics({ projectId, body: metricsPayload }).unwrap();
+
+      // ── Persist workspace snapshot locally (legacy support) ───────────────
+      const workspaceSnapshot = buildWorkspaceProjectFromWizard(projectId, wizardState);
+      persistWorkspaceProjectSnapshot(workspaceSnapshot);
+
+      dispatch(registerWorkspaceProject(workspaceSnapshot));
+
+      dispatch(resetWizard());
+      toast.success("Project created successfully!");
+      router.push(`${basePath}/${projectId}`);
+    } catch (err: unknown) {
+      const rtkError = err as { status?: number; data?: { message?: string; errors?: unknown } };
+      const message =
+        rtkError?.data?.message ??
+        (err as Error)?.message ??
+        "Failed to create project. Please try again.";
+
+      toast.error(message);
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -153,22 +246,13 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto px-6 py-8">
           {currentStep === 1 && (
-            <StepDrawings
-              drawings={wizardState.drawings}
-              onChange={(drawings) => dispatch(updateDrawings(drawings))}
-              onNext={goNext}
-              onSaveDraft={handleSaveDraft}
-            />
-          )}
-          {currentStep === 2 && (
             <StepProjectDetails
               data={wizardState.step2}
               onChange={(step2) => dispatch(updateStep2(step2))}
               onNext={goNext}
-              onBack={goBack}
             />
           )}
-          {currentStep === 3 && (
+          {currentStep === 2 && (
             <StepScope
               data={wizardState.scope}
               onChange={(scope) => dispatch(updateScope(scope))}
@@ -176,21 +260,22 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
               onBack={goBack}
             />
           )}
-          {currentStep === 4 && (
+          {currentStep === 3 && (
             <StepFinishing
               data={wizardState.finishing}
               scopeConfig={wizardState.scope.scopeConfig}
-              onChange={(finishing) => dispatch(updateFinishing(finishing))}
+              onChange={(finishing) => dispatch(setFinishingState(finishing))}
               onNext={goNext}
               onBack={goBack}
             />
           )}
-          {currentStep === 5 && (
+          {currentStep === 4 && (
             <StepMetrics
               data={wizardState.metrics}
-              onChange={(metrics) => dispatch(updateMetrics(metrics))}
+              onChange={(metrics) => dispatch(setMetricsState(metrics))}
               onBack={goBack}
               onFinish={handleFinish}
+              isSubmitting={isSubmitting}
             />
           )}
         </div>

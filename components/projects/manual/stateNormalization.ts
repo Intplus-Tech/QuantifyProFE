@@ -177,6 +177,13 @@ export function normalizeScopeState(scope: Step3Data): Step3Data {
         scope.blinding["Pile Cap"] ?? defaultBlindingElement();
       blindingElements["Oversite Slab"] =
         scope.blinding["Oversite Slab"] ?? defaultBlindingElement();
+
+      return {
+        ...scope,
+        blinding: blindingElements,
+        substructure: defaultSubstructureData(),
+        superstructure: filterSuperstructure(scope.superstructure, hasLift, hasStairs),
+      };
     } else if (foundationType === "Raft") {
       blindingElements["Raft Foundation"] =
         scope.blinding["Raft Foundation"] ?? defaultBlindingElement();
@@ -200,10 +207,35 @@ export function normalizeScopeState(scope: Step3Data): Step3Data {
         scope.blinding["Oversite Slab"] ?? defaultBlindingElement();
     }
 
+    // For non-Pile foundations, preserve substructure data
+    const nextSubstructureElements = { ...scope.substructure.elements };
+
+    if (!hasLift) {
+      delete nextSubstructureElements["Lift Wall"];
+    }
+
+    if (!hasPool) {
+      delete nextSubstructureElements["Swimming Pool"];
+    }
+
+    // Strip and Raft need Column Footing (Upper Strip)
+    if (foundationType !== "Raft" && foundationType !== "Strip") {
+      delete nextSubstructureElements["Column Footing (Upper Strip)"];
+    }
+
+    const nextBlockworkInStripFoundation =
+      foundationType === "Raft" || foundationType === "Strip"
+        ? scope.substructure.blockworkInStripFoundation
+        : { blockworkForFormwork: "", blockworkFilling: "" };
+
     return {
       ...scope,
       blinding: blindingElements,
-      substructure: defaultSubstructureData(),
+      substructure: {
+        ...scope.substructure,
+        elements: nextSubstructureElements,
+        blockworkInStripFoundation: nextBlockworkInStripFoundation,
+      },
       superstructure: filterSuperstructure(scope.superstructure, hasLift, hasStairs),
     };
   }

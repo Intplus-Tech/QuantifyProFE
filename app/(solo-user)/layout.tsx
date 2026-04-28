@@ -2,6 +2,7 @@
 
 import AuthGuard from "@/components/layout/AuthGuard";
 import { usePathname } from "next/navigation";
+import { useGetProjectByIdQuery } from "@/store/api/projectsApi";
 
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { Sidebar } from "@/components/dashboard/Sidebar";
@@ -14,10 +15,18 @@ export default function SoloLayout({
 }) {
   const pathname = usePathname();
   const segments = pathname.split("/").filter(Boolean);
-  const isWorkspaceRoute =
-    segments[0] === "projects" && Boolean(segments[1]) && segments[1] !== "new";
+  const projectId =
+    segments[0] === "projects" && Boolean(segments[1]) && segments[1] !== "new"
+      ? segments[1]
+      : "";
+  const { data: projectResponse } = useGetProjectByIdQuery(projectId, {
+    skip: !projectId,
+  });
 
-  if (isWorkspaceRoute) {
+  const isManualWorkspace =
+    Boolean(projectId) && projectResponse?.data?.processingMode !== "ai";
+
+  if (isManualWorkspace) {
     return (
       <AuthGuard>
         <main className="min-h-screen bg-[#dbe3eb]">{children}</main>
