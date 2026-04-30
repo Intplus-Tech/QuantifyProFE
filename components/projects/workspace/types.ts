@@ -25,6 +25,7 @@ export interface WorkspaceProjectSnapshot {
   foundationType: string;
   floors: number;
   hasPool: boolean;
+  poolLocation?: string;
   lift: string;
   grossFloorArea: number;
   estimateTotal: number;

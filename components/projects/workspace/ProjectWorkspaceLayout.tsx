@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,15 @@ import {
   Settings2,
   SquareStack,
   Waves,
+  Database,
+  Grid,
+  Table,
+  Columns,
+  LayoutTemplate,
+  ArrowUpDown,
+  LayoutGrid,
+  Building2,
+  Droplets,
 } from "lucide-react";
 import { useGetProjectByIdQuery } from "@/store/api/projectsApi";
 
@@ -51,13 +60,84 @@ function WorkspaceNavItem({
     <Link
       href={href}
       className={`flex items-center gap-2 rounded-md px-3 py-2 text-xs font-medium transition-colors ${active
-        ? "bg-amber-500 text-white"
+        ? "bg-amber-500 text-white shadow-sm"
         : "text-slate-700 hover:bg-slate-100"
         }`}
     >
       <Icon className="h-3.5 w-3.5" />
       <span>{label}</span>
     </Link>
+  );
+}
+
+function TakeoffAccordionItem({
+  title,
+  icon: Icon,
+  items,
+  activeSegment,
+  basePath,
+  id,
+}: {
+  title: string;
+  icon: any;
+  items: { label: string; href: string; icon: any }[];
+  activeSegment: string;
+  basePath: string;
+  id?: string;
+}) {
+  const isActiveSegmentChild = items.some((item) => activeSegment === item.href);
+  const [isExpanded, setIsExpanded] = useState(isActiveSegmentChild);
+
+  useEffect(() => {
+    if (isActiveSegmentChild) {
+      setIsExpanded(true);
+    }
+  }, [isActiveSegmentChild]);
+
+  return (
+    <div className="space-y-1">
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className={`w-full flex items-center justify-between rounded-md px-3 py-2 text-xs font-medium transition-colors border ${
+          isExpanded
+            ? "bg-amber-500 text-white border-amber-500 shadow-sm"
+            : "text-slate-700 bg-white border-slate-200 hover:bg-slate-50"
+        }`}
+      >
+        <div className="flex items-center gap-2">
+          <Icon className="h-3.5 w-3.5" />
+          <span>{title}</span>
+        </div>
+        <ChevronRight
+          className={`h-3.5 w-3.5 transition-transform duration-200 ${
+            isExpanded ? "rotate-90 text-white/90" : "text-slate-400"
+          }`}
+        />
+      </button>
+
+      {isExpanded && items.length > 0 && (
+        <div className="flex flex-col gap-1 pl-4 pt-1 pb-1 ml-3 border-l border-slate-200">
+          {items.map((item) => {
+            const isActive = activeSegment === item.href;
+            const ItemIcon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={`${basePath}${item.href}`}
+                className={`flex items-center gap-2 rounded-md px-3 py-2 text-xs font-medium transition-colors ${
+                  isActive
+                    ? "bg-amber-500 text-white shadow-sm"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                }`}
+              >
+                <ItemIcon className="h-3.5 w-3.5" />
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -121,6 +201,70 @@ export function ProjectWorkspaceLayout({
     },
   ];
 
+  // Derive structural parameters for the takeoff conditional rendering
+  const foundationType =
+    backendProject?.foundationTypes?.[0] || localSnapshot?.foundationType || "Strip Foundation";
+  const numberOfFloors = backendProject?.numberOfFloors || localSnapshot?.floors || 0;
+  const hasPool = backendProject?.hasSwimmingPool || localSnapshot?.hasPool || false;
+  const poolLocations: string[] = backendProject?.poolLocations || (localSnapshot?.poolLocation ? [localSnapshot.poolLocation] : []);
+  // Pool is in substructure when poolLocations includes "substructure"
+  const poolInSubstructure = hasPool && poolLocations.includes("substructure");
+  // Pool is in superstructure when location is "external", or no location data yet, or future "superstructure" value
+  const poolInSuperstructure = hasPool && (!poolLocations.length || poolLocations.includes("external") || poolLocations.includes("superstructure"));
+  const liftOption = backendProject?.liftOption || localSnapshot?.lift || "none";
+  const hasLift = liftOption !== "none";
+
+  const substructureItems = [
+    { label: toTitle(foundationType), href: `/takeoff/substructure/foundation`, icon: Database },
+    { label: "Ground Beam", href: `/takeoff/substructure/ground-beam`, icon: Grid },
+    { label: "Column In Foundation", href: `/takeoff/substructure/column`, icon: Table },
+    { label: "Strip Foundation", href: `/takeoff/substructure/strip-foundation`, icon: LayoutGrid },
+    ...(poolInSubstructure ? [{ label: "Swimming Pool", href: `/takeoff/substructure/swimming-pool`, icon: Waves }] : []),
+  ];
+
+  const superstructureItems = [
+    { label: "Column", href: "/takeoff/superstructure/column", icon: Layers },
+    { label: "Floor & Beam", href: "/takeoff/superstructure/floor-beam", icon: LayoutTemplate },
+    { label: "Shear Wall", href: "/takeoff/superstructure/shear-wall", icon: Table },
+  ];
+  if (numberOfFloors > 0) {
+    superstructureItems.push({ label: "Stairs", href: "/takeoff/superstructure/stairs", icon: Columns });
+  }
+  if (hasLift) {
+    superstructureItems.push({ label: "Lift Shaft", href: "/takeoff/superstructure/lift-shaft", icon: ArrowUpDown });
+  }
+  if (poolInSuperstructure) {
+    superstructureItems.push({ label: "Swimming Pool", href: "/takeoff/superstructure/swimming-pool", icon: Waves });
+  }
+
+  const finishingItems = [
+    { label: "Roof Beam & Slab", href: "/takeoff/finishing/roof-beam-slab", icon: Database },
+    { label: "Walls & Openings", href: "/takeoff/finishing/walls-openings", icon: LayoutGrid },
+    { label: "Roof Structure & Covering", href: "/takeoff/finishing/roof-structure-covering", icon: Grid },
+    { label: "Floor's & Ceiling's", href: "/takeoff/finishing/floors-ceilings", icon: Table },
+  ];
+
+  const takeoffSections = [
+    {
+      id: "substructure",
+      title: "Substructure",
+      icon: Layers,
+      items: substructureItems,
+    },
+    {
+      id: "superstructure",
+      title: "Superstructure",
+      icon: Building2,
+      items: superstructureItems,
+    },
+    {
+      id: "finishing",
+      title: "Finishing",
+      icon: Droplets,
+      items: finishingItems,
+    },
+  ];
+
   if (isLoadingProject && !backendProject) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#dbe3eb] text-slate-600">
@@ -175,28 +319,18 @@ export function ProjectWorkspaceLayout({
 
             <div>
               <p className="text-[10px] uppercase tracking-widest text-slate-400 px-2 mb-2">Takeoff Section</p>
-              <div className="space-y-1">
-                <div className="flex items-center justify-between rounded-md px-3 py-2 text-xs text-slate-700 bg-white border border-slate-200">
-                  <div className="flex items-center gap-2">
-                    <Layers className="h-3.5 w-3.5" />
-                    <span>Substructure</span>
-                  </div>
-                  <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
-                </div>
-                <div className="flex items-center justify-between rounded-md px-3 py-2 text-xs text-slate-700 bg-white border border-slate-200">
-                  <div className="flex items-center gap-2">
-                    <SquareStack className="h-3.5 w-3.5" />
-                    <span>Superstructure</span>
-                  </div>
-                  <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
-                </div>
-                <div className="flex items-center justify-between rounded-md px-3 py-2 text-xs text-slate-700 bg-white border border-slate-200">
-                  <div className="flex items-center gap-2">
-                    <Waves className="h-3.5 w-3.5" />
-                    <span>Finishing</span>
-                  </div>
-                  <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
-                </div>
+              <div className="space-y-2">
+                {takeoffSections.map((section) => (
+                  <TakeoffAccordionItem
+                    key={section.id}
+                    id={section.id}
+                    title={section.title}
+                    icon={section.icon}
+                    items={section.items}
+                    activeSegment={activeSegment}
+                    basePath={workspaceBase}
+                  />
+                ))}
               </div>
             </div>
 
