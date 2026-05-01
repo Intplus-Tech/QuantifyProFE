@@ -57,6 +57,11 @@ export interface TakeoffTableConfig {
    * e.g. prefix "BM" → BM1, BM2, BM3 …
    */
   prefix: string;
+  /**
+   * Backend elementType value used when POSTing rows from this table.
+   * e.g. "beam", "column_in_foundation"
+   */
+  elementType?: string;
 }
 
 // ─── Sub-Tab ─────────────────────────────────────────────────────────────────
@@ -66,6 +71,11 @@ export interface TakeoffSubTab {
   id: string;
   /** Label shown on the sub-tab button. */
   label: string;
+  /**
+   * Backend elementType value used when POSTing rows from this sub-tab.
+   * e.g. "pile_cap", "strip_foundation"
+   */
+  elementType?: string;
 
   // ── Option A: single flat table ──────────────────────────────────────────
   /** Columns for this sub-tab's single table. */
@@ -119,6 +129,12 @@ export interface TakeoffTab {
   subtitle: string;
   /** Lucide icon component reference. Import from "lucide-react". */
   icon: any;
+  /**
+   * Backend elementType value used when POSTing rows from this flat tab.
+   * e.g. "excavation_clearing", "ddt_pad_pit_in_strip"
+   * Not needed when the tab uses subTabs (each subTab carries its own elementType).
+   */
+  elementType?: string;
 
   // ── Option A: simple flat table (no sub-tabs) ────────────────────────────
   columns?: TakeoffColumn[];

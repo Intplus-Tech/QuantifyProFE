@@ -35,14 +35,16 @@ export function getFinishingConfig(item: string): TakeoffConfig | null {
             {
               id: "concrete-formwork",
               label: "Concrete & Formwork",
+              elementType: "roof_slab",
               columns: [
                 { key: "id", label: "ID", readonly: true },
-                { key: "noThus", label: "No. Thus", highlight: true },
+                { key: "shape", label: "Shape", type: "select", options: ["rectangular", "circular"] },
+                { key: "count", label: "No. Thus", highlight: true },
                 { key: "length", label: "Length (m)", highlight: true },
                 { key: "width", label: "Width (m)", highlight: true },
                 { key: "depth", label: "Depth (m)", highlight: true },
               ],
-              defaultRows: [{ id: "RBS1" }],
+              defaultRows: [{ id: "RBS1", shape: "rectangular" }],
             },
             {
               id: "reinforcement",
@@ -77,14 +79,16 @@ export function getFinishingConfig(item: string): TakeoffConfig | null {
           title: "Walls (Blockwork)",
           subtitle: "Enter wall blockwork specifications. All calculations automated.",
           icon: Settings2,
+          elementType: "wall",
           columns: [
             { key: "id", label: "ID", readonly: true },
-            { key: "noThus", label: "No. Thus", highlight: true },
+            { key: "shape", label: "Shape", type: "select", options: ["rectangular", "circular"] },
+            { key: "count", label: "No. Thus", highlight: true },
             { key: "length", label: "Length (m)", highlight: true },
             { key: "height", label: "Height (m)", highlight: true },
             { key: "thickness", label: "Thickness (m)", highlight: true },
           ],
-          defaultRows: [{ id: "WALL1" }],
+          defaultRows: [{ id: "WALL1", shape: "rectangular" }],
         },
         {
           id: "openings",
@@ -95,7 +99,7 @@ export function getFinishingConfig(item: string): TakeoffConfig | null {
           columns: [
             { key: "id", label: "ID", readonly: true },
             { key: "type", label: "Type", highlight: true, type: "select", options: ["Door", "Window", "Vent"] },
-            { key: "noThus", label: "No. Thus", highlight: true },
+            { key: "count", label: "No. Thus", highlight: true },
             { key: "width", label: "Width (m)", highlight: true },
             { key: "height", label: "Height (m)", highlight: true },
           ],
@@ -118,7 +122,7 @@ export function getFinishingConfig(item: string): TakeoffConfig | null {
           icon: PenTool,
           columns: [
             { key: "id", label: "ID", readonly: true },
-            { key: "noThus", label: "No. Thus", highlight: true },
+            { key: "count", label: "No. Thus", highlight: true },
             { key: "span", label: "Span (m)", highlight: true },
             { key: "length", label: "Length (m)", highlight: true },
             { key: "pitch", label: "Pitch (°)", highlight: true },
@@ -134,7 +138,7 @@ export function getFinishingConfig(item: string): TakeoffConfig | null {
           columns: [
             { key: "id", label: "ID", readonly: true },
             { key: "type", label: "Type", highlight: true, type: "select", options: ["Metal Sheet", "Tiles", "Membrane"] },
-            { key: "noThus", label: "No. Thus", highlight: true },
+            { key: "count", label: "No. Thus", highlight: true },
             { key: "area", label: "Area (m²)", highlight: true },
           ],
           defaultRows: [{ id: "RC1" }],
@@ -157,7 +161,7 @@ export function getFinishingConfig(item: string): TakeoffConfig | null {
           columns: [
             { key: "id", label: "ID", readonly: true },
             { key: "type", label: "Finish Type", highlight: true, type: "select", options: ["Tiles", "Screed", "Timber", "Epoxy"] },
-            { key: "noThus", label: "No. Thus", highlight: true },
+            { key: "count", label: "No. Thus", highlight: true },
             { key: "length", label: "Length (m)", highlight: true },
             { key: "width", label: "Width (m)", highlight: true },
           ],
@@ -172,7 +176,7 @@ export function getFinishingConfig(item: string): TakeoffConfig | null {
           columns: [
             { key: "id", label: "ID", readonly: true },
             { key: "type", label: "Ceiling Type", highlight: true, type: "select", options: ["Plasterboard", "Suspended", "Exposed"] },
-            { key: "noThus", label: "No. Thus", highlight: true },
+            { key: "count", label: "No. Thus", highlight: true },
             { key: "length", label: "Length (m)", highlight: true },
             { key: "width", label: "Width (m)", highlight: true },
           ],
