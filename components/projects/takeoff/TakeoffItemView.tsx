@@ -96,18 +96,18 @@ export function TakeoffItemView({
     });
   };
 
-  const addRow = (tabId: string, customPrefix?: string) => {
+  const addRow = (tabId: string, customPrefix?: string, defaultValues?: Record<string, any>) => {
     setTabRows((prev) => {
       const newTabRows = [...(prev[tabId] || [])];
       
       if (newTabRows.length === 0 && customPrefix) {
-        newTabRows.push({ id: `${customPrefix}1` });
+        newTabRows.push({ id: `${customPrefix}1`, shape: "rectangular", ...defaultValues });
       }
 
       const nextId = newTabRows.length > 0 ? newTabRows.length + 1 : 1;
       const prefix = customPrefix || (newTabRows.length > 0 && newTabRows[0].id ? newTabRows[0].id.replace(/[0-9]/g, '') : 'ROW');
       
-      newTabRows.push({ id: `${prefix}${nextId}` });
+      newTabRows.push({ id: `${prefix}${nextId}`, shape: "rectangular", ...defaultValues });
       return { ...prev, [tabId]: newTabRows };
     });
   };
@@ -483,7 +483,8 @@ export function TakeoffItemView({
                               value={value}
                               onChange={(e) => updateRow(specificRowKey, idx, col.key, e.target.value, row.id)}
                             >
-                              <option value=""></option>
+                              {/* Only show blank option when nothing is selected yet */}
+                              {!value && <option value=""></option>}
                               {col.options?.map((opt) => (
                                 <option key={opt} value={opt}>
                                   {opt}
