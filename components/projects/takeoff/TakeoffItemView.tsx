@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useGetProjectByIdQuery } from "@/store/api/projectsApi";
 import {
   Loader2,
@@ -11,10 +11,16 @@ import {
   Trash2,
   Book,
   X,
+  Save,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getTakeoffConfig } from "./configs";
+import {
+  buildElementsPayload,
+  buildElementsWithReinforcement,
+  extractReinfRowsMap,
+} from "./utils/takeoffPayloadBuilder";
 import type {
   TakeoffConfig,
   TakeoffTab,
@@ -151,36 +157,162 @@ export function TakeoffItemView({
     });
   };
 
-  const deleteRow = (tabId: string, rowIndex: number) => {
+  const deleteRow = (tabId: string, rowIndex: number, autoRenumber: boolean = true) => {
     setTabRows((prev) => {
       const newTabRows = [...(prev[tabId] || [])];
       newTabRows.splice(rowIndex, 1);
+
+      // Re-number IDs sequentially after deletion to prevent gaps and duplicates
+      // e.g. [BM1-1, BM1-3, BM1-4] → [BM1-1, BM1-2, BM1-3]
+      if (autoRenumber && newTabRows.length > 0 && newTabRows[0]?.id) {
+        const firstId = String(newTabRows[0].id);
+        // Extract prefix = everything before the trailing number (handles "BM1-", "GB", "CL", etc.)
+        const prefixMatch = firstId.match(/^(.*?)(\d+)$/);
+        if (prefixMatch) {
+          const prefix = prefixMatch[1];
+          const renumbered = newTabRows.map((row, i) => ({
+            ...row,
+            id: `${prefix}${i + 1}`,
+          }));
+          return { ...prev, [tabId]: renumbered };
+        }
+      }
+
       return { ...prev, [tabId]: newTabRows };
     });
   };
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Save Workspace — builds and logs all payloads in the exact backend format.
+  //
+  // TODO (next developer): Replace each console.log block with the RTK mutation:
+  //   upsertTakeoffElements({ projectId, elementType, body: payload })
+  //
+  // The endpoint is: PUT /takeoff/{projectId}/elements/{elementType}
+  // One call per elementType — can be fired in parallel with Promise.allSettled().
+  // ─────────────────────────────────────────────────────────────────────────────
+  const handleSaveWorkspace = useCallback(() => {
+    const batches: { endpoint: string; elementType: string; payload: unknown }[] = [];
+
+    for (const tab of config.tabs) {
+      if (tab.subTabs && tab.subTabs.length > 0) {
+        // Tab uses sub-tabs
+        for (const subTab of tab.subTabs) {
+          if (subTab.tables && subTab.tables.length > 0) {
+            // Option B: multiple sibling tables (e.g. BEAM + COLUMN)
+            for (const table of subTab.tables) {
+              if (!table.elementType) continue;
+              const rows = tabRows[`${tab.id}-${subTab.id}-${table.id}`] ?? [];
+              if (rows.length === 0) continue;
+              batches.push({
+                endpoint: `PUT /takeoff/${projectId}/elements/${table.elementType}`,
+                elementType: table.elementType,
+                payload: buildElementsPayload(rows),
+              });
+            }
+          } else if (subTab.groupedBy) {
+            // Option C: grouped reinforcement sub-tab — attach bars to concrete rows
+            if (!subTab.elementType) continue;
+            // Find the concrete (groupedBy) sub-tab to get its rows + elementType
+            const concreteSubTab = tab.subTabs.find((s) => s.id === subTab.groupedBy);
+            if (!concreteSubTab?.elementType) continue;
+            const concreteRows = tabRows[`${tab.id}-${subTab.groupedBy}`] ?? [];
+            if (concreteRows.length === 0) continue;
+            const reinfRowsMap = extractReinfRowsMap(
+              tabRows,
+              `${tab.id}-${subTab.id}`,
+              concreteRows,
+            );
+            batches.push({
+              endpoint: `PUT /takeoff/${projectId}/elements/${concreteSubTab.elementType}`,
+              elementType: concreteSubTab.elementType,
+              payload: buildElementsWithReinforcement(concreteRows, reinfRowsMap),
+            });
+          } else if (subTab.elementType) {
+            // Option A: flat single-table sub-tab
+            const rows = tabRows[`${tab.id}-${subTab.id}`] ?? [];
+            if (rows.length === 0) continue;
+            batches.push({
+              endpoint: `PUT /takeoff/${projectId}/elements/${subTab.elementType}`,
+              elementType: subTab.elementType,
+              payload: buildElementsPayload(rows),
+            });
+          }
+        }
+      } else if (tab.tables && tab.tables.length > 0) {
+        // Tab-level multi-table (rare — e.g. swimming pool)
+        for (const table of tab.tables) {
+          if (!table.elementType) continue;
+          const rows = tabRows[`${tab.id}-${table.id}`] ?? tabRows[table.id] ?? [];
+          if (rows.length === 0) continue;
+          batches.push({
+            endpoint: `PUT /takeoff/${projectId}/elements/${table.elementType}`,
+            elementType: table.elementType,
+            payload: buildElementsPayload(rows),
+          });
+        }
+      } else if (tab.elementType) {
+        // Flat single-table tab (no sub-tabs)
+        const rows = tabRows[tab.id] ?? [];
+        if (rows.length === 0) continue;
+        batches.push({
+          endpoint: `PUT /takeoff/${projectId}/elements/${tab.elementType}`,
+          elementType: tab.elementType,
+          payload: buildElementsPayload(rows),
+        });
+      }
+    }
+
+    // ── Log all batches ──────────────────────────────────────────────────────
+    console.group(
+      `%c[SaveWorkspace] ${section}/${item} — ${batches.length} batch(es) to submit`,
+      "color: #f59e0b; font-weight: bold;",
+    );
+    batches.forEach(({ endpoint, elementType, payload }) => {
+      console.group(`%c${endpoint}`, "color: #3b82f6; font-weight: 600;");
+      console.log("elementType:", elementType);
+      console.log("payload:", JSON.stringify(payload, null, 2));
+      console.groupEnd();
+    });
+    if (batches.length === 0) {
+      console.warn("[SaveWorkspace] No rows found — nothing to submit.");
+    }
+    console.groupEnd();
+  }, [config, tabRows, projectId, section, item]);
 
   return (
     <div className="space-y-6 pb-6 w-full max-w-full">
       {/* Main Container */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 sm:p-6 w-full overflow-hidden">
-        {/* Tab Navigation */}
-        <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2 scrollbar-hide">
-          {config.tabs.map((tab) => {
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`px-4 py-2 text-xs font-medium rounded-md whitespace-nowrap transition-colors border ${
-                  isActive
-                    ? "border-slate-300 text-slate-900 bg-white shadow-sm"
-                    : "border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50"
-                }`}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
+        {/* Tab Navigation + Save Workspace */}
+        <div className="flex items-center justify-between gap-2 mb-8">
+          <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
+            {config.tabs.map((tab) => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`px-4 py-2 text-xs font-medium rounded-md whitespace-nowrap transition-colors border ${
+                    isActive
+                      ? "border-slate-300 text-slate-900 bg-white shadow-sm"
+                      : "border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+          {/* Save Workspace — logs payloads to console; TODO: wire RTK mutation */}
+          <Button
+            size="sm"
+            onClick={handleSaveWorkspace}
+            className="shrink-0 bg-amber-500 hover:bg-amber-600 text-white font-medium shadow-sm border-0 h-9 px-4"
+          >
+            <Save className="w-3.5 h-3.5 mr-1.5" />
+            Save Workspace
+          </Button>
         </div>
 
         {/* Active Tab Content */}
@@ -662,7 +794,7 @@ export function TakeoffItemView({
                           key={col.key}
                           className={`px-4 py-3 whitespace-nowrap min-w-[120px] transition-colors ${cellBg}`}
                         >
-                          {col.readonly ? (
+                          {col.readonly || (col.key === "id" && col.readonly !== false) ? (
                             <span
                               className={`text-xs font-semibold ${col.highlight && isCompleted ? "text-green-700" : "text-slate-800"}`}
                             >
@@ -670,7 +802,7 @@ export function TakeoffItemView({
                             </span>
                           ) : col.type === "select" ? (
                             <select
-                              className={`h-9 text-xs w-full transition-colors rounded-md px-2 border outline-none ${
+                              className={`h-9 text-xs w-full transition-colors rounded-md px-2 border outline-none capitalize ${
                                 !value
                                   ? "border-amber-400 focus-visible:ring-1 focus-visible:ring-amber-500 bg-white"
                                   : `border-transparent bg-transparent hover:border-slate-200 focus-visible:ring-1 focus-visible:border-amber-500 focus-visible:bg-white font-medium ${textClass || "text-slate-700"}`
@@ -722,9 +854,10 @@ export function TakeoffItemView({
                         variant="ghost"
                         size="icon"
                         className={`h-8 w-8 text-slate-400 ${rows.length <= 1 ? "opacity-30 cursor-not-allowed" : "hover:text-red-600 hover:bg-red-50"}`}
-                        onClick={() =>
-                          rows.length > 1 && deleteRow(specificRowKey, idx)
-                        }
+                        onClick={() => {
+                          const isIdReadonly = columns.find(c => c.key === "id")?.readonly !== false;
+                          if (rows.length > 1) deleteRow(specificRowKey, idx, isIdReadonly);
+                        }}
                         disabled={rows.length <= 1}
                         title="Delete Row"
                       >

@@ -215,7 +215,7 @@ export function ProjectWorkspaceLayout({
   const hasLift = liftOption !== "none";
 
   const substructureItems = [
-    { label: toTitle(foundationType), href: `/takeoff/substructure/foundation`, icon: Database },
+    { label: foundationType === "Pile" ? "Pile Cap" : toTitle(foundationType), href: `/takeoff/substructure/foundation`, icon: Database },
     { label: "Ground Beam", href: `/takeoff/substructure/ground-beam`, icon: Grid },
     { label: "Column In Foundation", href: `/takeoff/substructure/column`, icon: Table },
     { label: "Strip Foundation", href: `/takeoff/substructure/strip-foundation`, icon: LayoutGrid },

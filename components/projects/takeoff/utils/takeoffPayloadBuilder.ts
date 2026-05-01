@@ -49,9 +49,9 @@ export interface TakeoffElementsPayload {
 const NUMERIC_FIELDS = new Set([
   "count", "nr", "length", "width", "depth", "diameter",
   "height", "thickness", "numberOfPiles",
-  "floorThickness", "wallThickness", "pitDepth",
+  "floorThickness", "fillingThickness", "wallThickness", "pitDepth",
   "blockworkWidth", "blockworkHeight", "colBLength", "colBWidth",
-  "stripThickness", "numberOfBranches", "lin", "areaToBDeducted",
+  "stripThickness", "numberOfBranches", "lin", "areaToBeDeducted",
 ]);
 
 // ─── Reinforcement multiInput field names ─────────────────────────────────────
