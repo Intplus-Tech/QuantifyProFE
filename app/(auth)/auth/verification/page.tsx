@@ -4,7 +4,10 @@ import { Suspense, useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Loader2 } from "lucide-react";
-import { useResendVerificationEmailMutation } from "@/store/api/authApi";
+import {
+  useResendVerificationEmailMutation,
+  useVerifyOtpMutation,
+} from "@/store/api/authApi";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -36,6 +39,8 @@ function VerificationContent() {
 
   const [resendOtp, { isLoading: isResending }] =
     useResendVerificationEmailMutation();
+
+  const [verifyOtp, { isLoading: isVerifying }] = useVerifyOtpMutation();
 
   const [countdown, setCountdown] = useState(30);
 
@@ -109,7 +114,7 @@ function VerificationContent() {
     document.getElementById(`otp-${nextIndex === 6 ? 5 : nextIndex}`)?.focus();
   }
 
-  function handleContinue() {
+  async function handleContinue() {
     const joined = code.join("");
     setError(null);
 
@@ -119,13 +124,33 @@ function VerificationContent() {
     }
 
     if (mode === "reset") {
-      // Store OTP and route to reset-password — do NOT call verifyOtp
       router.push(
         `/auth/reset-password?email=${encodeURIComponent(email)}&otp=${encodeURIComponent(joined)}`,
       );
     } else {
-      // Default: this is an email verification scenario — also just navigate
-      router.push("/auth/login");
+      try {
+        const response = await verifyOtp({
+          email,
+          otp: joined,
+        }).unwrap();
+
+        if (response.success) {
+          toast.success(response.message || "Email verified successfully!");
+          router.push("/auth/login");
+        } else {
+          setError(
+            response.message || "Verification failed. Please try again.",
+          );
+          toast.error(response.message || "Verification failed.");
+        }
+      } catch (err: any) {
+        const errorMessage =
+          err.data?.message ||
+          err.message ||
+          "An error occurred during verification.";
+        setError(errorMessage);
+        toast.error(errorMessage);
+      }
     }
   }
 
@@ -197,9 +222,17 @@ function VerificationContent() {
               <Button
                 type="button"
                 onClick={handleContinue}
+                disabled={isVerifying}
                 className="h-10 w-full rounded-md text-xs"
               >
-                Continue
+                {isVerifying ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Verifying...
+                  </>
+                ) : (
+                  "Continue"
+                )}
               </Button>
 
               <p className="text-center text-xs text-muted-foreground">

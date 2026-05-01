@@ -6,7 +6,6 @@ interface TakeoffPageProps {
 
 export default async function TakeoffPage({ params }: TakeoffPageProps) {
   const { projectId, section, item } = await params;
-
   return (
     <TakeoffItemView
       projectId={projectId}
