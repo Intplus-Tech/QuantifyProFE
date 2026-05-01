@@ -6,13 +6,15 @@ interface TakeoffPageProps {
 
 export default async function TakeoffPage({ params }: TakeoffPageProps) {
   const { projectId, section, item } = await params;
+  console.log("sectoin", section, "item", item);
 
   return (
-    <TakeoffItemView
-      projectId={projectId}
-      basePath="/projects"
-      section={section}
-      item={item}
-    />
+    <h1>hey</h1>
+    // <TakeoffItemView
+    //   projectId={projectId}
+    //   basePath="/projects"
+    //   section={section}
+    //   item={item}
+    // />
   );
 }
