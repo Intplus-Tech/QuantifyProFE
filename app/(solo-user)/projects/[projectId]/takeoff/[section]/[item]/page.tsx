@@ -9,12 +9,11 @@ export default async function TakeoffPage({ params }: TakeoffPageProps) {
   console.log("sectoin", section, "item", item);
 
   return (
-    <h1>hey</h1>
-    // <TakeoffItemView
-    //   projectId={projectId}
-    //   basePath="/projects"
-    //   section={section}
-    //   item={item}
-    // />
+    <TakeoffItemView
+      projectId={projectId}
+      basePath="/projects"
+      section={section}
+      item={item}
+    />
   );
 }
