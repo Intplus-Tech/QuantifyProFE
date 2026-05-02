@@ -533,31 +533,6 @@ function SubstructureLayerCard({
   );
 }
 
-function SubstructureFootingCard({
-  data,
-  onChange,
-}: {
-  data: SubstructureFooting;
-  onChange: (d: SubstructureFooting) => void;
-}) {
-  function upd<K extends keyof SubstructureFooting>(key: K, val: SubstructureFooting[K]) {
-    onChange({ ...data, [key]: val });
-  }
-
-  return (
-    <div className="border border-border/50 rounded-xl p-4 space-y-3">
-      <p className="text-sm font-semibold text-foreground">Column Footing</p>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <SelectField label="Grade of Concrete" value={data.gradeOfConcrete} onChange={(v) => upd("gradeOfConcrete", v)} options={CONCRETE_GRADES} />
-        <SelectField label="Plasticizers" value={data.plasticizers} onChange={(v) => upd("plasticizers", v)} options={PLASTICIZERS} />
-        <SelectField label="Waterproof" value={data.waterproof} onChange={(v) => upd("waterproof", v)} options={WATERPROOFING_OPTS} />
-        <SelectField label="Casting Type" value={data.castingType} onChange={(v) => upd("castingType", v)} options={SUBSTRUCTURE_CASTING_TYPES} />
-        <SelectField label="Casting Labour Method" value={data.castingLabourMethod} onChange={(v) => upd("castingLabourMethod", v)} options={CASTING_LABOUR} />
-        <NumberField label="Waste (%)" value={data.wastePercent} onChange={(v) => upd("wastePercent", v)} />
-      </div>
-    </div>
-  );
-}
 
 function SubstructureConcreteCard({
   title,
@@ -689,9 +664,6 @@ function SubstructureTab({
     onChange({ ...data, layers: { ...data.layers, [key]: value } });
   }
 
-  function updColumnFooting(columnFooting: SubstructureFooting) {
-    onChange({ ...data, columnFooting });
-  }
 
   function updPileCapFrames(pileCapFrames: SubstructureFrameElement) {
     onChange({ ...data, pileCapFrames });
@@ -721,10 +693,6 @@ function SubstructureTab({
         />
       </div>
 
-      <SubstructureFootingCard
-        data={data.columnFooting ?? defaultSubstructureFooting()}
-        onChange={updColumnFooting}
-      />
 
       {!isStripFoundation && (
         <SubstructureConcreteCard

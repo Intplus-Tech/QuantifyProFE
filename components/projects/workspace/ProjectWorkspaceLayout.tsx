@@ -201,27 +201,67 @@ export function ProjectWorkspaceLayout({
     },
   ];
 
-  // Derive structural parameters for the takeoff conditional rendering
+  // ─── Derive structural parameters ────────────────────────────────────────────
+  // foundationType comes from the backend as a normalised enum value:
+  //   "pile" | "strip" | "raft" | "raft_pile_with_basement"
+  // qsProjectType drives which major sections (substructure / superstructure / finishing) are visible:
+  //   "piling_alone"           → substructure only (pile cap only)
+  //   "piling_and_substructure"→ substructure only (pile cap + ground beam + column)
+  //   "foundation_and_carcass" → substructure + superstructure (no finishing)
+  //   "carcass_with_finishes"  → all three sections
   const foundationType =
-    backendProject?.foundationTypes?.[0] || localSnapshot?.foundationType || "Strip Foundation";
+    backendProject?.foundationTypes?.[0] || localSnapshot?.foundationType || "strip";
+  const qsProjectType = backendProject?.qsProjectType || "";
   const numberOfFloors = backendProject?.numberOfFloors || localSnapshot?.floors || 0;
   const hasPool = backendProject?.hasSwimmingPool || localSnapshot?.hasPool || false;
   const poolLocations: string[] = backendProject?.poolLocations || (localSnapshot?.poolLocation ? [localSnapshot.poolLocation] : []);
-  // Pool is in substructure when poolLocations includes "substructure"
   const poolInSubstructure = hasPool && poolLocations.includes("substructure");
-  // Pool is in superstructure when location is "external", or no location data yet, or future "superstructure" value
   const poolInSuperstructure = hasPool && (!poolLocations.length || poolLocations.includes("external") || poolLocations.includes("superstructure"));
   const liftOption = backendProject?.liftOption || localSnapshot?.lift || "none";
   const hasLift = liftOption !== "none";
 
+  // ─── Substructure routes — driven by foundationType ──────────────────────────
+  //
+  //  "pile" alone             → Pile Cap only
+  //  "strip"                  → Strip Foundation, Ground Beam, Column In Foundation
+  //  "raft"                   → Pile Cap, Ground Beam, Column In Foundation
+  //  "raft_pile_with_basement"→ Pile Cap, Ground Beam, Column In Foundation
+  const isPile = foundationType === "pile";
+  const isStrip = foundationType === "strip";
+  // raft and raft_pile_with_basement share the same route set
+  const isRaftVariant = foundationType === "raft" || foundationType === "raft_pile_with_basement";
+
   const substructureItems = [
-    { label: foundationType === "Pile" ? "Pile Cap" : toTitle(foundationType), href: `/takeoff/substructure/foundation`, icon: Database },
-    { label: "Ground Beam", href: `/takeoff/substructure/ground-beam`, icon: Grid },
-    { label: "Column In Foundation", href: `/takeoff/substructure/column`, icon: Table },
-    { label: "Strip Foundation", href: `/takeoff/substructure/strip-foundation`, icon: LayoutGrid },
-    ...(poolInSubstructure ? [{ label: "Swimming Pool", href: `/takeoff/substructure/swimming-pool`, icon: Waves }] : []),
+    ...(isPile || isRaftVariant
+      ? [{ label: "Pile Cap", href: `/takeoff/substructure/foundation`, icon: Database }]
+      : []),
+    ...(isStrip
+      ? [{ label: "Strip Foundation", href: `/takeoff/substructure/strip-foundation`, icon: LayoutGrid }]
+      : []),
+    ...(!isPile
+      ? [
+          { label: "Ground Beam", href: `/takeoff/substructure/ground-beam`, icon: Grid },
+          { label: "Column In Foundation", href: `/takeoff/substructure/column`, icon: Table },
+        ]
+      : []),
+    ...(poolInSubstructure
+      ? [{ label: "Swimming Pool", href: `/takeoff/substructure/swimming-pool`, icon: Waves }]
+      : []),
   ];
 
+  // ─── Section visibility — driven by qsProjectType ────────────────────────────
+  const showSuperstructure =
+    qsProjectType === "foundation_and_carcass" ||
+    qsProjectType === "carcass_with_finishes" ||
+    // Fallback: if qsProjectType not yet set, show for non-pile-alone projects
+    (!qsProjectType && !isPile);
+
+  const showFinishing =
+    qsProjectType === "carcass_with_finishes" ||
+    // Fallback: if qsProjectType not yet set, show for non-pile projects
+    (!qsProjectType && !isPile);
+
+  // ─── Superstructure routes ────────────────────────────────────────────────────
   const superstructureItems = [
     { label: "Column", href: "/takeoff/superstructure/column", icon: Layers },
     { label: "Floor & Beam", href: "/takeoff/superstructure/floor-beam", icon: LayoutTemplate },
@@ -237,6 +277,7 @@ export function ProjectWorkspaceLayout({
     superstructureItems.push({ label: "Swimming Pool", href: "/takeoff/superstructure/swimming-pool", icon: Waves });
   }
 
+  // ─── Finishing routes ─────────────────────────────────────────────────────────
   const finishingItems = [
     { label: "Roof Beam & Slab", href: "/takeoff/finishing/roof-beam-slab", icon: Database },
     { label: "Walls & Openings", href: "/takeoff/finishing/walls-openings", icon: LayoutGrid },
@@ -251,18 +292,22 @@ export function ProjectWorkspaceLayout({
       icon: Layers,
       items: substructureItems,
     },
-    {
-      id: "superstructure",
-      title: "Superstructure",
-      icon: Building2,
-      items: superstructureItems,
-    },
-    {
-      id: "finishing",
-      title: "Finishing",
-      icon: Droplets,
-      items: finishingItems,
-    },
+    ...(showSuperstructure
+      ? [{
+          id: "superstructure",
+          title: "Superstructure",
+          icon: Building2,
+          items: superstructureItems,
+        }]
+      : []),
+    ...(showFinishing
+      ? [{
+          id: "finishing",
+          title: "Finishing",
+          icon: Droplets,
+          items: finishingItems,
+        }]
+      : []),
   ];
 
   if (isLoadingProject && !backendProject) {
