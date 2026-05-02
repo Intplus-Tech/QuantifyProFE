@@ -114,6 +114,19 @@ export interface TakeoffSubTab {
    * e.g. "PC" renders rows as PC1-1, PC1-2 …
    */
   groupIdPrefix?: string;
+
+  /**
+   * If true, the grouped rows are rendered in a single unified table instead
+   * of multiple separate tables per group.
+   */
+  singleTable?: boolean;
+
+  // ── Option C: Nested sub-tabs (3-level hierarchy) ────────────────────────
+  /**
+   * Use `subTabs` within a sub-tab to create another level of navigation.
+   * e.g. Level (Tab) -> Member (Sub-Tab) -> Action (Sub-Sub-Tab)
+   */
+  subTabs?: TakeoffSubTab[];
 }
 
 // ─── Tab ─────────────────────────────────────────────────────────────────────
@@ -151,6 +164,7 @@ export interface TakeoffTab {
   groupedBy?: string;
   groupLabelPrefix?: string;
   groupIdPrefix?: string;
+  singleTable?: boolean;
 }
 
 // ─── Top-level config ────────────────────────────────────────────────────────

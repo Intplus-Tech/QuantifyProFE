@@ -21,6 +21,7 @@ export interface TakeoffApiElement {
   length?: number;
   width?: number;
   depth?: number;
+  thickness?: number;
   diameter?: number;
   areaReference?: string;
   state?: "isolated" | "continuous";
@@ -31,11 +32,19 @@ export interface TakeoffApiElement {
 }
 
 export interface ReinforcementBar {
-  /** The four multiInput values joined, e.g. "150-150-150-150" */
-  centerToCenter?: string;
-  sizeDia?: string;
-  noInEach?: string;
-  cutLength?: string;
+  /** Used for simple reinforcement (e.g. PF1 example) */
+  barMark?: string;
+  barCount?: number;
+  barType?: string;
+  diameter?: number;
+  length?: number;
+  /** Used for layered reinforcement (e.g. PD1 example with 4 inputs) */
+  name?: string;
+  centerToCenter?: number[];
+  sizeDia?: number[];
+  noThus?: number[];
+  noInEach?: number[];
+  cutLength?: number[];
   /** raw sub-values if needed */
   [key: string]: unknown;
 }
@@ -67,12 +76,37 @@ function toNum(val: unknown): number | undefined {
 }
 
 /**
- * Reads multiInput sub-values (_0 … _3) from a row and collapses them
- * into a single "v0 - v1 - v2 - v3" string for the reinforcement payload.
+ * Reads multiInput sub-values (_0 … _3) from a row and returns them as an array of numbers.
  */
-function readMultiInput(row: Record<string, unknown>, fieldKey: string): string | undefined {
-  const parts = [0, 1, 2, 3].map((i) => String(row[`${fieldKey}_${i}`] ?? "")).filter(Boolean);
-  return parts.length ? parts.join(" - ") : undefined;
+function readMultiInputArray(row: Record<string, unknown>, fieldKey: string): number[] | undefined {
+  const parts = [0, 1, 2, 3]
+    .map((i) => toNum(row[`${fieldKey}_${i}`]))
+    .filter((val): val is number => val !== undefined);
+  
+  return parts.length ? parts : undefined;
+}
+
+/**
+ * Checks if a row is essentially "empty" (no actual measurements filled).
+ * We ignore 'id', 'shape', 'state' and only look for numeric or multi-input data.
+ */
+function isRowEmpty(row: Record<string, unknown>): boolean {
+  return !Object.entries(row).some(([key, value]) => {
+    if (["id", "shape", "state", "areaReference"].includes(key)) return false;
+    if (value === undefined || value === null || value === "") return false;
+    // For numeric fields, check if they are valid numbers
+    if (NUMERIC_FIELDS.has(key)) {
+      const n = Number(value);
+      return !isNaN(n);
+    }
+    // For multi-input fields, they are stored as key_0, key_1...
+    if (key.includes("_")) {
+      const n = Number(value);
+      return !isNaN(n);
+    }
+    // Any other filled-in field counts as "not empty"
+    return true;
+  });
 }
 
 // ─── Core transformer ────────────────────────────────────────────────────────
@@ -84,7 +118,7 @@ function readMultiInput(row: Record<string, unknown>, fieldKey: string): string 
 export function buildApiElement(row: Record<string, unknown>): TakeoffApiElement {
   const element: TakeoffApiElement = {
     elementId: String(row.id ?? ""),
-    shape: (row.shape as "rectangular" | "circular") ?? "rectangular",
+    shape: String(row.shape ?? "rectangular").toLowerCase() as "rectangular" | "circular",
   };
 
   // Coerce known numeric fields
@@ -95,7 +129,7 @@ export function buildApiElement(row: Record<string, unknown>): TakeoffApiElement
 
   // Pass-through string fields
   if (row.areaReference) element.areaReference = String(row.areaReference);
-  if (row.state) element.state = row.state as "isolated" | "continuous";
+  if (row.state) element.state = String(row.state).toLowerCase() as "isolated" | "continuous";
 
   // Pass-through any other extra fields (floorThickness stored as text, areaDeduct, etc.)
   const handled = new Set([
@@ -114,8 +148,10 @@ export function buildApiElement(row: Record<string, unknown>): TakeoffApiElement
  * Builds the full payload for PUT /takeoff/{projectId}/elements/{elementType}.
  * @param rows  Concrete-formwork rows (each becomes one element).
  */
-export function buildElementsPayload(rows: Record<string, unknown>[]): TakeoffElementsPayload {
-  return { elements: rows.map(buildApiElement) };
+export function buildElementsPayload(rows: Record<string, unknown>[]): TakeoffElementsPayload | null {
+  const filtered = rows.filter((r) => !isRowEmpty(r));
+  if (filtered.length === 0) return null;
+  return { elements: filtered.map(buildApiElement) };
 }
 
 /**
@@ -129,20 +165,48 @@ export function buildElementsPayload(rows: Record<string, unknown>[]): TakeoffEl
 export function buildElementsWithReinforcement(
   concreteRows: Record<string, unknown>[],
   reinfRowsMap: Record<string, Record<string, unknown>[]>,
-): TakeoffElementsPayload {
-  const elements = concreteRows.map((row) => {
+): TakeoffElementsPayload | null {
+  // Filter concrete rows that have measurements OR have non-empty reinforcement
+  const filteredConcrete = concreteRows.filter((row) => {
+    const hasConcreteData = !isRowEmpty(row);
+    const reinfRows = reinfRowsMap[String(row.id)] || [];
+    const hasReinfData = reinfRows.some((r) => !isRowEmpty(r));
+    return hasConcreteData || hasReinfData;
+  });
+
+  if (filteredConcrete.length === 0) return null;
+
+  const elements = filteredConcrete.map((row) => {
     const element = buildApiElement(row);
     const groupRows = reinfRowsMap[String(row.id)] ?? [];
 
     if (groupRows.length > 0) {
-      element.reinforcement = groupRows.map((r) => {
-        const bar: ReinforcementBar = {};
-        for (const field of REINF_FIELDS) {
-          const collapsed = readMultiInput(r as Record<string, unknown>, field);
-          if (collapsed) bar[field] = collapsed;
-        }
-        return bar;
-      });
+      // Check if this member uses layered reinforcement (has multiInput fields)
+      const hasMultiInput = groupRows.some(r => 
+        REINF_FIELDS.some(f => r[`${f}_0`] !== undefined)
+      );
+
+      if (hasMultiInput) {
+        element.layeredReinforcement = groupRows.map((r) => {
+          const layer: ReinforcementBar = {
+            name: String(row.id ?? ""),
+          };
+          for (const field of REINF_FIELDS) {
+            const arr = readMultiInputArray(r, field);
+            if (arr) layer[field as keyof ReinforcementBar] = arr as any;
+          }
+          return layer;
+        });
+      } else {
+        // Simple reinforcement format (e.g. PF1 example)
+        element.reinforcement = groupRows.map((r) => ({
+          barMark: String(r.barMark || r.id || ""),
+          barCount: toNum(r.barCount || r.count || r.noThus),
+          barType: String(r.barType || "Y"),
+          diameter: toNum(r.diameter || r.sizeDia),
+          length: toNum(r.length || r.cutLength),
+        }));
+      }
     }
 
     return element;
@@ -167,10 +231,22 @@ export function extractReinfRowsMap(
   concreteRows: Record<string, unknown>[],
 ): Record<string, Record<string, unknown>[]> {
   const map: Record<string, Record<string, unknown>[]> = {};
+  
+  // 1. First, check if there's a single table under the baseKey (e.g., singleTable: true)
+  const singleTableRows = tabRows[baseKey] || [];
+  
   for (const row of concreteRows) {
     const id = String(row.id ?? "");
-    const key = `${baseKey}-${id}`;
-    map[id] = tabRows[key] ?? [];
+    
+    // 2. If it's a single table, filter the rows that match this ID
+    if (singleTableRows.length > 0) {
+      map[id] = singleTableRows.filter(r => String(r.id) === id);
+    } 
+    // 3. Fallback: look for ID-specific keys (e.g., "baseKey-BM1")
+    else {
+      const key = `${baseKey}-${id}`;
+      map[id] = tabRows[key] ?? [];
+    }
   }
   return map;
 }
