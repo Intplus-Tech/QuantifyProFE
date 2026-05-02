@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -16,6 +17,9 @@ import {
 } from "@/components/ui/select";
 import { CURRENCIES, PROJECT_TYPES, PROJECT_PHASES } from "./constants";
 import type { Step2Data } from "./types";
+import { useGetClientsQuery } from "@/store/api/clientsApi";
+import { AddClientDialog } from "@/components/clients/AddClientDialog";
+import { Plus } from "lucide-react";
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -53,11 +57,16 @@ export function StepProjectDetails({ data, onChange, onNext }: StepProjectDetail
     register,
     control,
     handleSubmit,
+    setValue,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: data,
   });
+
+  const [isAddClientDialogOpen, setIsAddClientDialogOpen] = useState(false);
+  const { data: clientsRes } = useGetClientsQuery({ limit: 100 });
+  const clientsList = clientsRes?.data || [];
 
   function onSubmit(values: FormValues) {
     onChange(values as Step2Data);
@@ -102,10 +111,45 @@ export function StepProjectDetails({ data, onChange, onNext }: StepProjectDetail
               <Label className="text-xs font-medium text-muted-foreground">
                 Client Name <span className="text-destructive">*</span>
               </Label>
-              <Input
-                {...register("clientName")}
-                placeholder="e.g. Real Estate Development Corp."
-                className="border-border/60"
+              <Controller
+                control={control}
+                name="clientName"
+                render={({ field }) => (
+                  <Select 
+                    value={field.value} 
+                    onValueChange={(val) => {
+                      if (val === "ADD_NEW") {
+                        setIsAddClientDialogOpen(true);
+                        return;
+                      }
+                      field.onChange(val);
+                    }}
+                  >
+                    <SelectTrigger className="w-full border-border/60">
+                      <SelectValue placeholder="Select client" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clientsList.length === 0 ? (
+                        <SelectItem value="ADD_NEW" className="text-primary font-medium focus:text-primary/80">
+                          <Plus className="w-3.5 h-3.5 mr-2 inline" />
+                          Add New Client
+                        </SelectItem>
+                      ) : (
+                        <>
+                          {clientsList.map((c) => (
+                            <SelectItem key={c._id} value={c.name}>
+                              {c.name}
+                            </SelectItem>
+                          ))}
+                          <SelectItem value="ADD_NEW" className="text-primary font-medium border-t mt-1 focus:text-primary/80">
+                            <Plus className="w-3.5 h-3.5 mr-2 inline" />
+                            Add New Client
+                          </SelectItem>
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                )}
               />
               <FieldError message={errors.clientName?.message} />
             </div>
@@ -262,6 +306,16 @@ export function StepProjectDetails({ data, onChange, onNext }: StepProjectDetail
           </Button>
         </div>
       </form>
+
+      {isAddClientDialogOpen && (
+        <AddClientDialog
+          open={isAddClientDialogOpen}
+          onOpenChange={setIsAddClientDialogOpen}
+          onSuccess={(client) => {
+            setValue("clientName", client.name);
+          }}
+        />
+      )}
     </div>
   );
 }

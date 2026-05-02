@@ -10,8 +10,9 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useDropzone } from "react-dropzone";
 import { toast } from "sonner";
-import { FileType, FileText, Zap, Shield, Sparkles, X } from "lucide-react";
+import { FileType, FileText, Zap, Shield, Sparkles, X, Plus } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
+import { AddClientDialog } from "@/components/clients/AddClientDialog";
 
 import {
   DialogContent,
@@ -52,7 +53,6 @@ const aiFormSchema = z.object({
   location: z.string().optional(),
   source: z.string().min(1, "Source is required"),
   description: z.string().optional(),
-  drawingType: z.string().min(1, "Drawing Type is required"),
   drawings: z.array(z.any()).min(1, "Please upload a drawing"),
   sourceJobId: z.string().optional(),
   uploadedFileType: z.string().optional(),
@@ -99,7 +99,6 @@ export function AiAnalysisContent({
       location: "",
       source: "",
       description: "",
-      drawingType: "",
       drawings: [],
       sourceJobId: "",
       uploadedFileType: "",
@@ -108,6 +107,7 @@ export function AiAnalysisContent({
 
   const { isUploading, uploadProgress, handleUpload } = useFileAnalysisUpload();
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isAddClientDialogOpen, setIsAddClientDialogOpen] = useState(false);
 
   const drawings = watch("drawings");
 
@@ -261,6 +261,10 @@ export function AiAnalysisContent({
                     render={({ field }) => (
                       <Select
                         onValueChange={(val) => {
+                          if (val === "ADD_NEW") {
+                            setIsAddClientDialogOpen(true);
+                            return;
+                          }
                           field.onChange(val);
                           const client = clientsList.find((c) => c._id === val);
                           if (client) {
@@ -273,11 +277,24 @@ export function AiAnalysisContent({
                           <SelectValue placeholder="Select Client" />
                         </SelectTrigger>
                         <SelectContent>
-                          {clientsList.map((client) => (
-                            <SelectItem key={client._id} value={client._id}>
-                              {client.name}
+                          {clientsList.length === 0 ? (
+                            <SelectItem value="ADD_NEW" className="text-amber-600 font-medium focus:text-amber-700">
+                              <Plus className="w-4 h-4 mr-2 inline" />
+                              Add New Client
                             </SelectItem>
-                          ))}
+                          ) : (
+                            <>
+                              {clientsList.map((client) => (
+                                <SelectItem key={client._id} value={client._id}>
+                                  {client.name}
+                                </SelectItem>
+                              ))}
+                              <SelectItem value="ADD_NEW" className="text-amber-600 font-medium border-t mt-1 focus:text-amber-700">
+                                <Plus className="w-4 h-4 mr-2 inline" />
+                                Add New Client
+                              </SelectItem>
+                            </>
+                          )}
                         </SelectContent>
                       </Select>
                     )}
@@ -382,44 +399,17 @@ export function AiAnalysisContent({
 
           {/* Drawings Section */}
           <div className="border rounded-xl p-5 bg-card text-card-foreground shadow-sm">
-            <Field className="mb-4">
-              <FieldLabel className="font-semibold text-base mb-2">
-                What type of drawing is this?
-              </FieldLabel>
-              <FieldContent>
-                <Controller
-                  control={control}
-                  name="drawingType"
-                  render={({ field }) => (
-                    <Select
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                    >
-                      <SelectTrigger className="w-full md:w-1/2 h-12! py-3!">
-                        <SelectValue placeholder="Select Drawing Type (e.g., Structural, Architectural, MEP)" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Structural">Structural</SelectItem>
-                        <SelectItem value="Architectural">
-                          Architectural
-                        </SelectItem>
-                        <SelectItem value="MEP">MEP</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </FieldContent>
-              <FieldError errors={[{ message: errors.drawingType?.message }]} />
-            </Field>
 
             <div
-              {...getRootProps()}
-              className={`relative overflow-hidden mt-2 border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all duration-200 ${
-                isDragActive
-                  ? "border-primary"
-                  : "border-border/60 hover:border-primary/50"
-              }`}
+              {...getRootProps({
+                className: `relative overflow-hidden mt-2 border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all duration-200 ${
+                  isDragActive
+                    ? "border-primary"
+                    : "border-border/60 hover:border-primary/50"
+                }`,
+              })}
             >
+              <input {...getInputProps()} />
               {/* Mesh Gradient Background */}
               <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-xl opacity-80 dark:opacity-40">
                 <div className="absolute -left-1/4 -top-1/4 w-3/4 h-[150%] bg-sky-300/30 blur-[80px] rounded-full"></div>
@@ -428,8 +418,6 @@ export function AiAnalysisContent({
               </div>
 
               <div className="relative z-10 w-full h-full flex flex-col items-center justify-center">
-                <input {...getInputProps()} />
-
                 <div className="flex justify-center gap-5 mb-5">
                   <div className="flex flex-col items-center justify-center p-3 w-[72px] h-[72px] bg-background/90 backdrop-blur-sm rounded-2xl border shadow-sm">
                     <FileType className="w-7 h-7 text-amber-500 mb-1.5" />
@@ -593,6 +581,16 @@ export function AiAnalysisContent({
           </Button>
         </div>
       </div>
+      {isAddClientDialogOpen && (
+        <AddClientDialog
+          open={isAddClientDialogOpen}
+          onOpenChange={setIsAddClientDialogOpen}
+          onSuccess={(client) => {
+            setValue("clientId", client._id);
+            setValue("clientName", client.name);
+          }}
+        />
+      )}
     </DialogContent>
   );
 }

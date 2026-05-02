@@ -21,10 +21,10 @@ import { useCreateClientMutation } from "@/store/api/clientsApi";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 
-
 interface AddClientDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSuccess?: (client: any) => void;
 }
 
 const emptyForm = {
@@ -51,7 +51,7 @@ export function AddClientDialog({ open, onOpenChange }: AddClientDialogProps) {
 
   async function handleSave() {
     try {
-      await createClient(form).unwrap();
+      const result = await createClient(form).unwrap();
       toast.success("Client added successfully.");
       handleClose();
     } catch (err: any) {
@@ -97,7 +97,9 @@ export function AddClientDialog({ open, onOpenChange }: AddClientDialogProps) {
               id="company-name"
               placeholder="e.g. BuildRight Engineering"
               value={form.clientCompanyName}
-              onChange={(e) => handleChange("clientCompanyName", e.target.value)}
+              onChange={(e) =>
+                handleChange("clientCompanyName", e.target.value)
+              }
               className="bg-muted/30 border-border/60 h-12"
             />
           </div>
@@ -196,7 +198,12 @@ export function AddClientDialog({ open, onOpenChange }: AddClientDialogProps) {
           >
             Cancel
           </Button>
-          <Button size="lg" className="h-12 px-4" disabled={isLoading} onClick={handleSave}>
+          <Button
+            size="lg"
+            className="h-12 px-4"
+            disabled={isLoading}
+            onClick={handleSave}
+          >
             {isLoading ? "Saving..." : "Save Client"}
           </Button>
         </div>
