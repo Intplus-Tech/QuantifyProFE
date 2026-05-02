@@ -21,6 +21,7 @@ export interface TakeoffApiElement {
   length?: number;
   width?: number;
   depth?: number;
+  thickness?: number;
   diameter?: number;
   areaReference?: string;
   state?: "isolated" | "continuous";
@@ -31,11 +32,19 @@ export interface TakeoffApiElement {
 }
 
 export interface ReinforcementBar {
-  /** The four multiInput values joined, e.g. "150-150-150-150" */
-  centerToCenter?: string;
-  sizeDia?: string;
-  noInEach?: string;
-  cutLength?: string;
+  /** Used for simple reinforcement (e.g. PF1 example) */
+  barMark?: string;
+  barCount?: number;
+  barType?: string;
+  diameter?: number;
+  length?: number;
+  /** Used for layered reinforcement (e.g. PD1 example with 4 inputs) */
+  name?: string;
+  centerToCenter?: number[];
+  sizeDia?: number[];
+  noThus?: number[];
+  noInEach?: number[];
+  cutLength?: number[];
   /** raw sub-values if needed */
   [key: string]: unknown;
 }
@@ -67,12 +76,14 @@ function toNum(val: unknown): number | undefined {
 }
 
 /**
- * Reads multiInput sub-values (_0 … _3) from a row and collapses them
- * into a single "v0 - v1 - v2 - v3" string for the reinforcement payload.
+ * Reads multiInput sub-values (_0 … _3) from a row and returns them as an array of numbers.
  */
-function readMultiInput(row: Record<string, unknown>, fieldKey: string): string | undefined {
-  const parts = [0, 1, 2, 3].map((i) => String(row[`${fieldKey}_${i}`] ?? "")).filter(Boolean);
-  return parts.length ? parts.join(" - ") : undefined;
+function readMultiInputArray(row: Record<string, unknown>, fieldKey: string): number[] | undefined {
+  const parts = [0, 1, 2, 3]
+    .map((i) => toNum(row[`${fieldKey}_${i}`]))
+    .filter((val): val is number => val !== undefined);
+  
+  return parts.length ? parts : undefined;
 }
 
 // ─── Core transformer ────────────────────────────────────────────────────────
@@ -135,14 +146,32 @@ export function buildElementsWithReinforcement(
     const groupRows = reinfRowsMap[String(row.id)] ?? [];
 
     if (groupRows.length > 0) {
-      element.reinforcement = groupRows.map((r) => {
-        const bar: ReinforcementBar = {};
-        for (const field of REINF_FIELDS) {
-          const collapsed = readMultiInput(r as Record<string, unknown>, field);
-          if (collapsed) bar[field] = collapsed;
-        }
-        return bar;
-      });
+      // Check if this member uses layered reinforcement (has multiInput fields)
+      const hasMultiInput = groupRows.some(r => 
+        REINF_FIELDS.some(f => r[`${f}_0`] !== undefined)
+      );
+
+      if (hasMultiInput) {
+        element.layeredReinforcement = groupRows.map((r) => {
+          const layer: ReinforcementBar = {
+            name: String(row.id ?? ""),
+          };
+          for (const field of REINF_FIELDS) {
+            const arr = readMultiInputArray(r, field);
+            if (arr) layer[field as keyof ReinforcementBar] = arr as any;
+          }
+          return layer;
+        });
+      } else {
+        // Simple reinforcement format (e.g. PF1 example)
+        element.reinforcement = groupRows.map((r) => ({
+          barMark: String(r.barMark || r.id || ""),
+          barCount: toNum(r.barCount || r.count || r.noThus),
+          barType: String(r.barType || "Y"),
+          diameter: toNum(r.diameter || r.sizeDia),
+          length: toNum(r.length || r.cutLength),
+        }));
+      }
     }
 
     return element;
@@ -167,10 +196,22 @@ export function extractReinfRowsMap(
   concreteRows: Record<string, unknown>[],
 ): Record<string, Record<string, unknown>[]> {
   const map: Record<string, Record<string, unknown>[]> = {};
+  
+  // 1. First, check if there's a single table under the baseKey (e.g., singleTable: true)
+  const singleTableRows = tabRows[baseKey] || [];
+  
   for (const row of concreteRows) {
     const id = String(row.id ?? "");
-    const key = `${baseKey}-${id}`;
-    map[id] = tabRows[key] ?? [];
+    
+    // 2. If it's a single table, filter the rows that match this ID
+    if (singleTableRows.length > 0) {
+      map[id] = singleTableRows.filter(r => String(r.id) === id);
+    } 
+    // 3. Fallback: look for ID-specific keys (e.g., "baseKey-BM1")
+    else {
+      const key = `${baseKey}-${id}`;
+      map[id] = tabRows[key] ?? [];
+    }
   }
   return map;
 }

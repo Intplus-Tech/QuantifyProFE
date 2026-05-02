@@ -193,6 +193,16 @@ export const dashboard = {
   summary: "/dashboard",
 };
 
+export const manual = {
+  qsConfig: (id: string) => `/takeoff/${id}/qs-config`,
+  structuralScope: (projectId: string, foundationType: string) =>
+    `/takeoff/${projectId}/structural-scope/${foundationType}`,
+  takeoffElements: (projectId: string, elementType: string) =>
+    `/takeoff/${projectId}/elements/${elementType}`,
+  finishing: (id: string) => `/projects/${id}/finishing`,
+  metrics: (id: string) => `/projects/${id}/metrics`,
+};
+
 export const ApiEndpoints = {
   baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL!,
   auth,
@@ -211,4 +221,5 @@ export const ApiEndpoints = {
   uploads,
   template,
   dashboard,
+  manual,
 };
