@@ -86,6 +86,29 @@ function readMultiInputArray(row: Record<string, unknown>, fieldKey: string): nu
   return parts.length ? parts : undefined;
 }
 
+/**
+ * Checks if a row is essentially "empty" (no actual measurements filled).
+ * We ignore 'id', 'shape', 'state' and only look for numeric or multi-input data.
+ */
+function isRowEmpty(row: Record<string, unknown>): boolean {
+  return !Object.entries(row).some(([key, value]) => {
+    if (["id", "shape", "state", "areaReference"].includes(key)) return false;
+    if (value === undefined || value === null || value === "") return false;
+    // For numeric fields, check if they are valid numbers
+    if (NUMERIC_FIELDS.has(key)) {
+      const n = Number(value);
+      return !isNaN(n);
+    }
+    // For multi-input fields, they are stored as key_0, key_1...
+    if (key.includes("_")) {
+      const n = Number(value);
+      return !isNaN(n);
+    }
+    // Any other filled-in field counts as "not empty"
+    return true;
+  });
+}
+
 // ─── Core transformer ────────────────────────────────────────────────────────
 
 /**
@@ -95,7 +118,7 @@ function readMultiInputArray(row: Record<string, unknown>, fieldKey: string): nu
 export function buildApiElement(row: Record<string, unknown>): TakeoffApiElement {
   const element: TakeoffApiElement = {
     elementId: String(row.id ?? ""),
-    shape: (row.shape as "rectangular" | "circular") ?? "rectangular",
+    shape: String(row.shape ?? "rectangular").toLowerCase() as "rectangular" | "circular",
   };
 
   // Coerce known numeric fields
@@ -106,7 +129,7 @@ export function buildApiElement(row: Record<string, unknown>): TakeoffApiElement
 
   // Pass-through string fields
   if (row.areaReference) element.areaReference = String(row.areaReference);
-  if (row.state) element.state = row.state as "isolated" | "continuous";
+  if (row.state) element.state = String(row.state).toLowerCase() as "isolated" | "continuous";
 
   // Pass-through any other extra fields (floorThickness stored as text, areaDeduct, etc.)
   const handled = new Set([
@@ -125,8 +148,10 @@ export function buildApiElement(row: Record<string, unknown>): TakeoffApiElement
  * Builds the full payload for PUT /takeoff/{projectId}/elements/{elementType}.
  * @param rows  Concrete-formwork rows (each becomes one element).
  */
-export function buildElementsPayload(rows: Record<string, unknown>[]): TakeoffElementsPayload {
-  return { elements: rows.map(buildApiElement) };
+export function buildElementsPayload(rows: Record<string, unknown>[]): TakeoffElementsPayload | null {
+  const filtered = rows.filter((r) => !isRowEmpty(r));
+  if (filtered.length === 0) return null;
+  return { elements: filtered.map(buildApiElement) };
 }
 
 /**
@@ -140,8 +165,18 @@ export function buildElementsPayload(rows: Record<string, unknown>[]): TakeoffEl
 export function buildElementsWithReinforcement(
   concreteRows: Record<string, unknown>[],
   reinfRowsMap: Record<string, Record<string, unknown>[]>,
-): TakeoffElementsPayload {
-  const elements = concreteRows.map((row) => {
+): TakeoffElementsPayload | null {
+  // Filter concrete rows that have measurements OR have non-empty reinforcement
+  const filteredConcrete = concreteRows.filter((row) => {
+    const hasConcreteData = !isRowEmpty(row);
+    const reinfRows = reinfRowsMap[String(row.id)] || [];
+    const hasReinfData = reinfRows.some((r) => !isRowEmpty(r));
+    return hasConcreteData || hasReinfData;
+  });
+
+  if (filteredConcrete.length === 0) return null;
+
+  const elements = filteredConcrete.map((row) => {
     const element = buildApiElement(row);
     const groupRows = reinfRowsMap[String(row.id)] ?? [];
 

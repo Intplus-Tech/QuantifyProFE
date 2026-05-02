@@ -71,6 +71,26 @@ export const manualProjectApi = baseApi.injectEndpoints({
         method: ApiMethods.PUT,
         body,
       }),
+      async onQueryStarted(arg, { queryFulfilled }) {
+        const endpoint = ApiEndpoints.manual.takeoffElements(
+          arg.projectId,
+          arg.elementType,
+        );
+        console.log(`[Takeoff][${arg.elementType}] PAYLOAD`, {
+          endpoint,
+          payload: arg.body,
+        });
+
+        try {
+          const { data } = await queryFulfilled;
+          console.log(`[Takeoff][${arg.elementType}] SUCCESS`, data);
+        } catch (error) {
+          console.error(`[Takeoff][${arg.elementType}] ERROR`, {
+            endpoint,
+            error,
+          });
+        }
+      },
     }),
   }),
   overrideExisting: false,

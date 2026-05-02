@@ -7,6 +7,7 @@ import {
   updateTabRows,
   updateBendingSummaries,
 } from "@/store/slices/takeoffSlice";
+import { TakeoffElementType } from "./configs/elementTypes";
 import { useGetProjectByIdQuery } from "@/store/api/projectsApi";
 import { useUpsertTakeoffElementsMutation } from "@/store/api/manualProjectApi";
 import {
@@ -573,120 +574,84 @@ export function TakeoffItemView({
 
   const handleSaveWorkspace = useCallback(() => {
     if (!config) return;
+
     const batches: {
       endpoint: string;
-      elementType: string;
-      payload: unknown;
+      elementType: TakeoffElementType;
+      payload: any;
     }[] = [];
 
-    for (const tab of config.tabs) {
-      if (tab.subTabs?.length) {
-        for (const subTab of tab.subTabs) {
-          if (subTab.subTabs?.length) {
-            for (const ss of subTab.subTabs) {
-              const key = `${tab.id}-${subTab.id}-${ss.id}`;
-                if (ss.tables?.length) {
-                  for (const t of ss.tables) {
-                    if (!t.elementType) continue;
-                    const rows = tabRows[`${key}-${t.id}`] || [];
-                    if (rows.length)
-                      batches.push({
-                        endpoint: `PUT /takeoff/${projectId}/elements/${t.elementType}`,
-                        elementType: t.elementType,
-                        payload: buildElementsPayload(rows),
-                      });
-                  }
-                } else if (ss.groupedBy) {
-                  if (!ss.elementType) continue;
-                  const concreteSS = subTab.subTabs.find(
-                    (s) => s.id === ss.groupedBy,
-                  );
-                  if (!concreteSS?.elementType) continue;
-                  const concreteRows =
-                    tabRows[`${tab.id}-${subTab.id}-${ss.groupedBy}`] || [];
-                  if (concreteRows.length) {
-                    const reinfRowsMap = extractReinfRowsMap(
-                      tabRows,
-                      key,
-                      concreteRows,
-                    );
-                    batches.push({
-                      endpoint: `PUT /takeoff/${projectId}/elements/${concreteSS.elementType}`,
-                      elementType: concreteSS.elementType,
-                      payload: buildElementsWithReinforcement(
-                        concreteRows,
-                        reinfRowsMap,
-                      ),
-                    });
-                  }
-                } else if (ss.elementType) {
-                  const rows = tabRows[key] || [];
-                  if (rows.length)
-                    batches.push({
-                      endpoint: `PUT /takeoff/${projectId}/elements/${ss.elementType}`,
-                      elementType: ss.elementType,
-                      payload: buildElementsPayload(rows),
-                    });
-                }
-            }
-          } else if (subTab.tables?.length) {
-            for (const table of subTab.tables) {
-              if (!table.elementType) continue;
-              const rows = tabRows[`${tab.id}-${subTab.id}-${table.id}`] || [];
-              if (rows.length)
-                batches.push({
-                  endpoint: `PUT /takeoff/${projectId}/elements/${table.elementType}`,
-                  elementType: table.elementType,
-                  payload: buildElementsPayload(rows),
-                });
-            }
-          } else if (subTab.groupedBy) {
-            if (!subTab.elementType) continue;
-            const concreteSubTab = tab.subTabs.find(
-              (s) => s.id === subTab.groupedBy,
-            );
-            if (!concreteSubTab?.elementType) continue;
-            const concreteRows = tabRows[`${tab.id}-${subTab.groupedBy}`] || [];
-            if (concreteRows.length) {
-              const reinfRowsMap = extractReinfRowsMap(
-                tabRows,
-                `${tab.id}-${subTab.id}`,
-                concreteRows,
-              );
-              batches.push({
-                endpoint: `PUT /takeoff/${projectId}/elements/${concreteSubTab.elementType}`,
-                elementType: concreteSubTab.elementType,
-                payload: buildElementsWithReinforcement(
-                  concreteRows,
-                  reinfRowsMap,
-                ),
-              });
-            }
-          } else if (subTab.elementType) {
-            const rows = tabRows[`${tab.id}-${subTab.id}`] || [];
-            if (rows.length)
-              batches.push({
-                endpoint: `PUT /takeoff/${projectId}/elements/${subTab.elementType}`,
-                elementType: subTab.elementType,
-                payload: buildElementsPayload(rows),
-              });
-          }
+    // Helper to add a batch if payload is valid
+    const addBatch = (type: string | undefined, payload: any) => {
+      if (!type || !payload) return;
+      batches.push({
+        endpoint: `PUT /takeoff/${projectId}/elements/${type}`,
+        elementType: type as TakeoffElementType,
+        payload,
+      });
+    };
+
+    // Helper to process a structural member that might have reinforcement
+    const processMember = (
+      id: string,
+      elementType: string | undefined,
+      groupedBy: string | undefined,
+      parentSubTabs: TakeoffSubTab[] = [],
+      reinfBaseKey?: string,
+    ) => {
+      if (groupedBy) {
+        const concreteSS = parentSubTabs.find((s) => s.id === groupedBy);
+        if (!concreteSS?.elementType) return;
+
+        const concreteRows = tabRows[id.replace(`-${id.split("-").pop()}`, `-${groupedBy}`)] || tabRows[`${id.split("-").slice(0, -1).join("-")}-${groupedBy}`] || [];
+        // Fallback for different nesting levels
+        const actualConcreteRows = id.includes("-") ? (tabRows[id.split("-").slice(0, 2).concat(groupedBy).join("-")] || []) : [];
+        
+        // Use a more robust way to find concrete rows based on groupedBy ID
+        const searchKey = id.substring(0, id.lastIndexOf("-") + 1) + groupedBy;
+        const finalConcreteRows = tabRows[searchKey] || [];
+
+        if (finalConcreteRows.length) {
+          const reinfRowsMap = extractReinfRowsMap(tabRows, id, finalConcreteRows);
+          addBatch(concreteSS.elementType, buildElementsWithReinforcement(finalConcreteRows, reinfRowsMap));
         }
-      } else if (tab.elementType) {
-        const rows = tabRows[tab.id] || [];
-        if (rows.length)
-          batches.push({
-            endpoint: `PUT /takeoff/${projectId}/elements/${tab.elementType}`,
-            elementType: tab.elementType,
-            payload: buildElementsPayload(rows),
-          });
+      } else if (elementType) {
+        addBatch(elementType, buildElementsPayload(tabRows[id] || []));
       }
+    };
+
+    // Traverse the 3-level hierarchy
+    config.tabs.forEach((tab) => {
+      if (tab.subTabs?.length) {
+        tab.subTabs.forEach((subTab) => {
+          const subKey = `${tab.id}-${subTab.id}`;
+
+          if (subTab.subTabs?.length) {
+            subTab.subTabs.forEach((ss) => {
+              const ssKey = `${subKey}-${ss.id}`;
+              if (ss.tables?.length) {
+                ss.tables.forEach((t) => addBatch(t.elementType, buildElementsPayload(tabRows[`${ssKey}-${t.id}`] || [])));
+              } else {
+                processMember(ssKey, ss.elementType, ss.groupedBy, subTab.subTabs);
+              }
+            });
+          } else if (subTab.tables?.length) {
+            subTab.tables.forEach((t) => addBatch(t.elementType, buildElementsPayload(tabRows[`${subKey}-${t.id}`] || [])));
+          } else {
+            processMember(subKey, subTab.elementType, subTab.groupedBy, tab.subTabs);
+          }
+        });
+      } else {
+        processMember(tab.id, tab.elementType, tab.groupedBy);
+      }
+    });
+
+    if (batches.length === 0) {
+      console.log("[SaveWorkspace] No data to save.");
+      return;
     }
 
-    console.group(
-      `%c[SaveWorkspace] ${section}/${item} — ${batches.length} batch(es)`,
-      "color: #f59e0b; font-weight: bold;",
-    );
+    console.group(`%c[SaveWorkspace] ${section}/${item} — ${batches.length} batch(es)`, "color: #f59e0b; font-weight: bold;");
     batches.forEach((b) => {
       console.group(`%c${b.endpoint}`, "color: #3b82f6;");
       console.log("payload:", JSON.stringify(b.payload, null, 2));
@@ -694,21 +659,15 @@ export function TakeoffItemView({
     });
     console.groupEnd();
 
-    // Fire API requests
+    // Execute API requests
     Promise.allSettled(
-      batches.map((batch) =>
-        upsertTakeoffElements({
-          projectId,
-          elementType: batch.elementType,
-          body: batch.payload,
-        }).unwrap(),
-      ),
+      batches.map((batch) => upsertTakeoffElements({ projectId, elementType: batch.elementType, body: batch.payload }).unwrap())
     ).then((results) => {
       const failed = results.filter((r) => r.status === "rejected");
       if (failed.length > 0) {
-        console.error(`[SaveWorkspace] ${failed.length} batch(es) failed to save.`);
+        console.error(`[SaveWorkspace] ${failed.length} batch(es) failed.`);
       } else {
-        console.log(`[SaveWorkspace] All batches saved successfully.`);
+        console.log(`[SaveWorkspace] Saved successfully.`);
       }
     });
   }, [config, tabRows, projectId, section, item, upsertTakeoffElements]);
