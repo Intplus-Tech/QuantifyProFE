@@ -25,6 +25,7 @@ import { toast } from "sonner";
 interface AddClientDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSuccess?: (client: any) => void;
 }
 
 const emptyForm = {
@@ -51,8 +52,11 @@ export function AddClientDialog({ open, onOpenChange }: AddClientDialogProps) {
 
   async function handleSave() {
     try {
-      await createClient(form).unwrap();
+      const result = await createClient(form).unwrap();
       toast.success("Client added successfully.");
+      if (result.success && result.data) {
+        onSuccess?.(result.data);
+      }
       handleClose();
     } catch (err: any) {
       toast.error(err?.data?.message || "Failed to add client");
