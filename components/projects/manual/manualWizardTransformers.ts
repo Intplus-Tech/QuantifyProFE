@@ -303,15 +303,7 @@ export function buildStructuralScopeBody(
       })
     );
 
-    // columnFooting -> keep as object but rename fields
-    payload.columnFooting = {
-      concreteGrade: sub.columnFooting.gradeOfConcrete || undefined,
-      plasticizers: sub.columnFooting.plasticizers || undefined,
-      waterproofing: sub.columnFooting.waterproof || undefined,
-      castingMethod: sub.columnFooting.castingType || undefined,
-      castingLabourMethod: sub.columnFooting.castingLabourMethod || undefined,
-      wastePercentage: parseNumeric(sub.columnFooting.wastePercent),
-    };
+    // columnFooting is removed because backend no longer expects it for raft/strip/raft_pile_with_basement
   }
 
   return payload;
