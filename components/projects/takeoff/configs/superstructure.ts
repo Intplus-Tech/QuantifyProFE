@@ -3,217 +3,209 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * Add a new `if` block for each item slug under the "superstructure" section.
  * The item slug comes from the URL: /takeoff/superstructure/[item]
- *
- * Items to configure (routes already registered in ProjectWorkspaceLayout.tsx):
- *  • column       → Column
- *  • floor-beam   → Floor & Beam
- *  • shear-wall   → Shear Wall
- *  • stairs       → Stairs          (shown when numberOfFloors > 0)
- *  • lift-shaft   → Lift Shaft      (shown when hasLift)
- *  • swimming-pool → Swimming Pool  (shown when hasPool)
- *
- * ─── HOW TO ADD A NEW ITEM ────────────────────────────────────────────────────
- *
- * Copy this pattern and paste it inside the function:
- *
- *   if (item === "your-item-slug") {
- *     return {
- *       tabs: [
- *         {
- *           id: "unique-tab-id",
- *           label: "Tab Label",          // shown on the top nav tab
- *           title: "Section Title",      // shown in the content header
- *           subtitle: "Short description.",
- *           icon: PenTool,               // any lucide-react icon
- *
- *           // ── Simple flat table (no sub-tabs) ──
- *           columns: [
- *             { key: "id", label: "ID", readonly: true },
- *             { key: "length", label: "Length (m)", highlight: true },
- *           ],
- *           defaultRows: [{ id: "ITEM1" }],
- *
- *           // ── OR: sub-tabs (Concrete & Formwork + Reinforcement) ──
- *           subTabs: [
- *             {
- *               id: "concrete-formwork",
- *               label: "Concrete & Formwork",
- *               columns: [ ... ],
- *               defaultRows: [ ... ],
- *             },
- *             {
- *               id: "reinforcement",
- *               label: "Reinforcement",
- *               hasBendingSummary: true,          // adds Bending Summary button
- *               groupedBy: "concrete-formwork",   // one table per parent row
- *               groupLabelPrefix: "COLUMN",
- *               groupIdPrefix: "COL",
- *               columns: [
- *                 { key: "centerToCenter", label: "Center to Center", highlight: true, multiInput: true },
- *                 // multiInput: true → 4 small boxes per cell, collapses to "v1 - v2 - v3 - v4"
- *               ],
- *               defaultRows: [],
- *             },
- *           ],
- *         },
- *       ],
- *     };
- *   }
- *
- * See configs/types.ts for the full type definitions and field descriptions.
- * See configs/substructure.ts for real-world examples.
  */
 
 import { PenTool, Settings2 } from "lucide-react";
-import type { TakeoffConfig } from "./types";
+import type { TakeoffConfig, TakeoffSubTab } from "./types";
+
+/**
+ * Standard Reinforcement Sub-Tab template
+ */
+const getReinforcementSubTab = (groupedBy: string, groupLabelPrefix: string, groupIdPrefix: string, elementType: string): TakeoffSubTab => ({
+  id: "reinforcement",
+  label: "Reinforcement",
+  elementType,
+  columns: [
+    { key: "id", label: "ID", readonly: true },
+    { key: "centerToCenter", label: "Center to Center", highlight: true, multiInput: true },
+    { key: "sizeDia", label: "Size-Dia (mm)", highlight: true, multiInput: true },
+    { key: "noThus", label: "No Thus", highlight: true, multiInput: true },
+    { key: "noInEach", label: "No in Each", highlight: true, multiInput: true },
+    { key: "cutLength", label: "Cut Length (mm)", highlight: true, multiInput: true },
+  ],
+  hasBendingSummary: true,
+  groupedBy,
+  groupLabelPrefix,
+  groupIdPrefix,
+  singleTable: true,
+  defaultRows: [],
+});
+
+/**
+ * Generates the common structural member sub-tabs for each floor level.
+ */
+const getFloorMemberSubTabs = (): TakeoffSubTab[] => [
+  {
+    id: "beam",
+    label: "Beam",
+    subTabs: [
+      {
+        id: "concrete-formwork",
+        label: "Concrete & Formwork",
+        elementType: "beam",
+        columns: [
+          { key: "id", label: "ID", readonly: true },
+          { key: "noThus", label: "No. Thus", highlight: true },
+          { key: "length", label: "Length (m)", highlight: true },
+          { key: "width", label: "Width (m)", highlight: true },
+          { key: "thickness", label: "Thickness", highlight: true },
+        ],
+        defaultRows: [{ id: "BM1" }, { id: "BM2" }, { id: "BM3" }],
+      },
+      getReinforcementSubTab("concrete-formwork", "BEAM", "BM", "beam"),
+    ],
+  },
+  {
+    id: "upper-floor",
+    label: "Upper Floor",
+    subTabs: [
+      {
+        id: "concrete-formwork",
+        label: "Concrete & Formwork",
+        elementType: "floor",
+        columns: [
+          { key: "id", label: "ID", readonly: true },
+          { key: "noThus", label: "No. Thus", highlight: true },
+          { key: "length", label: "Length (m)", highlight: true },
+          { key: "width", label: "Width (m)", highlight: true },
+          { key: "thickness", label: "Thickness", highlight: true },
+        ],
+        defaultRows: [{ id: "CF1" }, { id: "CF2" }, { id: "CF3" }],
+      },
+      getReinforcementSubTab("concrete-formwork", "UPPER FLOOR", "UF", "floor"),
+      {
+        id: "after-stairs-void-ddt",
+        label: "After stairs_Void_ddt",
+        elementType: "void_ddt",
+        columns: [
+          { key: "id", label: "ID", readonly: true },
+          { key: "fillingThickness", label: "Filling Thickness", highlight: true },
+          { key: "noThus", label: "No Thus", highlight: true },
+          { key: "length", label: "Length (m)", highlight: true },
+          { key: "width", label: "Width (m)", highlight: true },
+          { key: "thickness", label: "Thickness (m)", highlight: true },
+        ],
+        defaultRows: [{ id: "VOID1" }],
+      },
+    ],
+  },
+  {
+    id: "upper-floors-ddt-stairs",
+    label: "Upper Floors (Ddt / Stairs)",
+    subTabs: [
+      {
+        id: "concrete-formwork",
+        label: "Concrete & Formwork",
+        elementType: "stair_ddt",
+        columns: [
+          { key: "id", label: "ID", readonly: true },
+          { key: "noThus", label: "No. Thus", highlight: true },
+          { key: "length", label: "Length (m)", highlight: true },
+          { key: "width", label: "Width (m)", highlight: true },
+          { key: "thickness", label: "Thickness", highlight: true },
+        ],
+        defaultRows: [{ id: "CF1" }, { id: "CF2" }, { id: "CF3" }],
+      },
+      getReinforcementSubTab("concrete-formwork", "STAIRS DDT", "SD", "stair_ddt"),
+    ],
+  },
+];
 
 export function getSuperstructureConfig(item: string): TakeoffConfig | null {
+  const levels = [
+    "Column In Foundation",
+    "Messlin Floor",
+    "Ground Floor",
+    "First Floor",
+    "Second Floor",
+    "Third Floor",
+  ];
+
   // ── Column ────────────────────────────────────────────────────────────────
-  // TODO: implement
   if (item === "column") {
     return {
-      tabs: [
-        {
-          id: "column-concrete",
-          label: "Column (Concrete)",
-          title: "Column (Concrete)",
-          subtitle: "Enter column concrete specifications. All calculations automated.",
-          icon: PenTool,
-          subTabs: [
-            {
-              id: "concrete-formwork",
-              label: "Concrete & Formwork",
-              elementType: "column",
-              columns: [
-                { key: "id", label: "ID", readonly: true },
-                { key: "shape", label: "Shape", type: "select", options: ["rectangular", "circular"] },
-                { key: "count", label: "No. Thus", highlight: true },
-                { key: "length", label: "Length (m)", highlight: true },
-                { key: "width", label: "Width (m)", highlight: true },
-                { key: "depth", label: "Height (m)", highlight: true },
-              ],
-              defaultRows: [{ id: "COL1", shape: "rectangular" }],
-            },
-            {
-              id: "reinforcement",
-              label: "Reinforcement",
-              columns: [
-                { key: "centerToCenter", label: "Center to Center", highlight: true, multiInput: true },
-                { key: "sizeDia", label: "Size-Dia (mm)", highlight: true, multiInput: true },
-                { key: "noThus", label: "No Thus", highlight: true, multiInput: true },
-                { key: "noInEach", label: "No in Each", highlight: true, multiInput: true },
-                { key: "cutLength", label: "Cut Length (mm)", highlight: true, multiInput: true },
-              ],
-              hasBendingSummary: true,
-              groupedBy: "concrete-formwork",
-              groupLabelPrefix: "COLUMN",
-              groupIdPrefix: "COL",
-              defaultRows: [],
-            },
-          ],
-        },
-      ],
+      tabs: levels.map((level) => ({
+        id: level.toLowerCase().replace(/ /g, "-"),
+        label: level,
+        title: level,
+        subtitle: `Enter column specifications for ${level}. All calculations automated.`,
+        icon: Settings2,
+        subTabs: [
+          {
+            id: "concrete-formwork",
+            label: "Concrete & Formwork",
+            elementType: "column",
+            columns: [
+              { key: "id", label: "ID", readonly: true },
+              {
+                key: "shape",
+                label: "Shape",
+                type: "select",
+                options: ["Rectangular", "Circular"],
+              },
+              {
+                key: "state",
+                label: "State",
+                type: "select",
+                options: ["Isolated", "-"],
+              },
+              { key: "count", label: "No. Thus", highlight: true },
+              { key: "length", label: "Length/Radius (m)", highlight: true },
+              { key: "width", label: "Width (m)", highlight: true },
+              { key: "depth", label: "Height (m)", highlight: true },
+            ],
+            defaultRows: [{ id: "CT1", shape: "Rectangular", state: "Isolated" }],
+          },
+          getReinforcementSubTab("concrete-formwork", "COLUMN", "CT", "column"),
+        ],
+      })),
     };
   }
 
   // ── Floor & Beam ──────────────────────────────────────────────────────────
-  // TODO: implement
   if (item === "floor-beam") {
     return {
-      tabs: [
-        {
-          id: "floor-beam-concrete",
-          label: "Floor & Beam (Concrete)",
-          title: "Floor & Beam (Concrete)",
-          subtitle: "Enter floor and beam specifications. All calculations automated.",
-          icon: PenTool,
-          subTabs: [
-            {
-              id: "concrete-formwork",
-              label: "Concrete & Formwork",
-              elementType: "beam",
-              columns: [
-                { key: "id", label: "ID", readonly: true },
-                { key: "shape", label: "Shape", type: "select", options: ["rectangular", "circular"] },
-                { key: "count", label: "No. Thus", highlight: true },
-                { key: "length", label: "Length (m)", highlight: true },
-                { key: "width", label: "Width (m)", highlight: true },
-                { key: "depth", label: "Depth (m)", highlight: true },
-              ],
-              defaultRows: [{ id: "FB1", shape: "rectangular" }],
-            },
-            {
-              id: "reinforcement",
-              label: "Reinforcement",
-              columns: [
-                { key: "centerToCenter", label: "Center to Center", highlight: true, multiInput: true },
-                { key: "sizeDia", label: "Size-Dia (mm)", highlight: true, multiInput: true },
-                { key: "noThus", label: "No Thus", highlight: true, multiInput: true },
-                { key: "noInEach", label: "No in Each", highlight: true, multiInput: true },
-                { key: "cutLength", label: "Cut Length (mm)", highlight: true, multiInput: true },
-              ],
-              hasBendingSummary: true,
-              groupedBy: "concrete-formwork",
-              groupLabelPrefix: "FLOOR/BEAM",
-              groupIdPrefix: "FB",
-              defaultRows: [],
-            },
-          ],
-        },
-      ],
+      tabs: levels.slice(1).map((level) => ({
+        id: level.toLowerCase().replace(/ /g, "-"),
+        label: level,
+        title: level,
+        subtitle: `Enter floor and beam specifications for ${level}.`,
+        icon: PenTool,
+        subTabs: getFloorMemberSubTabs(),
+      })),
     };
   }
 
   // ── Shear Wall ────────────────────────────────────────────────────────────
-  // TODO: implement
   if (item === "shear-wall") {
     return {
-      tabs: [
-        {
-          id: "shear-wall-concrete",
-          label: "Shear Wall (Concrete)",
-          title: "Shear Wall (Concrete)",
-          subtitle: "Enter shear wall specifications. All calculations automated.",
-          icon: PenTool,
-          subTabs: [
-            {
-              id: "concrete-formwork",
-              label: "Concrete & Formwork",
-              elementType: "shear_wall",
-              columns: [
-                { key: "id", label: "ID", readonly: true },
-                { key: "shape", label: "Shape", type: "select", options: ["rectangular", "circular"] },
-                { key: "count", label: "No. Thus", highlight: true },
-                { key: "length", label: "Length (m)", highlight: true },
-                { key: "height", label: "Height (m)", highlight: true },
-                { key: "thickness", label: "Thickness (m)", highlight: true },
-              ],
-              defaultRows: [{ id: "SW1", shape: "rectangular" }],
-            },
-            {
-              id: "reinforcement",
-              label: "Reinforcement",
-              columns: [
-                { key: "centerToCenter", label: "Center to Center", highlight: true, multiInput: true },
-                { key: "sizeDia", label: "Size-Dia (mm)", highlight: true, multiInput: true },
-                { key: "noThus", label: "No Thus", highlight: true, multiInput: true },
-                { key: "noInEach", label: "No in Each", highlight: true, multiInput: true },
-                { key: "cutLength", label: "Cut Length (mm)", highlight: true, multiInput: true },
-              ],
-              hasBendingSummary: true,
-              groupedBy: "concrete-formwork",
-              groupLabelPrefix: "SHEAR WALL",
-              groupIdPrefix: "SW",
-              defaultRows: [],
-            },
-          ],
-        },
-      ],
+      tabs: levels.slice(1).map((level) => ({
+        id: level.toLowerCase().replace(/ /g, "-"),
+        label: level,
+        title: `Shear Wall - ${level}`,
+        subtitle: "Enter shear wall specifications. All calculations automated.",
+        icon: PenTool,
+        subTabs: [
+          {
+            id: "concrete-formwork",
+            label: "Concrete & Formwork",
+            elementType: "shear_wall",
+            columns: [
+              { key: "id", label: "ID", readonly: true },
+              { key: "count", label: "No. Thus", highlight: true },
+              { key: "length", label: "Length (m)", highlight: true },
+              { key: "height", label: "Height (m)", highlight: true },
+              { key: "thickness", label: "Thickness (m)", highlight: true },
+            ],
+            defaultRows: [{ id: "SW1" }],
+          },
+          getReinforcementSubTab("concrete-formwork", "SHEAR WALL", "SW", "shear_wall"),
+        ],
+      })),
     };
   }
 
   // ── Stairs ────────────────────────────────────────────────────────────────
-  // TODO: implement
   if (item === "stairs") {
     return {
       tabs: [
@@ -226,21 +218,19 @@ export function getSuperstructureConfig(item: string): TakeoffConfig | null {
           elementType: "staircase",
           columns: [
             { key: "id", label: "ID", readonly: true },
-            { key: "shape", label: "Shape", type: "select", options: ["rectangular", "circular"] },
             { key: "count", label: "No. Thus", highlight: true },
             { key: "noRisers", label: "No. of Risers", highlight: true },
             { key: "riserHeight", label: "Riser Height (m)", highlight: true },
             { key: "treadWidth", label: "Tread Width (m)", highlight: true },
             { key: "flightWidth", label: "Flight Width (m)", highlight: true },
           ],
-          defaultRows: [{ id: "STR1", shape: "rectangular" }],
+          defaultRows: [{ id: "STR1" }],
         },
       ],
     };
   }
 
   // ── Lift Shaft ────────────────────────────────────────────────────────────
-  // TODO: implement
   if (item === "lift-shaft") {
     return {
       tabs: [
@@ -253,21 +243,19 @@ export function getSuperstructureConfig(item: string): TakeoffConfig | null {
           elementType: "lift_wall",
           columns: [
             { key: "id", label: "ID", readonly: true },
-            { key: "shape", label: "Shape", type: "select", options: ["rectangular", "circular"] },
-            { key: "count", label: "No. Thus", highlight: true },
+            { key: "noThus", label: "No. Thus", highlight: true },
             { key: "length", label: "Length (m)", highlight: true },
             { key: "width", label: "Width (m)", highlight: true },
             { key: "height", label: "Height (m)", highlight: true },
-            { key: "thickness", label: "Wall Thickness (m)", highlight: true },
+            { key: "wallThickness", label: "Wall Thickness (m)", highlight: true },
           ],
-          defaultRows: [{ id: "LS1", shape: "rectangular" }],
+          defaultRows: [{ id: "LS1" }],
         },
       ],
     };
   }
 
   // ── Swimming Pool ─────────────────────────────────────────────────────────
-  // TODO: implement
   if (item === "swimming-pool") {
     return {
       tabs: [
@@ -280,14 +268,13 @@ export function getSuperstructureConfig(item: string): TakeoffConfig | null {
           elementType: "swimming_pool",
           columns: [
             { key: "id", label: "ID", readonly: true },
-            { key: "shape", label: "Shape", type: "select", options: ["rectangular", "circular"] },
-            { key: "count", label: "No. Thus", highlight: true },
+            { key: "noThus", label: "No. Thus", highlight: true },
             { key: "length", label: "Length (m)", highlight: true },
             { key: "width", label: "Width (m)", highlight: true },
             { key: "depth", label: "Depth (m)", highlight: true },
             { key: "wallThickness", label: "Wall Thickness (m)", highlight: true },
           ],
-          defaultRows: [{ id: "POOL1", shape: "rectangular" }],
+          defaultRows: [{ id: "POOL1" }],
         },
       ],
     };
