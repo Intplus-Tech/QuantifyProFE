@@ -88,7 +88,7 @@ export default function TemplatesPage() {
         "https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&q=80&w=800&h=450",
       boqGenerated: apiTemplate.boqCount || 0,
       estValue: "₦50M - ₦150M", // Placeholder as it's not in API
-      sections: apiTemplate.boqResult.sections.map((s) => s.sectionName),
+      sections: apiTemplate.boqResult?.sections?.map((s) => s.sectionName) || [],
       features: apiTemplate.keyFeatures || [],
       tags: apiTemplate.tags || [],
       templateType:
