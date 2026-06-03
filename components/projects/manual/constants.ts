@@ -18,9 +18,7 @@ import type {
 
 export const WIZARD_STEPS = [
   { id: 1, label: "Project Details", subtitle: "Info & location" },
-  { id: 2, label: "Scope", subtitle: "Structural config" },
-  { id: 3, label: "Finishing", subtitle: "Materials" },
-  { id: 4, label: "Metrics", subtitle: "Currency & rates" },
+  { id: 2, label: "Drawings", subtitle: "Upload files" },
 ] as const;
 
 // ─── Foundation type map ──────────────────────────────────────────────────────

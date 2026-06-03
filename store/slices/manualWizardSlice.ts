@@ -1,73 +1,68 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
-import {
-  defaultStep2,
-  defaultStep3,
-  defaultStep4,
-  defaultStep5,
-} from "@/components/projects/manual/constants";
-import {
-  normalizeFinishingState,
-  normalizeScopeState,
-} from "@/components/projects/manual/stateNormalization";
-import type {
-  Step2Data,
-  Step3Data,
-  Step4Data,
-  Step5Data,
-  WizardState,
-} from "@/components/projects/manual/types";
+import { defaultStep2 } from "@/components/projects/manual/constants";
+import type { Step2Data } from "@/components/projects/manual/types";
+
+export type DrawingCategory = "pdf" | "image" | "bim-3d" | "cad-2d";
+export type DrawingStatus = "queued" | "uploading" | "processing" | "complete" | "error";
+
+export interface DrawingFile {
+  id: string;
+  name: string;
+  size: number;
+  extension: string;
+  category: DrawingCategory;
+  status: DrawingStatus;
+  progress: number;
+  previewUrl?: string;
+  uploadedUrl?: string;
+  pageCount?: number;
+  error?: string;
+}
 
 interface ManualWizardState {
   currentStep: number;
-  wizard: WizardState;
+  details: Step2Data;
+  drawings: DrawingFile[];
   draftSavedAt: number | null;
   createdProjectId: string | null;
 }
 
 const initialState: ManualWizardState = {
   currentStep: 1,
+  details: defaultStep2(),
+  drawings: [],
   draftSavedAt: null,
   createdProjectId: null,
-  wizard: {
-    step2: defaultStep2(),
-    scope: defaultStep3(),
-    finishing: defaultStep4(),
-    metrics: defaultStep5(),
-  },
 };
 
 const manualWizardSlice = createSlice({
   name: "manualWizard",
   initialState,
   reducers: {
-    setCurrentStep(state, action: PayloadAction<number>) {
-      state.currentStep = Math.max(1, Math.min(action.payload, 4));
-    },
     goNextStep(state) {
-      state.currentStep = Math.min(state.currentStep + 1, 4);
+      state.currentStep = Math.min(state.currentStep + 1, 2);
     },
     goBackStep(state) {
       state.currentStep = Math.max(state.currentStep - 1, 1);
     },
-    updateStep2(state, action: PayloadAction<Step2Data>) {
-      state.wizard.step2 = action.payload;
+    setDetails(state, action: PayloadAction<Step2Data>) {
+      state.details = action.payload;
     },
-    updateScope(state, action: PayloadAction<Step3Data>) {
-      const normalizedScope = normalizeScopeState(action.payload);
-      state.wizard.scope = normalizedScope;
-      state.wizard.finishing = normalizeFinishingState(
-        state.wizard.finishing,
-        normalizedScope.scopeConfig,
-      );
+    addDrawing(state, action: PayloadAction<DrawingFile>) {
+      if (state.drawings.length < 10) {
+        state.drawings.push(action.payload);
+      }
     },
-    updateFinishing(state, action: PayloadAction<Step4Data>) {
-      state.wizard.finishing = normalizeFinishingState(
-        action.payload,
-        state.wizard.scope.scopeConfig,
-      );
+    updateDrawing(state, action: PayloadAction<Partial<DrawingFile> & { id: string }>) {
+      const idx = state.drawings.findIndex((d) => d.id === action.payload.id);
+      if (idx !== -1) {
+        state.drawings[idx] = { ...state.drawings[idx], ...action.payload };
+      }
     },
-    updateMetrics(state, action: PayloadAction<Step5Data>) {
-      state.wizard.metrics = action.payload;
+    removeDrawing(state, action: PayloadAction<string>) {
+      const file = state.drawings.find((d) => d.id === action.payload);
+      if (file?.previewUrl) URL.revokeObjectURL(file.previewUrl);
+      state.drawings = state.drawings.filter((d) => d.id !== action.payload);
     },
     markDraftSaved(state) {
       state.draftSavedAt = Date.now();
@@ -76,27 +71,25 @@ const manualWizardSlice = createSlice({
       state.createdProjectId = action.payload;
     },
     resetWizard(state) {
-      state.currentStep = initialState.currentStep;
-      state.draftSavedAt = initialState.draftSavedAt;
-      state.createdProjectId = initialState.createdProjectId;
-      state.wizard = {
-        step2: defaultStep2(),
-        scope: defaultStep3(),
-        finishing: defaultStep4(),
-        metrics: defaultStep5(),
-      };
+      state.drawings.forEach((d) => {
+        if (d.previewUrl) URL.revokeObjectURL(d.previewUrl);
+      });
+      state.currentStep = 1;
+      state.details = defaultStep2();
+      state.drawings = [];
+      state.draftSavedAt = null;
+      state.createdProjectId = null;
     },
   },
 });
 
 export const {
-  setCurrentStep,
   goNextStep,
   goBackStep,
-  updateStep2,
-  updateScope,
-  updateFinishing,
-  updateMetrics,
+  setDetails,
+  addDrawing,
+  updateDrawing,
+  removeDrawing,
   markDraftSaved,
   setCreatedProjectId,
   resetWizard,
