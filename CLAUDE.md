@@ -98,23 +98,43 @@ projects         manualWizard  projectWorkspace  takeoff
 > **Important:** `store/index 2.ts` was a stale duplicate that had the correct reducers.
 > It has been merged into `store/index.ts`. The `index 2.ts` file can be deleted.
 
-### manualWizardSlice (simplified)
+### manualWizardSlice
 ```typescript
 interface ManualWizardState {
-  currentStep: number;       // 1 | 2
-  details: Step2Data;        // project details form
-  drawings: DrawingFile[];   // uploaded files (max 10)
+  currentStep: number;          // 1 | 2
+  details: Step2Data;           // project details form
+  drawings: DrawingFile[];      // uploaded files (max 10)
+  folders: DrawingFolder[];     // organisational folders (default: [{ id:'default', name:'DRAWINGS' }])
   draftSavedAt: number | null;
   createdProjectId: string | null;
 }
+
+interface DrawingFile {
+  id, name, size, extension, category, status, progress
+  previewUrl?       // blob URL — revoked on remove/reset
+  uploadedUrl?      // backend URL after upload completes
+  pages: DrawingPage[]   // populated when PDF loads in canvas (react-pdf onLoadSuccess)
+  folderId: string | null
+  pageCount?, error?
+}
+
+interface DrawingFolder { id, name, fileIds: string[] }
+interface DrawingPage   { number: number; label: string }
 ```
 
-Exported actions: `goNextStep` `goBackStep` `setDetails` `addDrawing` `updateDrawing`
-`removeDrawing` `markDraftSaved` `setCreatedProjectId` `resetWizard`
+Exported actions:
+`goNextStep` `goBackStep` `setDetails`
+`addDrawing` `updateDrawing` `removeDrawing` `setDrawingPages`
+`addFolder` `renameFolder` `removeFolder` `moveDrawingToFolder`
+`markDraftSaved` `setCreatedProjectId` `resetWizard`
 
-Exported types: `DrawingFile` `DrawingCategory` `DrawingStatus`
+Exported types: `DrawingFile` `DrawingFolder` `DrawingPage` `DrawingCategory` `DrawingStatus`
 
-Blob URLs are revoked automatically on `removeDrawing` and `resetWizard`.
+Key behaviours:
+- `addDrawing` auto-assigns to first folder; creates default folder if none exists
+- `setDrawingPages` is dispatched by the workspace canvas when `react-pdf` resolves `numPages`
+- Blob URLs are revoked automatically on `removeDrawing` and `resetWizard`
+- `removeFolder` moves orphaned files to the next available folder
 
 ---
 
@@ -125,36 +145,47 @@ Blob URLs are revoked automatically on `removeDrawing` and `resetWizard`.
 `ProjectWorkspaceView.tsx` renders a **PlanSwift-style canvas** layout:
 
 ```
-┌─────────────────────────────────────────────────────┐
-│ Top bar: project name │ Auto-saved │ View BOQ        │
-├──────────────┬──────────────────────────────────────┤
-│ Left panel   │  Canvas area                         │
-│  • Tools     │  (PDF/image rendered here via        │
-│    markup     │   react-pdf or <img>)                │
-│    polygon    │                                      │
-│    count      │  Empty state: "Viewing No Drawing…  │
-│    text       │   Open Drawing"                      │
-│    undo/redo  │                                      │
-│  • Colour    │                                      │
-│    palette    │                                      │
-│  • Elements  │                                      │
-│    search     │                                      │
-│    + Create   │                                      │
-│              │                                      │
-│  [DRAWINGS ▲]│                                      │
-│  (accordion  │                                      │
-│   drawer)    │                                      │
-└──────────────┴──────────────────────────────────────┘
+┌──────────────────────┬──────────────────────────────────────────┐
+│ LEFT SIDEBAR         │  TOP BAR                                 │
+│  • Header            │  🏠 > Workspace > [file] > Page N of M   │
+│  • DASHBOARD link    │                        Auto-saved just now│
+│  • TOOLS             ├──────────────────────────────────────────┤
+│    (8 tool buttons)  │  CANVAS                                  │
+│    colour palette    │  (PDF via react-pdf, img via <img>)       │
+│  • ASSEMBLIES        │  BIM/CAD shows placeholder               │
+│  • DRAWINGS          │                                          │
+│    [search box]      │  ┌───────────┐  bottom-left: zoom panel  │
+│    shadcn Accordion: │  │ - + ↔    │  bottom-right: page badge  │
+│    ▼ FOLDER [n]      │  └───────────┘  "Page N — filename"      │
+│      📄 file.pdf     │                                          │
+│        Page 1        │                                          │
+│        Page 2 ←sel   │                                          │
+│      📄 file2.pdf    │                                          │
+│    ▼ FOLDER 2 [n]    │                                          │
+│    ──────────────    │                                          │
+│    [New Folder][↑]   │                                          │
+└──────────────────────┴──────────────────────────────────────────┘
 ```
 
-- Drawings in the accordion are sourced from `state.manualWizard.drawings`
-- Click a drawing → renders in canvas; PDF uses react-pdf with zoom + page nav
-- Tool icons are UI-only placeholders — takeoff annotation logic comes later
+**Sidebar behaviour:**
+- Folders use **shadcn `<Accordion type="multiple">`** — all can be open simultaneously
+- Files within folders are plain buttons; active file is highlighted amber
+- When a file is selected AND has `pages.length > 1`, its page sub-list expands beneath it
+- Clicking a page → `selectedPage` state updates → canvas renders that exact page
+- Pages are populated lazily: `react-pdf`'s `onLoadSuccess` dispatches `setDrawingPages`
+- **New Folder** opens a dialog to name and create a `DrawingFolder` in Redux
+- **Upload** triggers a hidden `<input type="file">`, uploads go into the first folder
+
+**Canvas behaviour:**
+- Breadcrumb: `🏠 > Workspace > [drawing name] > Page N of M`
+- Floating zoom panel: bottom-left (ZoomIn / ZoomOut / Reset)
+- Page badge: bottom-right — `Page N — drawing name`
+- No drawing selected → "Viewing No Drawing..." empty state
 
 ### Sub-pages (BOQ, Takeoff, Configuration)
 `ProjectWorkspaceLayout.tsx` detects `activeSegment`:
-- `"/"` → renders children directly (canvas owns full-screen layout)
-- Anything else → wraps in sidebar nav layout
+- `"/"` → passes children through directly (canvas owns full-screen layout)
+- Anything else → wraps in sidebar nav layout with "← Back to Workspace" button
 
 ---
 

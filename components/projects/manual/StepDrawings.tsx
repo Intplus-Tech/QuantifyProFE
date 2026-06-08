@@ -10,7 +10,6 @@ import {
   addDrawing,
   updateDrawing,
   removeDrawing,
-  type DrawingFile,
   type DrawingCategory,
 } from "@/store/slices/manualWizardSlice";
 import { DrawingFileList } from "./DrawingFileList";
@@ -94,13 +93,13 @@ export function StepDrawings({ onBack, onSaveAndProceed, isSaving }: StepDrawing
           ? URL.createObjectURL(file)
           : undefined;
 
-      const entry: DrawingFile = {
+      const entry = {
         id,
         name: file.name,
         size: file.size,
         extension: ext,
         category,
-        status: "uploading",
+        status: "uploading" as const,
         progress: 0,
         previewUrl,
       };
@@ -165,8 +164,6 @@ export function StepDrawings({ onBack, onSaveAndProceed, isSaving }: StepDrawing
       setSelectedId(next?.id ?? null);
     }
   }
-
-  const allComplete = drawings.length > 0 && drawings.every((d) => d.status === "complete");
 
   return (
     <div className="space-y-4">
