@@ -145,26 +145,27 @@ Key behaviours:
 `ProjectWorkspaceView.tsx` renders a **PlanSwift-style canvas** layout:
 
 ```
-┌──────────────────────┬──────────────────────────────────────────┐
-│ LEFT SIDEBAR         │  TOP BAR                                 │
-│  • Header            │  🏠 > Workspace > [file] > Page N of M   │
-│  • DASHBOARD link    │                        Auto-saved just now│
-│  • TOOLS             ├──────────────────────────────────────────┤
-│    (8 tool buttons)  │  CANVAS                                  │
-│    colour palette    │  (PDF via react-pdf, img via <img>)       │
-│  • ASSEMBLIES        │  BIM/CAD shows placeholder               │
-│  • DRAWINGS          │                                          │
-│    [search box]      │  ┌───────────┐  bottom-left: zoom panel  │
-│    shadcn Accordion: │  │ - + ↔    │  bottom-right: page badge  │
-│    ▼ FOLDER [n]      │  └───────────┘  "Page N — filename"      │
-│      📄 file.pdf     │                                          │
-│        Page 1        │                                          │
-│        Page 2 ←sel   │                                          │
-│      📄 file2.pdf    │                                          │
-│    ▼ FOLDER 2 [n]    │                                          │
-│    ──────────────    │                                          │
-│    [New Folder][↑]   │                                          │
-└──────────────────────┴──────────────────────────────────────────┘
+┌──────────────────────┬──────────────────────────────────────────┬─────────────┐
+│ LEFT SIDEBAR         │  TOP BAR                                 │             │
+│  • Header            │  🏠 > Workspace > [file] > Page N of M   │  ELEMENT    │
+│  • DASHBOARD link    │                 Scale Locked | View BOQ  │  DETAIL     │
+│  • TOOLS             ├──────────────────────────────────────────┤  PANEL      │
+│    (6 tool buttons)  │  CANVAS                                  │  (count     │
+│    colour palette    │  (PDF via react-pdf, img via <img>)       │   mode only)│
+│  • ASSEMBLIES        │  BIM/CAD shows placeholder               │             │
+│    (hidden in count) │                                          │             │
+│  • DRAWINGS / ELEMENTS│  ┌───────────┐  bottom-left: zoom panel │             │
+│    [search box]      │  │ - + ↔    │  bottom-right: page badge  │             │
+│    shadcn Accordion  │  └───────────┘  "Page N — filename"      │             │
+│    OR count mode     │                                          │             │
+│    ELEMENTS panel    │                                          │             │
+│    [+ Create Elements│                                          │             │
+└──────────────────────┴──────────────────────────────────────────┴─────────────┘
+                        ┌─────────────────────────────────────────────────────────┐
+                        │ BOTTOM BAR (count mode only)                             │
+                        │  Before scale: CALIBRATION REQUIRED + known-dist input  │
+                        │  After scale:  Ready to measure + quick tips            │
+                        └─────────────────────────────────────────────────────────┘
 ```
 
 **Sidebar behaviour:**
@@ -175,12 +176,89 @@ Key behaviours:
 - Pages are populated lazily: `react-pdf`'s `onLoadSuccess` dispatches `setDrawingPages`
 - **New Folder** opens a dialog to name and create a `DrawingFolder` in Redux
 - **Upload** triggers a hidden `<input type="file">`, uploads go into the first folder
+- In **count mode**: ASSEMBLIES section hides; DRAWINGS card is replaced by ELEMENTS panel
 
 **Canvas behaviour:**
 - Breadcrumb: `🏠 > Workspace > [drawing name] > Page N of M`
 - Floating zoom panel: bottom-left (ZoomIn / ZoomOut / Reset)
 - Page badge: bottom-right — `Page N — drawing name`
 - No drawing selected → "Viewing No Drawing..." empty state
+
+**Top bar in count mode:**
+- "Scale Locked" green badge appears once calibration is applied
+- "View BOQ" amber button appears while count mode is active
+
+---
+
+### Count Tool Flow
+
+Clicking the **Count** tool triggers a sequential modal flow:
+
+1. **BBSQuestionModal** — "Does this drawing have a Bar Bending Schedule?"
+   - Yes → BBSEntryModal
+   - No / Skip → ScaleSetupModal directly
+
+2. **BBSEntryModal** — table: BAR MARK, BAR SIZE (Select), LENGTH MM, QUANTITY
+   - Save Schedule → ScaleSetupModal
+
+3. **ScaleSetupModal** — "Would you like to scale for this page?"
+   - Select what to measure (Pile / Column / Beam / etc.)
+   - Yes → count mode active + calibration bottom bar + Element Detail Panel opens
+   - No → same (scale can be set later)
+
+4. **Count mode active** changes the workspace:
+   - Bottom bar shows CALIBRATION REQUIRED → enter known distance → Apply Scale
+   - After scale applied: "Ready to measure" + Lock Scale toggle + quick tips
+   - ELEMENTS sidebar panel replaces DRAWINGS
+   - "Scale Locked" + "View BOQ" appear in top bar
+   - Element Detail Panel slides open on the right
+
+---
+
+### Element Detail Panel
+
+A `290px` right-side panel that opens immediately when `ScaleSetupModal` is dismissed (regardless of Yes/No). Renders alongside the canvas.
+
+**CONCRETE tab:**
+- Tag input, Counts (static), Shape/Depth/Diameter/Plasticizers, Color swatch
+
+**REBAR tab:**
+- Rebar Input Method radio (Read from drawing / Enter manually)
+- Main Bars table (Size Select, Number, Depth)
+- Addition Bars table (same structure, with "+ Add Bar")
+- Stirrups toggle + Size/Spacing when enabled
+- Color swatch
+
+**Footer buttons:**
+- "Apply & Continue" — logs to console (TODO: persist to element)
+- "+ Assign Element" — opens the Assign Element modal flow
+
+The panel header shows the measure type from `ScaleSetupModal` (e.g. "PILE", "COLUMN") via the `measure` prop.
+
+---
+
+### Assign Element Modal Chain
+
+Opens from "+ Assign Element" in the Element Detail Panel footer.
+
+```
+AssignItemsModal
+  ├── "Create New Element" →  CreateNewElementModal
+  │                             └── onCreate → toast + close
+  │                             └── "Use Existing" → back to AssignItemsModal
+  └── "Assign to Existing" →  ConfirmAssignmentModal
+                                └── "Confirm Merge" → AssignmentCompleteModal
+                                                        └── Close | View Element
+```
+
+- **AssignItemsModal**: radio cards (Create New / Assign to Existing), expandable element list with search
+- **ConfirmAssignmentModal**: shows current/adding/new-total preview
+- **AssignmentCompleteModal**: success state
+- **CreateNewElementModal**: category folder + measurement unit selects, "Assign Pile Parameters" table
+
+All modals support back-navigation (Cancel re-opens previous modal where appropriate).
+
+---
 
 ### Sub-pages (BOQ, Takeoff, Configuration)
 `ProjectWorkspaceLayout.tsx` detects `activeSegment`:
@@ -251,13 +329,29 @@ placeholder card. Two swap points are marked with `/* SWAP POINT */` comments:
 | `DrawingFileList` | same | Reusable file list with status |
 | `DrawingPreviewPanel` | same | Reusable preview (PDF + image + BIM placeholder) |
 | `SaveSetupModal` | same | Post-save confirmation modal |
-| `ProjectWorkspaceView` | `components/projects/workspace/` | Canvas workspace (main page) |
+| `ProjectWorkspaceView` | `components/projects/workspace/` | Canvas workspace — main component |
 | `ProjectWorkspaceLayout` | same | Layout wrapper (sidebar for sub-pages) |
 | `workspaceMapper` | same | Builds workspace snapshot from wizard state |
 | `manualWizardSlice` | `store/slices/` | Wizard Redux state |
 | `projectWorkspaceSlice` | `store/slices/` | Per-project workspace snapshots (persisted) |
 | `manualProjectApi` | `store/api/` | QS config, scope, finishing, metrics mutations |
 | `projectsApi` | `store/api/` | CRUD, file upload, BIM processing, dashboard |
+
+**Sub-components inside `ProjectWorkspaceView.tsx` (all co-located in same file):**
+
+| Component | Purpose |
+|---|---|
+| `DrawingCanvas` | Renders PDF (react-pdf), image, or BIM placeholder |
+| `FileRow` | Single drawing row + page sub-list in sidebar |
+| `NewFolderDialog` | Modal to name a new drawing folder |
+| `BBSQuestionModal` | Step 1 of Count flow — BBS yes/no |
+| `BBSEntryModal` | Step 2 — BBS data entry table |
+| `ScaleSetupModal` | Step 3 — page scale setup (measure type + yes/no) |
+| `ElementDetailPanel` | Right-side panel: CONCRETE / REBAR tabs + apply/assign footer |
+| `AssignItemsModal` | Assign flow step 1 — create new vs assign to existing |
+| `ConfirmAssignmentModal` | Assign flow step 2 — merge preview |
+| `AssignmentCompleteModal` | Assign flow step 3 — success state |
+| `CreateNewElementModal` | Alternate assign path — new element form |
 
 ---
 
@@ -288,20 +382,44 @@ placeholder card. Two swap points are marked with `/* SWAP POINT */` comments:
 
 ## Branching History (relevant)
 
-| Branch | Description |
+| Branch | Description | Remote? |
+|---|---|---|
+| `main` | Production | ✅ pushed |
+| `feat/2-step-wizard-canvas-workspace` | 2-step wizard + canvas workspace overhaul (current) | ❌ local only — DO NOT push without user confirmation |
+| `5-manual-mode-integration` | Previous 4-step wizard integration (merged) | ✅ |
+| `auth/integration` | Auth flow integration (merged) | ✅ |
+
+Latest commit on `feat/2-step-wizard-canvas-workspace`: `feat: folder/page hierarchy sidebar + redesign to match Figma spec`
+
+---
+
+## Workspace Sidebar — Visual Spec (last redesigned to match Figma)
+
+| Section | Implementation |
 |---|---|
-| `main` | Production |
-| `feat/2-step-wizard-canvas-workspace` | 2-step wizard + canvas workspace overhaul (current) |
-| `5-manual-mode-integration` | Previous 4-step wizard integration (merged) |
-| `auth/integration` | Auth flow integration (merged) |
+| Sidebar width | `w-[248px]`, `bg-white` |
+| Header | `bg-[#fdf8f0]` warm cream, amber-500 `LayoutGrid` icon (rounded-xl), bold project name + subtitle |
+| DASHBOARD | `Home` icon, bold uppercase `tracking-widest` |
+| TOOLS | `Wrench` label, 6× `w-9 h-9 rounded-lg` buttons (Length/Area/Count/Text/Undo/Redo), active = `bg-amber-500`; colour palette `h-7 rounded-lg border` |
+| ASSEMBLIES | `Box` icon + label, no placeholder text |
+| DRAWINGS card | `rounded-xl border border-slate-200 shadow-sm bg-white` inside `p-2` |
+| Card header | Amber `FolderOpen` + **"DRAWINGS"** bold + `SlidersHorizontal` filter icon |
+| FileRow active | `bg-amber-50 text-amber-700` |
+| FileRow inactive | `text-slate-600 hover:bg-slate-50` |
+| Page sub-list | `ml-6 border-l-2 border-amber-200 pl-4` |
+| Card footer | "New Folder" (outlined) + "Upload" (`bg-amber-50`) inside card |
+
+**Behaviour note:** Drawings uploaded during wizard creation auto-populate the DRAWINGS folder.
+"New Folder" and "Upload" inside the card are secondary/backup controls.
 
 ---
 
 ## Conventions
 
-- **Colours:** Primary action = amber/orange (`bg-amber-500`). Workspace bg = `#dbe3eb`. Panel bg = `#f8fafc`
+- **Colours:** Primary action = amber/orange (`bg-amber-500`). Workspace bg = `#dbe3eb`. Panel bg = `#f8fafc`. Sidebar header = `#fdf8f0`
 - **Toasts:** Use `sonner` (`toast.success`, `toast.error`, `toast.warning`)
 - **Form validation:** `react-hook-form` + `zod`
 - **Icons:** `lucide-react` only
 - **No comments** unless the WHY is non-obvious. No docstrings.
 - **Simulated data / stubs** must have a clearly marked `// TODO:` swap comment
+- **Git pushes:** Do NOT push to remote without explicit user confirmation. User has rejected pushes twice ("dont push"). Always ask before pushing.
