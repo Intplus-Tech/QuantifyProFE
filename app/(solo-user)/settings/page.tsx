@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Settings,
@@ -23,7 +24,7 @@ const tabs = [
   { id: "help", label: "Help & Support", icon: HelpCircle },
 ];
 
-export default function SettingsPage() {
+function SettingsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeTab = searchParams.get("tab") ?? "profile";
@@ -77,5 +78,13 @@ export default function SettingsPage() {
         {activeTab === "help" && <HelpSupport />}
       </div>
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={null}>
+      <SettingsContent />
+    </Suspense>
   );
 }

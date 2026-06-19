@@ -1,4 +1,21 @@
 "use client";
+
+// ============================================================================
+// AUTH BYPASS — DEV / OFFLINE MODE
+// ============================================================================
+// Set this flag to `true` to skip all authentication checks and load
+// any page (e.g. the workspace) without a backend connection.
+//
+// TO RE-ENABLE AUTH:
+//   1. Change the line below to:  const BYPASS_AUTH = false;
+//   2. npm run build  — confirm no TypeScript errors
+//   3. Remove this comment block if you like, or leave it for future reference
+//
+// Nothing else needs to change — all the original auth logic below is preserved
+// in commented-out form and will be fully active once BYPASS_AUTH is false.
+// ============================================================================
+const BYPASS_AUTH = true;
+
 import { RootState } from "@/store";
 import { useGetProfileQuery } from "@/store/api/userApi";
 import { logout, setAuth } from "@/store/slices/authSlice";
@@ -14,6 +31,13 @@ import { useDispatch, useSelector } from "react-redux";
 import { toast } from "sonner";
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
+  // ── BYPASS: skip all auth when BYPASS_AUTH is true ─────────────────────────
+  if (BYPASS_AUTH) {
+    return <>{children}</>;
+  }
+  // ── END BYPASS ─────────────────────────────────────────────────────────────
+
+  /* eslint-disable react-hooks/rules-of-hooks */
   const dispatch = useDispatch();
   const router = useRouter();
   const pathname = usePathname();

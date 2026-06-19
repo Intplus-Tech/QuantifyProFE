@@ -1,5 +1,5 @@
-import { ManualSetupShell } from "@/components/projects/manual/ManualSetupShell";
+import { NewProjectClient } from "./NewProjectClient";
 
 export default function NewProjectPage() {
-  return <ManualSetupShell basePath="/projects" />;
+  return <NewProjectClient />;
 }
