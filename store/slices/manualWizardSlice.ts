@@ -80,7 +80,10 @@ const manualWizardSlice = createSlice({
 
       const file: DrawingFile = {
         ...action.payload,
-        pages: [],
+        pages:
+          action.payload.category === "image"
+            ? [{ number: 1, label: "Page 1" }]
+            : [],
         folderId: targetFolderId,
       };
 

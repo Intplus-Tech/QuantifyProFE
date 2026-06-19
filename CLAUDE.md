@@ -294,28 +294,266 @@ placeholder card. Two swap points are marked with `/* SWAP POINT */` comments:
 - `components/projects/manual/DrawingPreviewPanel.tsx` → `BimViewerPlaceholder`
 - `components/projects/workspace/ProjectWorkspaceView.tsx` → `BimViewerPlaceholder`
 
-### Phase 1 — Free (implement when ready)
-**`@thatopen/components` + `web-ifc`** (MIT, $0 forever)
-- Supports: `.ifc` only
-- Runs 100% in browser, no cloud, no API key
-- Install: `npm install @thatopen/components web-ifc`
-- Replace `BimViewerPlaceholder` with `<IfcViewer url={file.previewUrl} />`
+### Phase 1 — Free Tier 1 (client-side, zero cloud cost)
 
-### Phase 2 — Paid (for RVT, DWG, NWD support)
-**Autodesk Platform Services (APS)** — the only browser solution for proprietary formats
+Full implementation plan below. All libraries run 100% in the browser — no API keys, no cloud costs.
 
-| Plan | ~Monthly Cost | Tokens | Use case |
+**Format coverage after Phase 1:**
+`.ifc` `.dxf` `.dwg` `.fbx` `.obj` `.step` `.iges` `.stl` `.ply` `.dae`
+
+---
+
+#### Step 1 — IFC viewer (`@thatopen/components` + `web-ifc`)
+
+**Install:**
+```bash
+npm install @thatopen/components web-ifc three
+npm install -D @types/three
+```
+
+**WASM worker setup** — add to `next.config.js`:
+```js
+const CopyPlugin = require("copy-webpack-plugin");
+config.plugins.push(
+  new CopyPlugin({
+    patterns: [{ from: "node_modules/web-ifc/web-ifc.wasm", to: "../public/web-ifc.wasm" }],
+  })
+);
+```
+
+**Create:** `components/projects/workspace/viewers/IfcViewer.tsx`
+```tsx
+"use client";
+import { useEffect, useRef } from "react";
+import * as OBC from "@thatopen/components";
+
+export function IfcViewer({ url, onFloorsResolved }: { url: string; onFloorsResolved: (count: number, labels: string[]) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    const components = new OBC.Components();
+    const worlds = components.get(OBC.Worlds);
+    const world = worlds.create();
+    world.scene = new OBC.SimpleScene(components);
+    world.renderer = new OBC.SimpleRenderer(components, ref.current);
+    world.camera = new OBC.SimpleCamera(components);
+    components.init();
+    world.camera.controls.setLookAt(12, 6, 8, 0, 0, -10);
+    const ifcLoader = components.get(OBC.IfcLoader);
+    ifcLoader.settings.wasm = { path: "/", absolute: true };
+    async function load() {
+      const buf = await (await fetch(url)).arrayBuffer();
+      const model = await ifcLoader.load(new Uint8Array(buf));
+      world.scene.three.add(model);
+      const classifier = components.get(OBC.Classifier);
+      await classifier.byStorey(model);
+      const storeys = Object.keys(classifier.list.storeys ?? {});
+      onFloorsResolved(storeys.length || 1, storeys.length ? storeys : ["3D View"]);
+    }
+    load().catch(console.error);
+    return () => components.dispose();
+  }, [url, onFloorsResolved]);
+  return <div ref={ref} className="w-full h-full" />;
+}
+```
+
+**Wire SWAP POINT** in `DrawingCanvas` (ProjectWorkspaceView.tsx):
+- Condition: `drawing.category === "bim-3d" && drawing.extension === ".ifc" && drawing.previewUrl`
+- Replace placeholder with `<IfcViewer url={drawing.previewUrl} onFloorsResolved={(count, labels) => onPageCountResolved(drawing.id, count)} />`
+- Also wire in `DrawingPreviewPanel.tsx` for wizard Step 2 preview
+
+**Effort:** ~1 day
+
+---
+
+#### Step 2 — DXF viewer (`dxf-viewer`)
+
+**Install:**
+```bash
+npm install dxf-viewer three
+```
+
+**Create:** `components/projects/workspace/viewers/DxfViewer.tsx`
+```tsx
+"use client";
+import { useEffect, useRef } from "react";
+import { DxfViewer as DxfViewerLib } from "dxf-viewer";
+
+export function DxfViewer({ url }: { url: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    const viewer = new DxfViewerLib(ref.current, { autoResize: true, colorCorrection: true });
+    viewer.Load({ url, fonts: [] }).catch(console.error);
+    return () => viewer.Destroy();
+  }, [url]);
+  return <div ref={ref} className="w-full h-full" />;
+}
+```
+
+**Wire SWAP POINT:**
+- Condition: `drawing.category === "cad-2d" && drawing.extension === ".dxf" && drawing.previewUrl`
+- DXF is always 1 page (2D drawing) — `onPageCountResolved(drawing.id, 1)` after load
+
+**Note:** DXF only — no DWG. DXF is the open exchange format; most CAD tools can export DXF from DWG.
+
+**Effort:** ~half a day
+
+---
+
+#### Step 3 — DWG viewer (`@mlightcad/cad-viewer` — React wrapper)
+
+**Install:**
+```bash
+npm install @mlightcad/cad-viewer vue @vue/runtime-dom
+```
+
+**Create:** `components/projects/workspace/viewers/DwgViewer.tsx`
+
+DWG viewer is a Vue 3 component. Wrap it using a dynamic iframe or a thin Vue-in-React mount:
+```tsx
+"use client";
+import { useEffect, useRef } from "react";
+
+export function DwgViewer({ url }: { url: string }) {
+  const ref = useRef<HTMLIFrameElement>(null);
+  // Mount the Vue component into an isolated iframe that loads cad-viewer
+  // The iframe src points to /api/dwg-viewer?url=<encoded> — a Next.js route
+  // that serves a minimal HTML page bootstrapping the Vue cad-viewer component.
+  const src = `/api/dwg-viewer?url=${encodeURIComponent(url)}`;
+  return <iframe ref={ref} src={src} className="w-full h-full border-0" />;
+}
+```
+
+**Create:** `app/api/dwg-viewer/route.ts` — serves the minimal Vue HTML bootstrap page.
+
+**Covers:** DWG R14–AutoCAD 2020 + DXF via WASM (libdxfrw + LibreDWG).
+
+**Effort:** ~1.5 days (Vue-in-React isolation adds complexity)
+
+---
+
+#### Step 4 — FBX + OBJ viewer (Three.js loaders)
+
+**Install:** `three` is already a dependency from Steps 1–2.
+
+**Create:** `components/projects/workspace/viewers/ThreeViewer.tsx`
+```tsx
+"use client";
+import { useEffect, useRef } from "react";
+import * as THREE from "three";
+import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
+import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+export function ThreeViewer({ url, extension }: { url: string; extension: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(ref.current.clientWidth, ref.current.clientHeight);
+    ref.current.appendChild(renderer.domElement);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xe8edf2);
+    const camera = new THREE.PerspectiveCamera(60, ref.current.clientWidth / ref.current.clientHeight, 0.1, 10000);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+    scene.add(new THREE.DirectionalLight(0xffffff, 1));
+    const loader = extension === ".fbx" ? new FBXLoader() : new OBJLoader();
+    loader.load(url, (obj) => {
+      scene.add(obj);
+      const box = new THREE.Box3().setFromObject(obj);
+      const center = box.getCenter(new THREE.Vector3());
+      camera.position.set(center.x, center.y + 20, center.z + 40);
+      controls.target.copy(center);
+      controls.update();
+    });
+    let animId: number;
+    const animate = () => { animId = requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); };
+    animate();
+    return () => { cancelAnimationFrame(animId); renderer.dispose(); ref.current?.removeChild(renderer.domElement); };
+  }, [url, extension]);
+  return <div ref={ref} className="w-full h-full" />;
+}
+```
+
+**Wire SWAP POINT:**
+- Condition: `[".fbx", ".obj"].includes(drawing.extension) && drawing.previewUrl`
+- FBX/OBJ are single-view 3D models → `onPageCountResolved(drawing.id, 1)` after load
+
+**Effort:** ~half a day
+
+---
+
+#### Step 5 — Multi-format fallback (`online-3d-viewer`)
+
+Covers: `.step` `.iges` `.stl` `.ply` `.dae` `.3dm` `.3ds` `.3mf` `.amf` `.brep` — 18+ formats in one library.
+
+**Install:**
+```bash
+npm install online-3d-viewer
+```
+
+**Create:** `components/projects/workspace/viewers/MultiFormatViewer.tsx`
+```tsx
+"use client";
+import { useEffect, useRef } from "react";
+import { Init, SetMode, LoadModelFromUrlList } from "online-3d-viewer";
+
+export function MultiFormatViewer({ url }: { url: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    Init();
+    SetMode(ref.current);
+    LoadModelFromUrlList([url]);
+  }, [url]);
+  return <div ref={ref} className="w-full h-full" />;
+}
+```
+
+**Wire SWAP POINT:** catch-all for any `bim-3d` or `cad-2d` extension not handled by Steps 1–4.
+
+**Effort:** ~half a day
+
+---
+
+#### Summary — Tier 1 effort and coverage
+
+| Step | Formats | Library | Effort |
 |---|---|---|---|
-| Free | $0 | 100/mo | Dev/testing only |
-| Starter | ~$50–100 | 500/mo | <50 projects/month |
-| Pro | ~$200–400 | 2,000/mo | Active production |
+| 1 | `.ifc` | `@thatopen/components` + `web-ifc` | ~1 day |
+| 2 | `.dxf` | `dxf-viewer` | ~0.5 day |
+| 3 | `.dwg` | `@mlightcad/cad-viewer` | ~1.5 days |
+| 4 | `.fbx` `.obj` | Three.js loaders | ~0.5 day |
+| 5 | `.step` `.iges` `.stl` `.ply` `.dae` + more | `online-3d-viewer` | ~0.5 day |
+| **Total** | **10+ formats** | — | **~4 days** |
+
+**Still requiring Tier 2 (paid/cloud) after Phase 1:** `.rvt` `.nwd` `.skp` `.dgn`
+
+---
+
+### Phase 2 — Tier 2 (server-side, proprietary formats)
+
+**Option A — Speckle self-hosted (Apache-2.0, free to run):**
+- Covers: `.rvt` `.nwd` `.skp` `.dgn` + all Tier 1 formats
+- Converts server-side; embed `@speckle/viewer` in Next.js
+- Requires hosting a Speckle server instance
+
+**Option B — Autodesk Platform Services (APS):**
+
+| Plan | ~Monthly Cost | Complex conversions/mo | Use case |
+|---|---|---|---|
+| Free | $0 | 20 | Dev/testing only |
+| Starter | ~$50–100 | 500 | <50 projects/month |
+| Pro | ~$200–400 | 2,000 | Active production |
 | Enterprise | Custom | Unlimited | High-volume |
 
-**Implementation (3–4 days after credentials):**
+**APS implementation (3–4 days after credentials):**
 1. Backend: `POST /api/aps/translate` + `GET /api/aps/status/:urn` + `POST /api/aps/token`
-2. Frontend: `npm install @adsk/forge-viewer` → replace `BimViewerPlaceholder` with
-   `<ApsViewer urn={drawing.urn} getToken={fetchApsToken} />`
-3. Add `urn: string` field to `DrawingFile` interface in `manualWizardSlice.ts`
+2. Frontend: `npm install @adsk/forge-viewer` → replace placeholder with `<ApsViewer urn={drawing.urn} getToken={fetchApsToken} />`
+3. Add `urn?: string` field to `DrawingFile` interface in `manualWizardSlice.ts`
+4. Viewer calls `onPageCountResolved(drawing.id, sheetCount)` on model load
 
 ---
 
@@ -385,11 +623,11 @@ placeholder card. Two swap points are marked with `/* SWAP POINT */` comments:
 | Branch | Description | Remote? |
 |---|---|---|
 | `main` | Production | ✅ pushed |
-| `feat/2-step-wizard-canvas-workspace` | 2-step wizard + canvas workspace overhaul (current) | ❌ local only — DO NOT push without user confirmation |
+| `feat/2-step-wizard-canvas-workspace` | 2-step wizard + canvas workspace overhaul (current) | ✅ pushed |
 | `5-manual-mode-integration` | Previous 4-step wizard integration (merged) | ✅ |
 | `auth/integration` | Auth flow integration (merged) | ✅ |
 
-Latest commit on `feat/2-step-wizard-canvas-workspace`: `feat: folder/page hierarchy sidebar + redesign to match Figma spec`
+Latest commit on `feat/2-step-wizard-canvas-workspace`: `feat: count tool flow, element panel, assign element modal chain` (`738e845`)
 
 ---
 

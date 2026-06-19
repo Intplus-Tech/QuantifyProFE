@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Settings,
@@ -23,7 +24,7 @@ const tabs = [
   { id: "support", label: "Support", icon: HelpCircle },
 ];
 
-export default function EnterpriseSettingsPage() {
+function EnterpriseSettingsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeTab = searchParams.get("tab") ?? "company";
@@ -77,5 +78,13 @@ export default function EnterpriseSettingsPage() {
         {activeTab === "support" && <EnterpriseHelpSupport />}
       </div>
     </div>
+  );
+}
+
+export default function EnterpriseSettingsPage() {
+  return (
+    <Suspense fallback={null}>
+      <EnterpriseSettingsContent />
+    </Suspense>
   );
 }
