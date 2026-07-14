@@ -14,7 +14,7 @@
 // Nothing else needs to change — all the original auth logic below is preserved
 // in commented-out form and will be fully active once BYPASS_AUTH is false.
 // ============================================================================
-const BYPASS_AUTH = true;
+const BYPASS_AUTH = false;
 
 import { RootState } from "@/store";
 import { useGetProfileQuery } from "@/store/api/userApi";

@@ -25,7 +25,8 @@ import { Plus } from "lucide-react";
 
 const schema = z.object({
   projectName:    z.string().min(2, "Project name must be at least 2 characters"),
-  clientName:     z.string().min(2, "Client name must be at least 2 characters"),
+  // clientName:     z.string().min(2, "Client name must be at least 2 characters"),
+  clientName:     z.string().optional(),
   projectRef:     z.string().optional(),
   streetAddress:  z.string().optional(),
   currency:       z.string().min(1, "Currency is required"),
