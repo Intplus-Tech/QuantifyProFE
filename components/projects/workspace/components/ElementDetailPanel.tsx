@@ -17,17 +17,33 @@ import type { RebarBar } from "./types";
 export function ElementDetailPanel({
   measure = "Pile",
   showRebarTab = false,
+  activeMeasureTool = null,
+  liveCount = 0,
+  liveLength = 0,
+  liveArea = 0,
+  distanceUnit = "Meters",
+  hasMeasurements = false,
   onClose,
   onAssignElement,
   onApplyAndContinue,
   onSaveMeasurement,
+  onResetMeasurements,
 }: {
   measure?: string;
   showRebarTab?: boolean;
+  activeMeasureTool?: "length" | "area" | "count" | null;
+  liveCount?: number;
+  liveLength?: number;
+  liveArea?: number;
+  distanceUnit?: string;
+  /** True once at least one measurement has been placed on the canvas */
+  hasMeasurements?: boolean;
   onClose: () => void;
   onAssignElement: () => void;
   onApplyAndContinue: () => void;
   onSaveMeasurement?: (data: Record<string, string>) => void;
+  /** Called after Apply & Continue — clears the canvas for the next element */
+  onResetMeasurements?: () => void;
 }) {
   const cfg = ELEMENT_CONFIGS[measure] ?? ELEMENT_CONFIGS["Pile"];
   const [activeTab, setActiveTab] = useState<"concrete" | "rebar">("concrete");
@@ -73,9 +89,16 @@ export function ElementDetailPanel({
 
   function handleApply() {
     onSaveMeasurement?.({ ...fieldValues });
+    onApplyAndContinue();
+
+    // Reset the form fields to defaults for the next entry
+    const newCfg = ELEMENT_CONFIGS[measure] ?? ELEMENT_CONFIGS["Pile"];
+    const reset: Record<string, string> = { tag: "" };
+    newCfg.rows.forEach((row) => row.fields.forEach((f) => { reset[f.key] = f.defaultValue; }));
+    setFieldValues(reset);
+
     setSavedFeedback(true);
     setTimeout(() => setSavedFeedback(false), 2000);
-    onApplyAndContinue();
   }
 
   return (
@@ -124,12 +147,27 @@ export function ElementDetailPanel({
 
             <div className="space-y-1">
               <label className="text-[11px] text-slate-500">{cfg.measureLabel}</label>
-              <p className="text-base font-bold text-slate-800">
-                {cfg.mockMeasureValue}
-                {cfg.measureUnit && (
-                  <span className="text-sm font-normal text-slate-500 ml-1">{cfg.measureUnit}</span>
-                )}
-              </p>
+              {activeMeasureTool ? (
+                <div className="flex items-baseline gap-1.5">
+                  <p className="text-2xl font-bold text-amber-600 tabular-nums">
+                    {activeMeasureTool === "count" && liveCount}
+                    {activeMeasureTool === "length" && liveLength.toFixed(2)}
+                    {activeMeasureTool === "area" && liveArea.toFixed(2)}
+                  </p>
+                  <span className="text-sm text-slate-500">
+                    {activeMeasureTool === "count" && "placed"}
+                    {activeMeasureTool === "length" && distanceUnit}
+                    {activeMeasureTool === "area" && (distanceUnit === "Meters" ? "m²" : `${distanceUnit}²`)}
+                  </span>
+                </div>
+              ) : (
+                <p className="text-base font-bold text-slate-800">
+                  {cfg.mockMeasureValue}
+                  {cfg.measureUnit && (
+                    <span className="text-sm font-normal text-slate-500 ml-1">{cfg.measureUnit}</span>
+                  )}
+                </p>
+              )}
             </div>
 
             {cfg.rows.map((row, i) => (
@@ -292,18 +330,31 @@ export function ElementDetailPanel({
       </div>
 
       {/* Footer */}
-      <div className="shrink-0 border-t border-slate-200 p-3 flex gap-2">
-        <Button
-          onClick={handleApply}
-          className={`flex-1 text-xs py-2 transition-colors ${
-            savedFeedback ? "bg-green-500 hover:bg-green-500 text-white" : "bg-amber-500 hover:bg-amber-600 text-white"
-          }`}
-        >
-          {savedFeedback ? "✓ Saved" : "Apply & Continue"}
-        </Button>
-        <Button variant="outline" onClick={onAssignElement} className="flex-1 text-xs py-2">
-          + Assign Element
-        </Button>
+      <div className="shrink-0 border-t border-slate-200 p-3 space-y-2">
+        {!hasMeasurements && (
+          <p className="text-center text-[10px] text-slate-400 leading-snug">
+            Take a measurement on the drawing to enable these actions.
+          </p>
+        )}
+        <div className="flex gap-2">
+          <Button
+            onClick={handleApply}
+            disabled={!hasMeasurements}
+            className={`flex-1 text-xs py-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+              savedFeedback ? "bg-green-500 hover:bg-green-500 text-white" : "bg-amber-500 hover:bg-amber-600 text-white"
+            }`}
+          >
+            {savedFeedback ? "✓ Saved" : "Apply & Continue"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={onAssignElement}
+            disabled={!hasMeasurements}
+            className="flex-1 text-xs py-2 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            + Assign Element
+          </Button>
+        </div>
       </div>
     </div>
   );

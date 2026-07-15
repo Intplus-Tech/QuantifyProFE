@@ -1,7 +1,13 @@
 "use client";
 
-import { Document } from "react-pdf";
+import { useEffect, useRef } from "react";
+import { pdfjs } from "react-pdf";
 import type { DrawingFile } from "@/store/slices/manualWizardSlice";
+
+// Mirror the same worker the canvas uses
+if (typeof window !== "undefined" && !pdfjs.GlobalWorkerOptions.workerSrc) {
+  pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+}
 
 export function DrawingPreloader({
   drawings,
@@ -10,21 +16,35 @@ export function DrawingPreloader({
   drawings: DrawingFile[];
   onPageCountResolved: (id: string, numPages: number) => void;
 }) {
-  const pdfsNeedingCount = drawings.filter(
-    (d) => d.category === "pdf" && d.previewUrl && d.pages.length === 0,
-  );
+  // Track IDs already in-flight so we never double-count
+  const inFlight = useRef<Set<string>>(new Set());
 
-  if (pdfsNeedingCount.length === 0) return null;
+  useEffect(() => {
+    for (const drawing of drawings) {
+      if (
+        drawing.category === "pdf" &&
+        drawing.previewUrl &&
+        drawing.pages.length === 0 &&
+        !inFlight.current.has(drawing.id)
+      ) {
+        inFlight.current.add(drawing.id);
 
-  return (
-    <div className="hidden" aria-hidden>
-      {pdfsNeedingCount.map((d) => (
-        <Document
-          key={`preload-${d.id}`}
-          file={d.previewUrl!}
-          onLoadSuccess={({ numPages }) => onPageCountResolved(d.id, numPages)}
-        />
-      ))}
-    </div>
-  );
+        pdfjs
+          .getDocument({ url: drawing.previewUrl })
+          .promise.then((pdf) => {
+            onPageCountResolved(drawing.id, pdf.numPages);
+            pdf.destroy();
+          })
+          .catch((err) => {
+            console.error("[DrawingPreloader]", drawing.name, err);
+          })
+          .finally(() => {
+            inFlight.current.delete(drawing.id);
+          });
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawings]);
+
+  return null;
 }

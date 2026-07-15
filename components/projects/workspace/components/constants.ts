@@ -230,6 +230,28 @@ export const ACCEPTED_EXTENSIONS = [
   ".dwg", ".dxf", ".dgn",
 ];
 
+export type ViewerType = "pdf" | "image" | "ifc" | "dxf" | "three" | "unsupported";
+
+export const VIEWER_MAP: Record<string, ViewerType> = {
+  ".pdf":  "pdf",
+  ".jpg":  "image",
+  ".jpeg": "image",
+  ".png":  "image",
+  ".ifc":  "ifc",
+  ".dxf":  "dxf",
+  ".fbx":  "three",
+  ".obj":  "three",
+  ".stl":  "three",
+  ".ply":  "three",
+  ".dae":  "three",
+  // Proprietary formats — no free client-side viewer available
+  ".rvt":  "unsupported",
+  ".nwd":  "unsupported",
+  ".skp":  "unsupported",
+  ".dwg":  "unsupported",
+  ".dgn":  "unsupported",
+};
+
 export const EXT_CATEGORY: Record<string, DrawingCategory> = {
   ".pdf": "pdf",
   ".jpg": "image",

@@ -53,3 +53,46 @@ export interface CreatedElement {
   drawnCount: number;
   createdAt: number;
 }
+
+// ── Measurement system ────────────────────────────────────────────────────────
+
+export type MPoint = { x: number; y: number };
+
+export interface LengthMeasurement {
+  id: string;
+  type: "length";
+  points: MPoint[];
+  /** Total length in base (scale=1) pixels */
+  pixelLength: number;
+  realLength: number;
+  unit: string;
+  color: string;
+}
+
+export interface AreaMeasurement {
+  id: string;
+  type: "area";
+  points: MPoint[];
+  /** Area in base (scale=1) pixels² */
+  pixelArea: number;
+  realArea: number;
+  unit: string;
+  color: string;
+}
+
+export interface CountMark {
+  id: string;
+  type: "count";
+  point: MPoint;
+  index: number;
+  color: string;
+}
+
+export type Measurement = LengthMeasurement | AreaMeasurement | CountMark;
+
+export interface PageMeasurements {
+  /** base pixels per real unit — null until calibrated */
+  scaleFactor: number | null;
+  calibPts: [MPoint, MPoint] | null;
+  measurements: Measurement[];
+}

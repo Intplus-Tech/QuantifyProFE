@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useMemo } from "react";
+import dynamic from "next/dynamic";
 import {
   Search,
   ZoomIn,
@@ -23,12 +24,6 @@ import {
   Box,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -64,6 +59,16 @@ import { DrawingCanvas } from "./components/DrawingCanvas";
 import { DrawingPreloader } from "./components/DrawingPreloader";
 import { FileRow } from "./components/FileRow";
 import { NewFolderDialog } from "./components/NewFolderDialog";
+import { useCanvasMeasurements } from "./hooks/useCanvasMeasurements";
+import type { MPoint } from "./components/types";
+
+const MeasurementCanvas = dynamic(
+  () =>
+    import("./components/MeasurementCanvas").then((m) => ({
+      default: m.MeasurementCanvas,
+    })),
+  { ssr: false }
+);
 import { BBSQuestionModal } from "./components/BBSQuestionModal";
 import { BBSEntryModal } from "./components/BBSEntryModal";
 import { ScaleSetupModal } from "./components/ScaleSetupModal";
@@ -74,7 +79,7 @@ import { AssignmentCompleteModal } from "./components/AssignmentCompleteModal";
 import { CreateNewElementModal } from "./components/CreateNewElementModal";
 import { PALETTE, TOOLS, ACCEPTED_EXTENSIONS, EXT_CATEGORY, MOCK_EXISTING_ELEMENTS } from "./components/constants";
 import { getExt, simulateUpload } from "./components/utils";
-import type { ToolId, BBSRow, PileRow, CreatedElement } from "./components/types";
+import type { ToolId, BBSRow, PileRow, CreatedElement, Measurement } from "./components/types";
 
 interface ProjectWorkspaceViewProps {
   projectId: string;
@@ -146,13 +151,30 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
     } catch { return []; }
   });
 
+  // ── Calibration points (received from canvas during calibration) ─────────────
+  const [calibPtCount, setCalibPtCount] = useState<0 | 1 | 2>(0);
+  const [calibBasePxDist, setCalibBasePxDist] = useState<number | null>(null);
+  const [calibPts, setCalibPts] = useState<[MPoint, MPoint] | null>(null);
+
+  // Live in-progress length from the canvas (A→cursor, null when not drawing)
+  const [liveDrawingLength, setLiveDrawingLength] = useState<number | null>(null);
+
+  // ── Session totals — accumulate across files until Apply & Continue ───────────
+  // Left sidebar  = per-page totals (lengthTotal / countTotal / areaTotal below)
+  // Right sidebar = session totals (what you've measured this round across all files)
+  const [sessionTotals, setSessionTotals] = useState({ count: 0, length: 0, area: 0 });
+
+  // ── Per-page measurement state (persisted to localStorage) ───────────────────
+  const measurementHook = useCanvasMeasurements(selectedDrawingId, selectedPage);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const selectedDrawing = drawings.find((d) => d.id === selectedDrawingId) ?? null;
 
   // ── Tool click ───────────────────────────────────────────────────────────────
 
   function handleToolClick(id: ToolId) {
-    if (id === "undo" || id === "redo") return; // TODO: wire undo/redo
+    if (id === "undo") { measurementHook.undo(); return; }
+    if (id === "redo") { measurementHook.redo(); return; }
     setPendingTool(id);
     setBbsModalStep("question");
   }
@@ -202,20 +224,62 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
     setShowScaleSetup(false);
     setScaleFlowActive(true);
     setShowElementPanel(true);
-    saveSession(projectId, { scaleWhat, scaleFlowActive: true });
+
+    if (scaleLocked) {
+      // Scale already set for this page — activate the tool directly, no re-calibration
+      if (pendingTool) {
+        setActiveTool(pendingTool);
+        if (pendingTool === "count") setCountModeActive(true);
+        setPendingTool(null);
+      }
+      saveSession(projectId, { scaleWhat, scaleFlowActive: true, scaleLocked: true });
+    } else {
+      // Scale not yet set — enter calibration mode
+      setCalibPtCount(0);
+      setCalibBasePxDist(null);
+      setCalibPts(null);
+      saveSession(projectId, { scaleWhat, scaleFlowActive: true });
+    }
   }
   function handleScaleSetupCancel() { setShowScaleSetup(false); setPendingTool(null); }
 
   // ── Calibration ──────────────────────────────────────────────────────────────
 
   function handleApplyScale() {
-    if (!knownDistance) { toast.warning("Enter a known distance first"); return; }
-    const newScaleInfo = "Scale calculated: 1:100 | 10.5 px per cm";
+    if (!knownDistance) {
+      toast.warning("Enter a known distance first");
+      return;
+    }
+    if (!calibBasePxDist || !calibPts) {
+      toast.warning("Click two points on the drawing to define the reference distance");
+      return;
+    }
+    const realDist = parseFloat(knownDistance);
+    if (isNaN(realDist) || realDist <= 0) {
+      toast.warning("Enter a valid distance greater than 0");
+      return;
+    }
+
+    // scaleFactor = base pixels per real unit
+    const sf = calibBasePxDist / realDist;
+    measurementHook.setCalibration(calibPts, sf);
+
+    const approxRatio = Math.round(calibBasePxDist / realDist);
+    const newScaleInfo = `Scale: 1:${approxRatio} | ${sf.toFixed(1)} px/${distanceUnit}`;
     setScaleInfo(newScaleInfo);
+    setScaleLocked(true);
     setShowScaleNotification(true);
     if (scaleNotifTimerRef.current) clearTimeout(scaleNotifTimerRef.current);
     scaleNotifTimerRef.current = setTimeout(() => setShowScaleNotification(false), 5000);
-    saveSession(projectId, { knownDistance, distanceUnit, scaleWhat, scaleInfo: newScaleInfo, scaleFlowActive: true });
+    saveSession(projectId, {
+      knownDistance,
+      distanceUnit,
+      scaleWhat,
+      scaleInfo: newScaleInfo,
+      scaleFlowActive: true,
+      scaleLocked: true,
+    });
+
     if (pendingTool) {
       setActiveTool(pendingTool);
       if (pendingTool === "count") { setCountModeActive(true); setShowElementPanel(true); }
@@ -229,11 +293,15 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
     setShowScaleNotification(false);
     setKnownDistance("");
     setScaleLocked(false);
+    setScaleFlowActive(false);
     setActiveTool(null);
     setCountModeActive(false);
     setShowElementPanel(false);
     setPendingTool(null);
-    saveSession(projectId, { scaleInfo: null, knownDistance: "", scaleLocked: false });
+    setCalibPtCount(0);
+    setCalibBasePxDist(null);
+    setCalibPts(null);
+    saveSession(projectId, { scaleInfo: null, knownDistance: "", scaleLocked: false, scaleFlowActive: false });
   }
 
   function handleSaveMeasurement(data: Record<string, string>) {
@@ -299,6 +367,58 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
     setCreateNewElOpen(false);
     toast.success("Element created and saved");
   }
+
+  // ── Calibration callback (from MeasurementCanvas) ────────────────────────────
+
+  function handleCalibrationUpdate(
+    basePxDist: number | null,
+    pts: [MPoint, MPoint] | null,
+    ptCount: 0 | 1 | 2
+  ) {
+    setCalibBasePxDist(basePxDist);
+    setCalibPts(pts);
+    setCalibPtCount(ptCount);
+  }
+
+  // ── Measurement add — updates canvas state AND session totals ─────────────────
+
+  function handleMeasurementAdd(m: Measurement) {
+    measurementHook.addMeasurement(m);
+    if (m.type === "count") {
+      setSessionTotals((prev) => ({ ...prev, count: prev.count + 1 }));
+    } else if (m.type === "length") {
+      setSessionTotals((prev) => ({ ...prev, length: prev.length + m.realLength }));
+    } else if (m.type === "area") {
+      setSessionTotals((prev) => ({ ...prev, area: prev.area + m.realArea }));
+    }
+  }
+
+  // ── Apply & Continue / Assign Element — save then reset session counters ──────
+  // Canvas lines are permanent records; only the session totals reset.
+
+  function handleSessionReset() {
+    setSessionTotals({ count: 0, length: 0, area: 0 });
+    setLiveDrawingLength(null);
+  }
+
+  // ── Per-page totals for the LEFT sidebar stat bar ─────────────────────────────
+
+  const { countTotal, lengthTotal, areaTotal } = useMemo(() => {
+    const ms = measurementHook.state.measurements;
+    const sf = measurementHook.state.scaleFactor;
+    let countTotal = 0, lengthTotal = 0, areaTotal = 0;
+    for (const m of ms) {
+      if (m.type === "count") countTotal++;
+      else if (m.type === "length" && sf) lengthTotal += m.pixelLength / sf;
+      else if (m.type === "area" && sf) areaTotal += m.pixelArea / (sf * sf);
+    }
+    return { countTotal, lengthTotal, areaTotal };
+  }, [measurementHook.state.measurements, measurementHook.state.scaleFactor]);
+
+  const nextCountIndex = useMemo(
+    () => measurementHook.state.measurements.filter((m) => m.type === "count").length + 1,
+    [measurementHook.state.measurements]
+  );
 
   // ── Canvas helpers ────────────────────────────────────────────────────────────
 
@@ -474,19 +594,23 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
           {activeTool === "count" && (
             <div className="mt-2 flex items-center justify-between px-3 py-1.5 bg-slate-700 rounded-lg">
               <span className="text-white text-[11px] font-semibold">Count</span>
-              <span className="text-white text-[11px] font-bold"># 0</span>
+              <span className="text-white text-[11px] font-bold"># {countTotal}</span>
             </div>
           )}
           {activeTool === "length" && (
             <div className="mt-2 flex items-center justify-between px-3 py-1.5 bg-slate-700 rounded-lg">
               <span className="text-white text-[11px] font-semibold">Length</span>
-              <span className="text-white text-[11px] font-bold">0</span>
+              <span className="text-white text-[11px] font-bold">
+                {(lengthTotal + (liveDrawingLength ?? 0)).toFixed(2)} {distanceUnit}
+              </span>
             </div>
           )}
           {activeTool === "area" && (
             <div className="mt-2 flex items-center justify-between px-3 py-1.5 bg-slate-700 rounded-lg">
               <span className="text-white text-[11px] font-semibold">Area</span>
-              <span className="text-white text-[11px] font-bold">0 m²</span>
+              <span className="text-white text-[11px] font-bold">
+                {areaTotal.toFixed(2)} {distanceUnit === "Meters" ? "m²" : `${distanceUnit}²`}
+              </span>
             </div>
           )}
           {activeTool === "text" && (
@@ -652,34 +776,47 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
                       </p>
                     </div>
                   ) : (
-                    <Accordion
-                      type="multiple"
-                      value={openFolders}
-                      onValueChange={setOpenFolders}
-                      className="border-0 rounded-none shadow-none overflow-visible"
-                    >
+                    <div>
                       {folders.map((folder) => {
                         const files = getFilesForFolder(folder);
                         if (files.length === 0 && search) return null;
+                        const isOpen = openFolders.includes(folder.id);
                         return (
-                          <AccordionItem key={folder.id} value={folder.id} className="border-0">
-                            <AccordionTrigger className="px-3 py-2 hover:no-underline hover:bg-slate-50 [&>svg]:w-3 [&>svg]:h-3 [&>svg]:text-slate-400 [&>svg]:shrink-0 gap-2 border-0">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <FolderOpen className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                                <span className="text-[11px] font-bold text-slate-700 truncate uppercase tracking-wide">
-                                  {folder.name}
-                                </span>
-                                <span className="text-[9px] text-slate-400 shrink-0 font-medium">
-                                  [{folder.fileIds.length}]
-                                </span>
-                              </div>
-                            </AccordionTrigger>
-                            <AccordionContent className="px-0 pb-1 pt-0">
-                              {files.length === 0 ? (
-                                <p className="text-[10px] text-slate-400 px-5 py-1.5 italic">No files</p>
-                              ) : (
-                                <div className="flex flex-col">
-                                  {files.map((file) => (
+                          <div key={folder.id}>
+                            {/* Folder header toggle */}
+                            <button
+                              onClick={() =>
+                                setOpenFolders((prev) =>
+                                  isOpen
+                                    ? prev.filter((id) => id !== folder.id)
+                                    : [...prev, folder.id],
+                                )
+                              }
+                              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-slate-50 transition-colors text-left"
+                            >
+                              <FolderOpen className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                              <span className="text-[10px] font-bold text-slate-600 truncate uppercase tracking-widest flex-1">
+                                {folder.name}
+                              </span>
+                              <span className="text-[9px] text-slate-400 shrink-0 font-medium bg-slate-100 px-1.5 py-0.5 rounded-full">
+                                {folder.fileIds.length}
+                              </span>
+                              <ChevronDown
+                                className={`w-3 h-3 text-slate-400 shrink-0 ml-1 transition-transform duration-150 ${
+                                  isOpen ? "" : "-rotate-90"
+                                }`}
+                              />
+                            </button>
+
+                            {/* Files — plain div, no overflow constraint */}
+                            {isOpen && (
+                              <div className="flex flex-col">
+                                {files.length === 0 ? (
+                                  <p className="text-[10px] text-slate-400 px-5 py-1.5 italic">
+                                    No files
+                                  </p>
+                                ) : (
+                                  files.map((file) => (
                                     <FileRow
                                       key={file.id}
                                       file={file}
@@ -688,14 +825,14 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
                                       onSelectFile={() => handleSelectFile(file.id)}
                                       onSelectPage={(pg) => handleSelectPage(file.id, pg)}
                                     />
-                                  ))}
-                                </div>
-                              )}
-                            </AccordionContent>
-                          </AccordionItem>
+                                  ))
+                                )}
+                              </div>
+                            )}
+                          </div>
                         );
                       })}
-                    </Accordion>
+                    </div>
                   )}
                 </div>
                 <div className="shrink-0 border-t border-slate-100 flex items-center gap-2 p-2">
@@ -770,6 +907,24 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
               page={selectedPage}
               scale={scale}
               onPageCountResolved={handlePageCountResolved}
+              measurementOverlay={
+                <MeasurementCanvas
+                  pdfScale={scale}
+                  activeTool={activeTool}
+                  isCalibrating={scaleFlowActive && !scaleLocked}
+                  scaleFactor={measurementHook.state.scaleFactor}
+                  distanceUnit={distanceUnit}
+                  activeColor={activeColor}
+                  measurements={measurementHook.state.measurements}
+                  nextCountIndex={nextCountIndex}
+                  pageKey={`${selectedDrawingId ?? "none"}-${selectedPage}`}
+                  onCalibrationUpdate={handleCalibrationUpdate}
+                  onMeasurementAdd={handleMeasurementAdd}
+                  onLiveLength={setLiveDrawingLength}
+                  onUndo={measurementHook.undo}
+                  onRedo={measurementHook.redo}
+                />
+              }
             />
 
             {/* Zoom controls */}
@@ -802,10 +957,23 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
             <ElementDetailPanel
               measure={scaleWhat}
               showRebarTab={showRebarTab}
+              activeMeasureTool={
+                activeTool === "length" || activeTool === "area" || activeTool === "count"
+                  ? activeTool
+                  : null
+              }
+              liveCount={sessionTotals.count}
+              liveLength={sessionTotals.length + (liveDrawingLength ?? 0)}
+              liveArea={sessionTotals.area}
+              distanceUnit={distanceUnit}
+              hasMeasurements={
+                sessionTotals.count > 0 || sessionTotals.length > 0 || sessionTotals.area > 0
+              }
               onClose={() => setShowElementPanel(false)}
               onAssignElement={() => setAssignModalOpen(true)}
-              onApplyAndContinue={() => console.log("[ElementPanel] Apply & Continue")}
+              onApplyAndContinue={handleSessionReset}
               onSaveMeasurement={handleSaveMeasurement}
+              onResetMeasurements={handleSessionReset}
             />
           )}
         </div>
@@ -835,17 +1003,24 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
 
                 <div className="flex items-start gap-6">
                   <div className="w-1/3 space-y-3 shrink-0">
-                    {[
-                      "Click two points on a known distance on the plan.",
-                      "Enter the real length below.",
-                    ].map((text, i) => (
-                      <div key={i} className="flex items-start gap-2">
-                        <div className="w-5 h-5 rounded-full bg-amber-500 text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-px">
-                          {i + 1}
-                        </div>
-                        <span className="text-[11px] text-slate-600 leading-snug">{text}</span>
+                    {/* Step 1 — dynamic based on points placed */}
+                    <div className="flex items-start gap-2">
+                      <div className={`w-5 h-5 rounded-full text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-px ${calibPtCount === 2 ? "bg-green-500" : "bg-amber-500"}`}>
+                        1
                       </div>
-                    ))}
+                      <span className={`text-[11px] leading-snug ${calibPtCount === 2 ? "text-green-600 font-medium" : "text-slate-600"}`}>
+                        {calibPtCount === 0 && "Click the first point on a known distance on the plan."}
+                        {calibPtCount === 1 && "✓ Point 1 set — click the second point."}
+                        {calibPtCount === 2 && `✓ Both points set — ${calibBasePxDist?.toFixed(0)} px measured.`}
+                      </span>
+                    </div>
+                    {/* Step 2 */}
+                    <div className="flex items-start gap-2">
+                      <div className="w-5 h-5 rounded-full bg-amber-500 text-white flex items-center justify-center text-[10px] font-bold shrink-0 mt-px">
+                        2
+                      </div>
+                      <span className="text-[11px] text-slate-600 leading-snug">Enter the real length below.</span>
+                    </div>
                   </div>
 
                   <div className="w-2/3 space-y-2">
@@ -866,9 +1041,7 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
                     {showScaleNotification && scaleInfo && (
                       <div className="flex items-center gap-3 px-4 py-2 bg-green-50 border border-green-200 rounded-lg">
                         <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
-                        <span className="text-[12px] font-bold text-green-700">Scale calculated: 1:100</span>
-                        <span className="text-slate-300 text-sm">|</span>
-                        <span className="text-[12px] text-slate-500">10.5 px per cm</span>
+                        <span className="text-[12px] font-bold text-green-700">{scaleInfo}</span>
                         <button onClick={handleResetScale} className="ml-auto text-[11px] font-semibold text-red-500 hover:text-red-700 transition-colors">
                           Reset
                         </button>
