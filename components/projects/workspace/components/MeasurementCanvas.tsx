@@ -154,6 +154,8 @@ export function MeasurementCanvas({
   const [inProgress, setInProgress] = useState<MPoint[]>([]);
   const [calibPts, setCalibPts] = useState<MPoint[]>([]);
   const [mousePos, setMousePos] = useState<MPoint | null>(null);
+  // True when cursor is close enough to the first area point to snap-close the polygon
+  const [snapToClose, setSnapToClose] = useState(false);
 
   // Track container dimensions
   useEffect(() => {
@@ -172,6 +174,7 @@ export function MeasurementCanvas({
     inProgressRef.current = [];
     setInProgress([]);
     setMousePos(null);
+    setSnapToClose(false);
     onLiveLength?.(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTool, isCalibrating, pageKey]);
@@ -217,12 +220,44 @@ export function MeasurementCanvas({
     return { x: pos.x / pdfScale, y: pos.y / pdfScale };
   }
 
+  // Snap radius: 15 screen pixels expressed in base coordinates
+  const SNAP_PX = 15;
+
+  // Closes the in-progress area polygon and fires the measurement.
+  // Call this from click-on-start, right-click, or double-click.
+  const closeAreaShape = useCallback(() => {
+    const pts = [...inProgressRef.current];
+    inProgressRef.current = [];
+    setInProgress([]);
+    setSnapToClose(false);
+    if (pts.length >= 3 && scaleFactor) {
+      const pixArea = shoelace(pts);
+      onMeasurementAdd({
+        id: crypto.randomUUID(),
+        type: "area",
+        points: pts,
+        pixelArea: pixArea,
+        realArea: pixArea / scaleFactor ** 2,
+        unit: distanceUnit,
+        color: activeColor,
+      } as AreaMeasurement);
+    }
+  }, [scaleFactor, distanceUnit, activeColor, onMeasurementAdd]);
+
   const handleMouseMove = useCallback(() => {
     const pos = getBasePos();
     if (!pos) return;
     setMousePos(pos);
+
     if (activeTool === "length" && scaleFactor && inProgressRef.current.length > 0) {
       onLiveLength?.(polylineLen([inProgressRef.current[0], pos]) / scaleFactor);
+    }
+
+    // Snap-to-close detection: light up the first point when cursor is close
+    if (activeTool === "area" && inProgressRef.current.length >= 3) {
+      setSnapToClose(ptDist(inProgressRef.current[0], pos) < SNAP_PX / pdfScale);
+    } else {
+      setSnapToClose(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pdfScale, activeTool, scaleFactor, onLiveLength]);
@@ -233,11 +268,10 @@ export function MeasurementCanvas({
 
     // ── Calibration mode: record up to 2 reference points ──────────────────
     if (isCalibrating) {
-      if (calibRef.current.length >= 2) return; // already have both points
+      if (calibRef.current.length >= 2) return;
       const next = [...calibRef.current, pos];
       calibRef.current = next;
       setCalibPts([...next]);
-
       if (next.length === 1) {
         onCalibrationUpdate(null, null, 1);
       } else {
@@ -261,14 +295,12 @@ export function MeasurementCanvas({
       return;
     }
 
-    // ── Length: 2-click model — first click starts, second click finishes ─
+    // ── Length: 2-click model — first click starts, second click finishes ──
     if (activeTool === "length") {
       if (inProgressRef.current.length === 0) {
-        // Start the line
         inProgressRef.current = [pos];
         setInProgress([pos]);
       } else {
-        // Complete the line — lock it in, stop following cursor
         const pts = [inProgressRef.current[0], pos];
         inProgressRef.current = [];
         setInProgress([]);
@@ -287,48 +319,55 @@ export function MeasurementCanvas({
       return;
     }
 
-    // ── Area: multi-click (double-click to close) ──────────────────────────
+    // ── Area: click to add points; snap-to-close when near the first point ─
     if (activeTool === "area") {
+      // If cursor is within snap radius of the first point and we have enough
+      // points, close the polygon immediately instead of adding another point.
+      if (
+        inProgressRef.current.length >= 3 &&
+        ptDist(inProgressRef.current[0], pos) < SNAP_PX / pdfScale
+      ) {
+        closeAreaShape();
+        return;
+      }
       const next = [...inProgressRef.current, pos];
       inProgressRef.current = next;
       setInProgress([...next]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCalibrating, activeTool, scaleFactor, activeColor, nextCountIndex, pdfScale, distanceUnit, onMeasurementAdd]);
+  }, [isCalibrating, activeTool, scaleFactor, activeColor, nextCountIndex, pdfScale, distanceUnit, onMeasurementAdd, closeAreaShape]);
 
   const handleDblClick = useCallback(() => {
     if (activeTool === "length") {
       // Konva fires onClick→onClick→onDblClick on a double-click.
-      // The 1st onClick completed the line; the 2nd onClick accidentally started a new
-      // one. Cancel that phantom start so the cursor stops following.
+      // The 1st onClick completed the line; the 2nd onClick accidentally started a
+      // new one. Cancel that phantom start so the cursor stops following.
       inProgressRef.current = [];
       setInProgress([]);
       onLiveLength?.(null);
       return;
     }
 
-    // Area: double-click closes the polygon
-    if (activeTool !== "area" || !scaleFactor) return;
-
-    // The 2nd click of the dblclick already ran onClick → remove that duplicate
-    const pts = inProgressRef.current.slice(0, -1);
-    inProgressRef.current = [];
-    setInProgress([]);
-
-    if (pts.length >= 3) {
-      const pixArea = shoelace(pts);
-      onMeasurementAdd({
-        id: crypto.randomUUID(),
-        type: "area",
-        points: pts,
-        pixelArea: pixArea,
-        realArea: pixArea / scaleFactor ** 2,
-        unit: distanceUnit,
-        color: activeColor,
-      } as AreaMeasurement);
+    // Area: double-click also closes the polygon.
+    // Konva's 2nd onClick already added a duplicate point — remove it first.
+    if (activeTool === "area" && inProgressRef.current.length >= 3) {
+      inProgressRef.current = inProgressRef.current.slice(0, -1);
+      closeAreaShape();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTool, scaleFactor, distanceUnit, activeColor, onMeasurementAdd, onLiveLength]);
+  }, [activeTool, closeAreaShape, onLiveLength]);
+
+  // Right-click cancels/closes: closes the area if enough points, otherwise cancels.
+  const handleContextMenu = useCallback((e: { evt: { preventDefault: () => void } }) => {
+    e.evt.preventDefault();
+    if (activeTool !== "area") return;
+    if (inProgressRef.current.length >= 3) {
+      closeAreaShape();
+    } else {
+      inProgressRef.current = [];
+      setInProgress([]);
+      setSnapToClose(false);
+    }
+  }, [activeTool, closeAreaShape]);
 
   const isInteractive =
     isCalibrating ||
@@ -346,7 +385,7 @@ export function MeasurementCanvas({
       ref={containerRef}
       className="absolute inset-0"
       style={{
-        cursor: isInteractive ? "crosshair" : "default",
+        cursor: snapToClose ? "pointer" : isInteractive ? "crosshair" : "default",
         pointerEvents: isInteractive ? "all" : "none",
       }}
     >
@@ -360,6 +399,7 @@ export function MeasurementCanvas({
           onMouseMove={handleMouseMove}
           onClick={handleClick}
           onDblClick={handleDblClick}
+          onContextMenu={handleContextMenu}
         >
           <Layer>
             {/* ── Completed measurements ─────────────────────────────────── */}
@@ -491,6 +531,26 @@ export function MeasurementCanvas({
                 {inProgress.map((pt, i) => (
                   <Circle key={i} x={pt.x} y={pt.y} radius={RD} fill={activeColor} />
                 ))}
+                {/* Snap-to-close ring on the first point */}
+                {snapToClose && inProgress.length >= 3 && (
+                  <>
+                    <Circle
+                      x={inProgress[0].x}
+                      y={inProgress[0].y}
+                      radius={RD * 3}
+                      fill={activeColor}
+                      opacity={0.2}
+                    />
+                    <Circle
+                      x={inProgress[0].x}
+                      y={inProgress[0].y}
+                      radius={RD * 1.8}
+                      fill={activeColor}
+                      stroke="white"
+                      strokeWidth={2 / pdfScale}
+                    />
+                  </>
+                )}
                 {/* Running length label near cursor */}
                 {activeTool === "length" && (
                   <Text

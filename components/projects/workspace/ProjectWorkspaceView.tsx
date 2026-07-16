@@ -123,6 +123,8 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
   const [distanceUnit, setDistanceUnit] = useState(() => savedSession.distanceUnit ?? "Meters");
   const [scaleLocked, setScaleLocked] = useState(() => savedSession.scaleLocked ?? false);
   const [scaleInfo, setScaleInfo] = useState<string | null>(() => savedSession.scaleInfo ?? null);
+  // Global scale factor — persists across every page and every tool activation
+  const [globalScaleFactor, setGlobalScaleFactor] = useState<number | null>(() => savedSession.scaleFactor ?? null);
   const [showScaleNotification, setShowScaleNotification] = useState(false);
   const scaleNotifTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -225,16 +227,20 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
     setScaleFlowActive(true);
     setShowElementPanel(true);
 
-    if (scaleLocked) {
-      // Scale already set for this page — activate the tool directly, no re-calibration
-      if (pendingTool) {
-        setActiveTool(pendingTool);
-        if (pendingTool === "count") setCountModeActive(true);
-        setPendingTool(null);
-      }
+    // Activate the tool button immediately after modal so the user sees the tool is selected.
+    // Canvas drawing is still blocked: clicks are either calibration-mode (red reference dots)
+    // or fully gated by the scaleFactor=null guard until Apply Scale is clicked.
+    if (pendingTool) {
+      setActiveTool(pendingTool);
+      if (pendingTool === "count") setCountModeActive(true);
+      setPendingTool(null);
+    }
+
+    if (scaleLocked && globalScaleFactor !== null) {
+      // Scale already applied and locked — jump straight to measuring, no re-calibration
       saveSession(projectId, { scaleWhat, scaleFlowActive: true, scaleLocked: true });
     } else {
-      // Scale not yet set — enter calibration mode
+      // Scale not yet applied — show calibration bar, canvas accepts 2 reference clicks
       setCalibPtCount(0);
       setCalibBasePxDist(null);
       setCalibPts(null);
@@ -262,6 +268,7 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
 
     // scaleFactor = base pixels per real unit
     const sf = calibBasePxDist / realDist;
+    setGlobalScaleFactor(sf);
     measurementHook.setCalibration(calibPts, sf);
 
     const approxRatio = Math.round(calibBasePxDist / realDist);
@@ -278,13 +285,9 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
       scaleInfo: newScaleInfo,
       scaleFlowActive: true,
       scaleLocked: true,
+      scaleFactor: sf,
     });
-
-    if (pendingTool) {
-      setActiveTool(pendingTool);
-      if (pendingTool === "count") { setCountModeActive(true); setShowElementPanel(true); }
-      setPendingTool(null);
-    }
+    // activeTool is already set from handleScaleSetupProceed — nothing more to do here
   }
 
   function handleResetScale() {
@@ -293,6 +296,7 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
     setShowScaleNotification(false);
     setKnownDistance("");
     setScaleLocked(false);
+    setGlobalScaleFactor(null);
     setScaleFlowActive(false);
     setActiveTool(null);
     setCountModeActive(false);
@@ -301,7 +305,7 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
     setCalibPtCount(0);
     setCalibBasePxDist(null);
     setCalibPts(null);
-    saveSession(projectId, { scaleInfo: null, knownDistance: "", scaleLocked: false, scaleFlowActive: false });
+    saveSession(projectId, { scaleInfo: null, knownDistance: "", scaleLocked: false, scaleFlowActive: false, scaleFactor: null });
   }
 
   function handleSaveMeasurement(data: Record<string, string>) {
@@ -405,7 +409,7 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
 
   const { countTotal, lengthTotal, areaTotal } = useMemo(() => {
     const ms = measurementHook.state.measurements;
-    const sf = measurementHook.state.scaleFactor;
+    const sf = globalScaleFactor;
     let countTotal = 0, lengthTotal = 0, areaTotal = 0;
     for (const m of ms) {
       if (m.type === "count") countTotal++;
@@ -413,7 +417,7 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
       else if (m.type === "area" && sf) areaTotal += m.pixelArea / (sf * sf);
     }
     return { countTotal, lengthTotal, areaTotal };
-  }, [measurementHook.state.measurements, measurementHook.state.scaleFactor]);
+  }, [measurementHook.state.measurements, globalScaleFactor]);
 
   const nextCountIndex = useMemo(
     () => measurementHook.state.measurements.filter((m) => m.type === "count").length + 1,
@@ -912,7 +916,7 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
                   pdfScale={scale}
                   activeTool={activeTool}
                   isCalibrating={scaleFlowActive && !scaleLocked}
-                  scaleFactor={measurementHook.state.scaleFactor}
+                  scaleFactor={globalScaleFactor}
                   distanceUnit={distanceUnit}
                   activeColor={activeColor}
                   measurements={measurementHook.state.measurements}
@@ -962,13 +966,11 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
                   ? activeTool
                   : null
               }
-              liveCount={sessionTotals.count}
-              liveLength={sessionTotals.length + (liveDrawingLength ?? 0)}
-              liveArea={sessionTotals.area}
+              liveCount={countTotal}
+              liveLength={lengthTotal + (liveDrawingLength ?? 0)}
+              liveArea={areaTotal}
               distanceUnit={distanceUnit}
-              hasMeasurements={
-                sessionTotals.count > 0 || sessionTotals.length > 0 || sessionTotals.area > 0
-              }
+              hasMeasurements={countTotal > 0 || lengthTotal > 0 || areaTotal > 0}
               onClose={() => setShowElementPanel(false)}
               onAssignElement={() => setAssignModalOpen(true)}
               onApplyAndContinue={handleSessionReset}
