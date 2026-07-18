@@ -14,10 +14,8 @@ export default function SoloProjectLayout({
 }: SoloProjectLayoutProps) {
   const params = useParams<{ projectId?: string }>();
   const projectId = typeof params?.projectId === "string" ? params.projectId : "";
-  const { data: projectResponse, isLoading } = useGetProjectByIdQuery(projectId, {
-    skip: !projectId,
-  });
 
+  const { data: projectResponse, isLoading } = useGetProjectByIdQuery(projectId, { skip: !projectId });
   if (isLoading && !projectResponse) {
     return (
       <div className="flex items-center justify-center min-h-[400px] text-muted-foreground">
@@ -25,7 +23,6 @@ export default function SoloProjectLayout({
       </div>
     );
   }
-
   if (projectResponse?.data?.processingMode === "ai") {
     return <>{children}</>;
   }

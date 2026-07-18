@@ -11,10 +11,7 @@ import { useGetProjectsQuery } from "@/store/api/projectsApi";
 export default function ProjectsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  const { data: fetchResult, isLoading } = useGetProjectsQuery({
-    page: 1,
-    limit: 12,
-  });
+  const { data: fetchResult, isLoading } = useGetProjectsQuery({ page: 1, limit: 12 });
   const projects = fetchResult?.data || [];
 
   return (

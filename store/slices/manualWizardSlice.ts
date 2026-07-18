@@ -78,12 +78,17 @@ const manualWizardSlice = createSlice({
         state.folders.push({ id: targetFolderId, name: "DRAWINGS", fileIds: [] });
       }
 
+      // PDFs start with no pages — DrawingPreloader eagerly counts them via pdf.js.
+      // All other formats (image, bim-3d, cad-2d) default to 1 view immediately;
+      // viewers may call setDrawingPages later to update (e.g. IFC storeys).
+      const defaultPages =
+        action.payload.category === "pdf"
+          ? []
+          : [{ number: 1, label: "Page 1" }];
+
       const file: DrawingFile = {
         ...action.payload,
-        pages:
-          action.payload.category === "image"
-            ? [{ number: 1, label: "Page 1" }]
-            : [],
+        pages: defaultPages,
         folderId: targetFolderId,
       };
 

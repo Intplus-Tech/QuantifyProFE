@@ -31,6 +31,7 @@ export interface WorkspaceSession {
   scaleInfo: string | null;
   scaleLocked: boolean;
   scaleFlowActive: boolean;
+  scaleFactor: number | null;
   concreteMeasurements: WsConcreteMeasurement[];
   elementAssignments: WsElementAssignment[];
 }
