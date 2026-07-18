@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useMemo } from "react";
+import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import dynamic from "next/dynamic";
 import {
   Search,
@@ -38,7 +38,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useGetProjectByIdQuery } from "@/store/api/projectsApi";
+import { useGetProjectByIdQuery, useUpdateProjectMutation } from "@/store/api/projectsApi";
+import { useUploadFileMutation, useGetUploadQuery, useDownloadUploadQuery } from "@/store/api/uploadApi";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   addDrawing,
@@ -78,8 +79,54 @@ import { ConfirmAssignmentModal } from "./components/ConfirmAssignmentModal";
 import { AssignmentCompleteModal } from "./components/AssignmentCompleteModal";
 import { CreateNewElementModal } from "./components/CreateNewElementModal";
 import { PALETTE, TOOLS, ACCEPTED_EXTENSIONS, EXT_CATEGORY, MOCK_EXISTING_ELEMENTS } from "./components/constants";
-import { getExt, simulateUpload } from "./components/utils";
+import { getExt } from "./components/utils";
 import type { ToolId, BBSRow, PileRow, CreatedElement, Measurement } from "./components/types";
+
+function DrawingHydrator({
+  fileId,
+  folderId,
+  onLoaded,
+}: {
+  fileId: string;
+  folderId: string;
+  onLoaded: (id: string) => void;
+}) {
+  const dispatch = useAppDispatch();
+  const existsInRedux = useAppSelector((s) =>
+    s.manualWizard.drawings.some((d) => d.id === fileId || d.uploadedFileId === fileId),
+  );
+  const { data: metaData } = useGetUploadQuery(fileId, { skip: existsInRedux });
+  const { data: blobUrl } = useDownloadUploadQuery(fileId, { skip: existsInRedux });
+  const dispatched = useRef(false);
+
+  useEffect(() => {
+    if (dispatched.current || existsInRedux || !metaData?.data || !blobUrl) return;
+    dispatched.current = true;
+
+    const file = metaData.data;
+    const ext = getExt(file.originalName);
+    const category = EXT_CATEGORY[ext] ?? "pdf";
+
+    dispatch(
+      addDrawing({
+        id: file._id,
+        name: file.originalName,
+        size: file.metadata?.bytes ?? 0,
+        extension: ext,
+        category,
+        status: "complete",
+        progress: 100,
+        previewUrl: blobUrl,
+        uploadedUrl: file.url,
+        uploadedFileId: file._id,
+        folderId,
+      }),
+    );
+    onLoaded(file._id);
+  }, [metaData, blobUrl, existsInRedux, dispatch, folderId, onLoaded]);
+
+  return null;
+}
 
 interface ProjectWorkspaceViewProps {
   projectId: string;
@@ -95,13 +142,26 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
   const drawings = useAppSelector((state) => state.manualWizard.drawings);
   const folders = useAppSelector((state) => state.manualWizard.folders);
 
+  const [uploadFile] = useUploadFileMutation();
+  const [updateProject] = useUpdateProjectMutation();
+
   const projectName = backendProject?.name ?? `Project ${projectId.slice(0, 8)}`;
+
+  // Selects the first drawing that arrives from DrawingHydrator (API path)
+  const firstDrawingSelected = useRef(false);
+  const handleDrawingHydrated = useCallback((id: string) => {
+    if (firstDrawingSelected.current) return;
+    firstDrawingSelected.current = true;
+    setSelectedDrawingId(id);
+    setSelectedPage(1);
+    setScale(1.0);
+  }, []);
 
   // ── Local UI state ──────────────────────────────────────────────────────────
   const [savedSession] = useState(() => loadSession(projectId));
   const [activeTool, setActiveTool] = useState<ToolId | null>(null);
   const [pendingTool, setPendingTool] = useState<ToolId | null>(null);
-  const [scaleFlowActive, setScaleFlowActive] = useState(() => savedSession.scaleFlowActive ?? false);
+  const [scaleFlowActive, setScaleFlowActive] = useState(false);
   const [activeColor, setActiveColor] = useState(PALETTE[0]);
   const [search, setSearch] = useState("");
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(() => drawings[0]?.id ?? null);
@@ -121,15 +181,14 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
   const [countModeActive, setCountModeActive] = useState(false);
   const [knownDistance, setKnownDistance] = useState(() => savedSession.knownDistance ?? "");
   const [distanceUnit, setDistanceUnit] = useState(() => savedSession.distanceUnit ?? "Meters");
-  const [scaleLocked, setScaleLocked] = useState(() => savedSession.scaleLocked ?? false);
-  const [scaleInfo, setScaleInfo] = useState<string | null>(() => savedSession.scaleInfo ?? null);
-  // Global scale factor — persists across every page and every tool activation
-  const [globalScaleFactor, setGlobalScaleFactor] = useState<number | null>(() => savedSession.scaleFactor ?? null);
+  const [scaleLocked, setScaleLocked] = useState(false);
+  const [scaleInfo, setScaleInfo] = useState<string | null>(null);
+  // Global scale factor — persists across pages within a session but resets on page reload
+  const [globalScaleFactor, setGlobalScaleFactor] = useState<number | null>(null);
   const [showScaleNotification, setShowScaleNotification] = useState(false);
   const scaleNotifTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Element detail panel — restore from session if scale was already active
-  const [showElementPanel, setShowElementPanel] = useState(() => savedSession.scaleFlowActive ?? false);
+  const [showElementPanel, setShowElementPanel] = useState(false);
   const [showRebarTab, setShowRebarTab] = useState(() => savedSession.showRebarTab ?? false);
   const [concreteMeasurements, setConcreteMeasurements] = useState<WsConcreteMeasurement[]>(
     () => savedSession.concreteMeasurements ?? [],
@@ -468,6 +527,7 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
     e.target.value = "";
     const targetFolderId = folders[0]?.id ?? "default";
     let firstNewId: string | null = null;
+
     for (const file of files) {
       const ext = getExt(file.name);
       const category = EXT_CATEGORY[ext] ?? "pdf";
@@ -475,19 +535,48 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
       if (!firstNewId) firstNewId = id;
       const previewUrl = category === "pdf" || category === "image" ? URL.createObjectURL(file) : undefined;
       dispatch(addDrawing({ id, name: file.name, size: file.size, extension: ext, category, status: "uploading", progress: 0, previewUrl, folderId: targetFolderId }));
+
       try {
-        const url = await simulateUpload(file, (progress) => {
-          dispatch({ type: "manualWizard/updateDrawing", payload: { id, progress, status: "uploading" } });
-        });
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const result = await uploadFile({
+          formData,
+          onUploadProgress: (event) => {
+            if (event.total) {
+              const pct = Math.round((event.loaded / event.total) * 100);
+              dispatch({ type: "manualWizard/updateDrawing", payload: { id, progress: pct, status: "uploading" } });
+            }
+          },
+        }).unwrap();
+
+        const uploadedFileId = result.data._id;
+        const uploadedUrl = result.data.url;
+
         dispatch({ type: "manualWizard/updateDrawing", payload: { id, status: "processing", progress: 100 } });
-        await new Promise((r) => setTimeout(r, 500));
-        dispatch({ type: "manualWizard/updateDrawing", payload: { id, status: "complete", uploadedUrl: url } });
+        await new Promise((r) => setTimeout(r, 400));
+        dispatch({ type: "manualWizard/updateDrawing", payload: { id, status: "complete", uploadedFileId, uploadedUrl } });
+
+        // Persist drawing to workspace session so it survives a page reload
+        const currentSession = loadSession(projectId);
+        const sessionDrawings = currentSession.drawings ?? [];
+        if (!sessionDrawings.some((d) => d.id === uploadedFileId)) {
+          saveSession(projectId, {
+            drawings: [...sessionDrawings, { id: uploadedFileId, name: file.name, url: uploadedUrl, extension: ext, size: file.size }],
+          });
+        }
+
+        // Append new file ID to project's drawings array on the backend
+        const existingIds = backendProject?.drawings ?? [];
+        await updateProject({ projectId, body: { drawings: [...existingIds, uploadedFileId] } });
+
         toast.success(`"${file.name}" uploaded`);
       } catch {
         dispatch({ type: "manualWizard/updateDrawing", payload: { id, status: "error", error: "Upload failed" } });
         toast.error(`Failed to upload "${file.name}"`);
       }
     }
+
     if (firstNewId) { setSelectedDrawingId(firstNewId); setSelectedPage(1); setScale(1.0); }
   }
 
@@ -536,7 +625,18 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
     );
   }
 
+  const apiHydrateIds = backendProject?.drawings ?? [];
+
   return (
+    <>
+      {apiHydrateIds.map((fileId) => (
+        <DrawingHydrator
+          key={fileId}
+          fileId={fileId}
+          folderId={folders[0]?.id ?? "default"}
+          onLoaded={handleDrawingHydrated}
+        />
+      ))}
     <div className="flex h-screen overflow-hidden bg-[#e8edf2]">
       {/* ── Left sidebar ── */}
       <aside className="w-[248px] shrink-0 bg-white border-r border-slate-100 flex flex-col overflow-hidden">
@@ -1158,5 +1258,6 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
           requiring the user to click each file first. */}
       <DrawingPreloader drawings={drawings} onPageCountResolved={handlePageCountResolved} />
     </div>
+    </>
   );
 }

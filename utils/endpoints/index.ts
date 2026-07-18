@@ -170,6 +170,7 @@ export const uploads = {
   upload: "/uploads",
   uploadFile: "uploads/{id}",
   getUploads: (id: string) => `/uploads/${id}`,
+  downloadUpload: (id: string) => `/uploads/${id}/download`,
 };
 
 export const pdfBoq = {
