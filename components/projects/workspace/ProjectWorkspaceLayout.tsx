@@ -151,9 +151,19 @@ export function ProjectWorkspaceLayout({
   const workspaceBase = `${basePath}/${projectId}`;
   const activeSegment = pathname.replace(workspaceBase, "") || "/";
 
+  const crumbs = useMemo(() => {
+    const parts = pathname.split("/").filter(Boolean);
+    const projectIdx = parts.findIndex((p) => p === projectId);
+    const tail = projectIdx >= 0 ? parts.slice(projectIdx + 1) : [];
+    return ["Workspace", ...(tail.length ? tail.map(toTitle) : ["Dashboard"])];
+  }, [pathname, projectId]);
+
   // The main workspace page (root path) renders its own full-screen layout — don't wrap it
   const isRootWorkspace = activeSegment === "/";
   if (isRootWorkspace) return <>{children}</>;
+
+  // The BOQ document renders its own full-screen layout — don't wrap it
+  if (activeSegment.startsWith("/boq")) return <>{children}</>;
 
   // AI projects also bypass the sidebar
   if (backendProject?.processingMode === "ai") return <>{children}</>;
@@ -170,13 +180,6 @@ export function ProjectWorkspaceLayout({
   }
 
   const dashboardPath = basePath.startsWith("/enterprise") ? "/enterprise/dashboard" : "/dashboard";
-
-  const crumbs = useMemo(() => {
-    const parts = pathname.split("/").filter(Boolean);
-    const projectIdx = parts.findIndex((p) => p === projectId);
-    const tail = projectIdx >= 0 ? parts.slice(projectIdx + 1) : [];
-    return ["Workspace", ...(tail.length ? tail.map(toTitle) : ["Dashboard"])];
-  }, [pathname, projectId]);
 
   // ── Structural params ────────────────────────────────────────────────────────
   const foundationType =
