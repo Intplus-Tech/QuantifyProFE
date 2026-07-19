@@ -6,15 +6,30 @@ export interface WorkItem {
   notes: string;
 }
 
+/** A row from the excel_boq_v1 template. Rates/amounts arrive null until priced. */
+export interface BoqRow {
+  rowType: "header" | "item" | "note";
+  itemCode: string | null;
+  description: string;
+  specification: string | null;
+  unit: string | null;
+  quantity: number | null;
+  rate: number | null;
+  amount: number | null;
+  notes: string | null;
+}
+
 export interface Section {
   sectionName: string;
   workItems: WorkItem[];
+  rows?: BoqRow[];
 }
 
 export interface BoqResult {
   projectTitle: string;
   sections: Section[];
   generalNotes: string;
+  templateVersion?: string;
 }
 
 export interface Pagination {
