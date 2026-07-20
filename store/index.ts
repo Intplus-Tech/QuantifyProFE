@@ -31,6 +31,7 @@ import "./api/plansApi";
 import "./api/clientsApi";
 import "./api/projectsApi";
 import "./api/manualProjectApi";
+import "./api/measurementSessionApi";
 
 const persistedProjectWorkspace = loadPersistedProjectWorkspaceState();
 

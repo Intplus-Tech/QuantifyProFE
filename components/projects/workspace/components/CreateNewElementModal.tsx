@@ -1,47 +1,198 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { ChevronRight } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import type { PileRow } from "./types";
+import { computeVolume } from "./types";
+import type { WsConcreteMeasurement } from "../workspaceSession";
+
+// ─── Category folder options ───────────────────────────────────────────────────
+
+const CATEGORY_FOLDERS: { group: string; items: string[] }[] = [
+  {
+    group: "Substructure",
+    items: [
+      "Substructure / Piles",
+      "Substructure / Pile Caps",
+      "Substructure / Ground Beams",
+      "Substructure / Foundations (Strip/Raft)",
+      "Substructure / Blinding Concrete",
+    ],
+  },
+  {
+    group: "Superstructure",
+    items: [
+      "Superstructure / Columns",
+      "Superstructure / Beams",
+      "Superstructure / Slabs",
+      "Superstructure / Shear Walls",
+      "Superstructure / Stairs",
+      "Superstructure / Roof Structure",
+    ],
+  },
+  {
+    group: "Architectural",
+    items: [
+      "Architectural / External Walls (Blockwork/Brick)",
+      "Architectural / Internal Walls (Partition)",
+      "Architectural / Lintel",
+      "Architectural / Parapet Walls",
+      "Architectural / Doors",
+      "Architectural / Windows",
+      "Architectural / Floor Finishes (Paint/Tiles)",
+      "Architectural / Ceiling Finishes",
+      "Architectural / Roof Finishes",
+    ],
+  },
+  {
+    group: "MEP",
+    items: [
+      "MEP / Electrical (Conduit, Cables, Panels)",
+      "MEP / Plumbing (Pipes, Fittings, Fixtures)",
+      "MEP / HVAC (Ductwork, Diffusers, Units)",
+      "MEP / Fire Protection (Sprinklers, Alarms)",
+    ],
+  },
+  {
+    group: "External Works",
+    items: [
+      "External Works / Swimming Pool",
+      "External Works / Pavement / Hardscape",
+      "External Works / Landscaping",
+      "External Works / Drainage",
+      "External Works / Fencing / Gates",
+    ],
+  },
+  {
+    group: "Site Works",
+    items: [
+      "Site Works / Earthworks (Excavation, Filling)",
+      "Site Works / Compaction",
+      "Site Works / Dewatering",
+    ],
+  },
+  {
+    group: "Finishes & Fixtures",
+    items: [
+      "Finishes & Fixtures / Kitchen (Countertops, Cabinets, Appliances)",
+      "Finishes & Fixtures / Bathroom (Sanitary Ware, Accessories)",
+      "Finishes & Fixtures / Joinery (Shelves, Wardrobes)",
+    ],
+  },
+];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function measureColumnMeta(tool: "count" | "length" | "area", unit: string) {
+  switch (tool) {
+    case "count":
+      return { header: "Count", accessor: (v: WsConcreteMeasurement) => String(v.canvas.count) };
+    case "length":
+      return {
+        header: `Length (${unit})`,
+        accessor: (v: WsConcreteMeasurement) => v.canvas.length.toFixed(2),
+      };
+    case "area":
+      return {
+        header: `Area (${unit === "Meters" ? "m²" : `${unit}²`})`,
+        accessor: (v: WsConcreteMeasurement) => v.canvas.area.toFixed(2),
+      };
+  }
+}
+
+function defaultCategoryFolder(measureType: string): string {
+  const map: Record<string, string> = {
+    "Pile":                    "Substructure / Piles",
+    "Column in Foundation":    "Substructure / Foundations (Strip/Raft)",
+    "Ground Beam":             "Substructure / Ground Beams",
+    "Strip":                   "Substructure / Foundations (Strip/Raft)",
+    "Shear Wall":              "Superstructure / Shear Walls",
+    "Slabs":                   "Superstructure / Slabs",
+    "Roof Beams":              "Superstructure / Roof Structure",
+    "Roof Slab":               "Superstructure / Roof Structure",
+    "Roof Upstands / Parapet": "Architectural / Parapet Walls",
+    "Roof Gutter":             "External Works / Drainage",
+  };
+  return map[measureType] ?? "Substructure / Piles";
+}
+
+function defaultMeasurementUnit(tool: "count" | "length" | "area"): string {
+  switch (tool) {
+    case "count": return "Counts";
+    case "length": return "m";
+    case "area": return "m²";
+  }
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export function CreateNewElementModal({
   open,
+  pendingVariants,
+  measureType,
   onClose,
   onUseExisting,
   onCreate,
 }: {
   open: boolean;
+  pendingVariants: WsConcreteMeasurement[];
+  measureType: string;
   onClose: () => void;
   onUseExisting: () => void;
-  onCreate: (data: { categoryFolder: string; rows: PileRow[] }) => void;
+  onCreate: (data: { categoryFolder: string; measurementUnit: string; rows: PileRow[] }) => void;
 }) {
-  const [categoryFolder, setCategoryFolder] = useState("Substructure / Pile");
-  const [measurementUnit, setMeasurementUnit] = useState("Counts");
-  const [pileRows, setPileRows] = useState<PileRow[]>([
-    { id: "1", name: "Bored Pile - 750mm", count: "18", volume: "4.50" },
-    { id: "2", name: "Bored Pile - 600mm", count: "4", volume: "4.50" },
-    { id: "3", name: "Bored Pile - 450mm", count: "4", volume: "4.50" },
-  ]);
+  const activeTool = pendingVariants[0]?.canvas.tool ?? "count";
+  const activeUnit = pendingVariants[0]?.canvas.unit ?? "Meters";
 
-  function updatePileRow(id: string, field: keyof PileRow, value: string) {
-    setPileRows((rows) => rows.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+  const colMeta = useMemo(
+    () => measureColumnMeta(activeTool, activeUnit),
+    [activeTool, activeUnit],
+  );
+
+  const [categoryFolder, setCategoryFolder] = useState(
+    () => defaultCategoryFolder(measureType),
+  );
+  const [measurementUnit, setMeasurementUnit] = useState(
+    () => defaultMeasurementUnit(activeTool),
+  );
+
+  const [rows, setRows] = useState<PileRow[]>(() =>
+    pendingVariants.map((v) => ({
+      id: v.id,
+      name: v.tag || v.measureType,
+      count: colMeta.accessor(v),
+      volume: computeVolume(v.measureType, v.concreteFields, v.canvas),
+    })),
+  );
+
+  function updateRow(id: string, field: keyof PileRow, value: string) {
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
   }
 
   function handleCreate() {
     toast.success("Element created");
-    onCreate({ categoryFolder, rows: pileRows });
+    onCreate({ categoryFolder, measurementUnit, rows });
   }
+
+  const sectionHeader = `Assign ${measureType} Parameters`;
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
@@ -60,11 +211,19 @@ export function CreateNewElementModal({
                 <label className="text-[11px] text-slate-500">Category folder</label>
                 <Select value={categoryFolder} onValueChange={setCategoryFolder}>
                   <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Substructure / Pile">Substructure / Pile</SelectItem>
-                    <SelectItem value="Substructure / Pile Caps">Substructure / Pile Caps</SelectItem>
-                    <SelectItem value="Substructure / Ground Beams">Substructure / Ground Beams</SelectItem>
-                    <SelectItem value="Superstructure / Columns">Superstructure / Columns</SelectItem>
+                  <SelectContent className="max-h-72">
+                    {CATEGORY_FOLDERS.map(({ group, items }) => (
+                      <SelectGroup key={group}>
+                        <SelectLabel className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          {group}
+                        </SelectLabel>
+                        {items.map((folder) => (
+                          <SelectItem key={folder} value={folder}>
+                            {folder.split(" / ").slice(1).join(" / ")}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -87,36 +246,50 @@ export function CreateNewElementModal({
           <div className="border border-slate-200 rounded-xl overflow-hidden">
             <div className="px-4 py-3 bg-slate-50 border-b border-slate-200">
               <p className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
-                Assign Pile Parameters
+                {sectionHeader}
               </p>
             </div>
             <div className="grid grid-cols-3 border-b border-slate-100 bg-white">
-              {["Pile", "Count", "Volume Per Pile"].map((h) => (
-                <div key={h} className="px-4 py-2 text-[10px] font-bold uppercase text-slate-400 tracking-wider">
+              {[measureType, colMeta.header, "Volume (m³)"].map((h) => (
+                <div
+                  key={h}
+                  className="px-4 py-2 text-[10px] font-bold uppercase text-slate-400 tracking-wider"
+                >
                   {h}
                 </div>
               ))}
             </div>
-            {pileRows.map((row) => (
-              <div key={row.id} className="grid grid-cols-3 border-b border-slate-50 last:border-0">
-                <div className="px-4 py-3 text-[13px] text-slate-600 flex items-center">{row.name}</div>
-                <div className="px-3 py-2 flex items-center">
-                  <Input
-                    value={row.count}
-                    onChange={(e) => updatePileRow(row.id, "count", e.target.value)}
-                    className="h-8 text-sm w-20"
-                  />
-                </div>
-                <div className="px-3 py-2 flex items-center gap-2">
-                  <Input
-                    value={row.volume}
-                    onChange={(e) => updatePileRow(row.id, "volume", e.target.value)}
-                    className="h-8 text-sm w-24"
-                  />
-                  <span className="text-[11px] text-slate-500">m³</span>
-                </div>
+            {rows.length === 0 ? (
+              <div className="px-4 py-6 text-center text-[12px] text-slate-400">
+                No variants saved yet. Use &quot;Apply &amp; Continue&quot; first.
               </div>
-            ))}
+            ) : (
+              rows.map((row) => (
+                <div
+                  key={row.id}
+                  className="grid grid-cols-3 border-b border-slate-50 last:border-0"
+                >
+                  <div className="px-4 py-3 text-[13px] text-slate-600 flex items-center">
+                    {row.name}
+                  </div>
+                  <div className="px-3 py-2 flex items-center">
+                    <Input
+                      value={row.count}
+                      onChange={(e) => updateRow(row.id, "count", e.target.value)}
+                      className="h-8 text-sm w-24"
+                    />
+                  </div>
+                  <div className="px-3 py-2 flex items-center gap-2">
+                    <Input
+                      value={row.volume}
+                      onChange={(e) => updateRow(row.id, "volume", e.target.value)}
+                      className="h-8 text-sm w-24"
+                    />
+                    <span className="text-[11px] text-slate-500">m³</span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
@@ -129,7 +302,11 @@ export function CreateNewElementModal({
           </button>
           <div className="flex items-center gap-3">
             <Button variant="outline" onClick={onClose}>Cancel</Button>
-            <Button onClick={handleCreate} className="bg-amber-500 hover:bg-amber-600 text-white flex items-center gap-1.5">
+            <Button
+              onClick={handleCreate}
+              disabled={rows.length === 0}
+              className="bg-amber-500 hover:bg-amber-600 text-white flex items-center gap-1.5 disabled:opacity-40"
+            >
               Create Element <ChevronRight className="w-4 h-4" />
             </Button>
           </div>

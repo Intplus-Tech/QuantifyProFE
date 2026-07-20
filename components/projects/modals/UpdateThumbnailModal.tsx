@@ -58,7 +58,7 @@ export function UpdateThumbnailModal({
       const formData = new FormData();
       formData.append("file", selectedFile);
       
-      const uploadResponse = await uploadFile(formData).unwrap();
+      const uploadResponse = await uploadFile({ formData }).unwrap();
       
       if (!uploadResponse.success || !uploadResponse.data?.url) {
         throw new Error("Failed to upload image");

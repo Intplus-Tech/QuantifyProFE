@@ -37,6 +37,7 @@ export interface CreateManualProjectPayload {
   companyId?: string;
   scopeCategories?: string[];
   drawingType?: string[];
+  drawings?: string[];
 }
 
 export type CreateManualProjectResponse = ApiResponse<Project>;

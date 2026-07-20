@@ -26,6 +26,7 @@ export interface DrawingFile {
   progress: number;
   previewUrl?: string;
   uploadedUrl?: string;
+  uploadedFileId?: string;
   pageCount?: number;
   pages: DrawingPage[];
   folderId: string | null;

@@ -50,18 +50,18 @@ export const ELEMENT_CONFIGS: Record<string, ElementConcreteConfig> = {
     tagPlaceholder: "e.g. P1",
     measureLabel: "Counts",
     measureUnit: "",
-    mockMeasureValue: "18",
+    mockMeasureValue: "0",
     rows: [
       {
         fields: [
           { key: "shape", label: "Shape", defaultValue: "Circular", type: "select", options: ["Circular", "Square", "Rectangular"] },
-          { key: "depth", label: "Depth (m)", defaultValue: "1.2" },
+          { key: "depth", label: "Depth (m)", defaultValue: "0" },
         ],
       },
       {
         fields: [
-          { key: "diameter", label: "Diameter (m)", defaultValue: "0.6" },
-          { key: "plasticizers", label: "Plasticizers", defaultValue: "1.2" },
+          { key: "diameter", label: "Diameter (m)", defaultValue: "0" },
+          { key: "plasticizers", label: "Plasticizers", defaultValue: "0" },
         ],
       },
     ],
@@ -72,18 +72,18 @@ export const ELEMENT_CONFIGS: Record<string, ElementConcreteConfig> = {
     tagPlaceholder: "e.g. C1",
     measureLabel: "Counts",
     measureUnit: "",
-    mockMeasureValue: "12",
+    mockMeasureValue: "0",
     rows: [
       {
         fields: [
           { key: "shape", label: "Shape", defaultValue: "Square", type: "select", options: ["Circular", "Square", "Rectangular"] },
-          { key: "depth", label: "Depth (m)", defaultValue: "1.2" },
+          { key: "depth", label: "Depth (m)", defaultValue: "0" },
         ],
       },
       {
         fields: [
-          { key: "width", label: "Width (m)", defaultValue: "0.30" },
-          { key: "breadth", label: "Breadth (m)", defaultValue: "0.30" },
+          { key: "width", label: "Width (m)", defaultValue: "0" },
+          { key: "breadth", label: "Breadth (m)", defaultValue: "0" },
         ],
       },
     ],
@@ -98,13 +98,13 @@ export const ELEMENT_CONFIGS: Record<string, ElementConcreteConfig> = {
     rows: [
       {
         fields: [
-          { key: "width", label: "Width (m)", defaultValue: "0.30" },
-          { key: "depth", label: "Depth (m)", defaultValue: "1.2" },
+          { key: "width", label: "Width (m)", defaultValue: "0" },
+          { key: "depth", label: "Depth (m)", defaultValue: "0" },
         ],
       },
       {
         fields: [
-          { key: "quantity", label: "Quantity (identical Beams)", defaultValue: "1" },
+          { key: "quantity", label: "Quantity (identical Beams)", defaultValue: "0" },
         ],
       },
     ],
@@ -115,15 +115,15 @@ export const ELEMENT_CONFIGS: Record<string, ElementConcreteConfig> = {
     tagPlaceholder: "e.g. #1",
     measureLabel: "Length",
     measureUnit: "m",
-    mockMeasureValue: "18",
+    mockMeasureValue: "0",
     rows: [
       {
         sectionLabel: "EXCAVATION",
-        fields: [{ key: "excavationDepth", label: "Depth (m)", defaultValue: "18" }],
+        fields: [{ key: "excavationDepth", label: "Depth (m)", defaultValue: "0" }],
       },
       {
         sectionLabel: "BLOCKWORK",
-        fields: [{ key: "blockworkHeight", label: "Height (m)", defaultValue: "18" }],
+        fields: [{ key: "blockworkHeight", label: "Height (m)", defaultValue: "0" }],
       },
     ],
   },
@@ -133,12 +133,12 @@ export const ELEMENT_CONFIGS: Record<string, ElementConcreteConfig> = {
     tagPlaceholder: "e.g. SW1",
     measureLabel: "Length",
     measureUnit: "m",
-    mockMeasureValue: "49.0",
+    mockMeasureValue: "0",
     rows: [
       {
         fields: [
-          { key: "width", label: "Width (m)", defaultValue: "0.30" },
-          { key: "height", label: "Height (m)", defaultValue: "1.2" },
+          { key: "width", label: "Width (m)", defaultValue: "0" },
+          { key: "height", label: "Height (m)", defaultValue: "0" },
         ],
       },
     ],
@@ -149,10 +149,10 @@ export const ELEMENT_CONFIGS: Record<string, ElementConcreteConfig> = {
     tagPlaceholder: "e.g. SBO1",
     measureLabel: "Area",
     measureUnit: "m²",
-    mockMeasureValue: "24.5",
+    mockMeasureValue: "0",
     rows: [
       {
-        fields: [{ key: "thickness", label: "Thickness (m)", defaultValue: "1.2" }],
+        fields: [{ key: "thickness", label: "Thickness (m)", defaultValue: "0" }],
       },
     ],
   },
@@ -162,12 +162,12 @@ export const ELEMENT_CONFIGS: Record<string, ElementConcreteConfig> = {
     tagPlaceholder: "e.g. RB",
     measureLabel: "Length",
     measureUnit: "m",
-    mockMeasureValue: "24.5",
+    mockMeasureValue: "0",
     rows: [
       {
         fields: [
-          { key: "width", label: "Width (m)", defaultValue: "1.2" },
-          { key: "depth", label: "Depth (m)", defaultValue: "1.2" },
+          { key: "width", label: "Width (m)", defaultValue: "0" },
+          { key: "depth", label: "Depth (m)", defaultValue: "0" },
         ],
       },
     ],
@@ -178,10 +178,10 @@ export const ELEMENT_CONFIGS: Record<string, ElementConcreteConfig> = {
     tagPlaceholder: "e.g. RS",
     measureLabel: "Area",
     measureUnit: "m²",
-    mockMeasureValue: "24.5",
+    mockMeasureValue: "0",
     rows: [
       {
-        fields: [{ key: "thickness", label: "Thickness (m)", defaultValue: "1.2" }],
+        fields: [{ key: "thickness", label: "Thickness (m)", defaultValue: "0" }],
       },
     ],
   },
@@ -191,12 +191,12 @@ export const ELEMENT_CONFIGS: Record<string, ElementConcreteConfig> = {
     tagPlaceholder: "e.g. RUP",
     measureLabel: "Length",
     measureUnit: "m",
-    mockMeasureValue: "24.5",
+    mockMeasureValue: "0",
     rows: [
       {
         fields: [
-          { key: "height", label: "Height (m)", defaultValue: "1.2" },
-          { key: "thickness", label: "Thickness (m)", defaultValue: "1.2" },
+          { key: "height", label: "Height (m)", defaultValue: "0" },
+          { key: "thickness", label: "Thickness (m)", defaultValue: "0" },
         ],
       },
     ],
@@ -207,12 +207,12 @@ export const ELEMENT_CONFIGS: Record<string, ElementConcreteConfig> = {
     tagPlaceholder: "e.g. RG",
     measureLabel: "Length",
     measureUnit: "m",
-    mockMeasureValue: "24.5",
+    mockMeasureValue: "0",
     rows: [
       {
         fields: [
-          { key: "width", label: "Width (m)", defaultValue: "1.2" },
-          { key: "depth", label: "Depth (m)", defaultValue: "1.2" },
+          { key: "width", label: "Width (m)", defaultValue: "0" },
+          { key: "depth", label: "Depth (m)", defaultValue: "0" },
         ],
       },
     ],

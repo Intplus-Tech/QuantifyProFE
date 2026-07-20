@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useShapeHistory } from "./useShapeHistory";
 import type { Measurement, MPoint, PageMeasurements } from "../components/types";
 
@@ -87,12 +87,20 @@ export function useCanvasMeasurements(drawingId: string | null, page: number) {
     push((cur) => ({ ...cur, measurements: [] }));
   }
 
+  // Bulk-replace all state (used when re-hydrating from backend). Stable because
+  // `reset` is a useCallback from useShapeHistory with no deps.
+  const resetWithData = useCallback(
+    (data: PageMeasurements) => reset(data),
+    [reset],
+  );
+
   return {
     state,
     setCalibration,
     addMeasurement,
     removeMeasurement,
     clearMeasurements,
+    resetWithData,
     undo,
     redo,
     canUndo,
