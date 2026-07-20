@@ -26,6 +26,17 @@ export default function SoloLayout({
   const isManualWorkspace =
     Boolean(projectId) && projectResponse?.data?.processingMode !== "ai";
 
+  // The BOQ document is full-screen — it renders outside the dashboard chrome
+  const isBoqDocument = Boolean(projectId) && segments[2] === "boq";
+
+  if (isBoqDocument) {
+    return (
+      <AuthGuard>
+        <main className="min-h-screen bg-[#dbe3eb]">{children}</main>
+      </AuthGuard>
+    );
+  }
+
   if (isManualWorkspace) {
     return (
       <AuthGuard>

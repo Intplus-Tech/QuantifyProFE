@@ -1,4 +1,4 @@
-import { BOQReportView } from "@/components/projects/boq-report/BOQReportView";
+import { BOQDocumentView } from "@/components/projects/boq-document/BOQDocumentView";
 
 interface BOQPageProps {
   params: Promise<{ projectId: string }>;
@@ -6,5 +6,5 @@ interface BOQPageProps {
 
 export default async function BOQPage({ params }: BOQPageProps) {
   const { projectId } = await params;
-  return <BOQReportView projectId={projectId} basePath="/projects" />;
+  return <BOQDocumentView projectId={projectId} basePath="/projects" />;
 }
