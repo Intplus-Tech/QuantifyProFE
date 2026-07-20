@@ -65,7 +65,7 @@ export function buildCreateProjectPayload(
   return {
     name: step2.projectName,
     description: step2.description || undefined,
-    source: "manual",
+    source: step2.source || "manual",
     processingMode: "manual",
     projectCode: step2.projectRef || undefined,
     projectType: step2.projectType ? toProjectType(step2.projectType) : undefined,

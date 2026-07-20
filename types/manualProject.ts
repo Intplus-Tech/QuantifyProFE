@@ -24,7 +24,7 @@ export interface ManualProject extends Project {
 export interface CreateManualProjectPayload {
   name: string;
   description?: string;
-  source: "manual";
+  source: string;
   processingMode: "manual";
   projectCode?: string;
   projectType?: string;

@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CURRENCIES, PROJECT_TYPES, PROJECT_PHASES } from "./constants";
+import { CURRENCIES, PROJECT_TYPES, PROJECT_PHASES, PROJECT_SOURCES } from "./constants";
 import type { Step2Data } from "./types";
 import { useGetClientsQuery } from "@/store/api/clientsApi";
 import { AddClientDialog } from "@/components/clients/AddClientDialog";
@@ -34,6 +34,7 @@ const schema = z.object({
   projectPhase:   z.string().min(1, "Project phase is required"),
   durationMonths: z.string().optional(),
   description:    z.string().optional(),
+  source:         z.string().optional(),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -126,7 +127,7 @@ export function StepProjectDetails({ data, onChange, onNext }: StepProjectDetail
                       field.onChange(val);
                     }}
                   >
-                    <SelectTrigger className="w-full border-border/60">
+                    <SelectTrigger className="w-full h-12! border-border/60">
                       <SelectValue placeholder="Select client" />
                     </SelectTrigger>
                     <SelectContent>
@@ -167,8 +168,8 @@ export function StepProjectDetails({ data, onChange, onNext }: StepProjectDetail
               />
             </div>
 
-            <div>
-              <p className="text-xs font-semibold text-foreground mb-3">
+            <div className="pt-1 border-t border-border/40 space-y-3">
+              <p className="text-xs font-semibold text-foreground pt-4">
                 Location &amp; Address
               </p>
               <div className="space-y-2">
@@ -204,7 +205,7 @@ export function StepProjectDetails({ data, onChange, onNext }: StepProjectDetail
                 name="currency"
                 render={({ field }) => (
                   <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger className="w-full border-border/60">
+                    <SelectTrigger className="w-full h-12! border-border/60">
                       <SelectValue placeholder="Select currency" />
                     </SelectTrigger>
                     <SelectContent>
@@ -229,7 +230,7 @@ export function StepProjectDetails({ data, onChange, onNext }: StepProjectDetail
                 name="projectType"
                 render={({ field }) => (
                   <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger className="w-full border-border/60">
+                    <SelectTrigger className="w-full h-12! border-border/60">
                       <SelectValue placeholder="Select project type" />
                     </SelectTrigger>
                     <SelectContent>
@@ -254,7 +255,7 @@ export function StepProjectDetails({ data, onChange, onNext }: StepProjectDetail
                 name="projectPhase"
                 render={({ field }) => (
                   <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger className="w-full border-border/60">
+                    <SelectTrigger className="w-full h-12! border-border/60">
                       <SelectValue placeholder="Select project phase" />
                     </SelectTrigger>
                     <SelectContent>
@@ -268,6 +269,30 @@ export function StepProjectDetails({ data, onChange, onNext }: StepProjectDetail
                 )}
               />
               <FieldError message={errors.projectPhase?.message} />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs font-medium text-muted-foreground">
+                Project Source
+              </Label>
+              <Controller
+                control={control}
+                name="source"
+                render={({ field }) => (
+                  <Select value={field.value ?? ""} onValueChange={field.onChange}>
+                    <SelectTrigger className="w-full h-12! border-border/60">
+                      <SelectValue placeholder="Select project source" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PROJECT_SOURCES.map((s) => (
+                        <SelectItem key={s.value} value={s.value}>
+                          {s.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
             </div>
 
             <div className="space-y-2">

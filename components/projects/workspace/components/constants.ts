@@ -14,6 +14,17 @@ export const PALETTE = [
   "#64748b",
 ];
 
+export const PALETTE_LABELS: Record<string, string> = {
+  "#ef4444": "Red",
+  "#f97316": "Orange",
+  "#eab308": "Yellow",
+  "#22c55e": "Green",
+  "#3b82f6": "Blue",
+  "#8b5cf6": "Purple",
+  "#ec4899": "Pink",
+  "#64748b": "Slate",
+};
+
 export const TOOLS: {
   id: ToolId;
   icon: ComponentType<{ className?: string }>;

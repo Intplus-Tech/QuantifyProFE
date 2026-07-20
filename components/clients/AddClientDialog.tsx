@@ -36,20 +36,54 @@ const emptyForm = {
   notes: "",
 };
 
+const emptyErrors: Record<keyof typeof emptyForm, string> = {
+  name: "",
+  clientCompanyName: "",
+  industry: "",
+  email: "",
+  phone: "",
+  notes: "",
+};
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function FieldError({ message }: { message?: string }) {
+  if (!message) return null;
+  return <p className="text-xs text-destructive mt-1">{message}</p>;
+}
+
 export function AddClientDialog({ open, onOpenChange }: AddClientDialogProps) {
   const [form, setForm] = useState(emptyForm);
+  const [errors, setErrors] = useState(emptyErrors);
   const [createClient, { isLoading }] = useCreateClientMutation();
 
   function handleChange(field: keyof typeof emptyForm, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
+    setErrors((prev) => ({ ...prev, [field]: "" }));
   }
 
   function handleClose() {
     setForm(emptyForm);
+    setErrors(emptyErrors);
     onOpenChange(false);
   }
 
+  function validate() {
+    const next = { ...emptyErrors };
+    if (!form.name.trim()) next.name = "Client name is required";
+    if (!form.clientCompanyName.trim())
+      next.clientCompanyName = "Company name is required";
+    if (!form.industry.trim()) next.industry = "Industry is required";
+    if (!form.email.trim()) next.email = "Email is required";
+    else if (!EMAIL_REGEX.test(form.email.trim()))
+      next.email = "Enter a valid email address";
+    if (!form.phone.trim()) next.phone = "Phone number is required";
+    setErrors(next);
+    return Object.values(next).every((msg) => !msg);
+  }
+
   async function handleSave() {
+    if (!validate()) return;
     try {
       const result = await createClient(form).unwrap();
       toast.success("Client added successfully.");
@@ -77,21 +111,23 @@ export function AddClientDialog({ open, onOpenChange }: AddClientDialogProps) {
           {/* Client Name */}
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="client-name" className="text-sm font-medium">
-              Client Name
+              Client Name <span className="text-destructive">*</span>
             </Label>
             <Input
               id="client-name"
               placeholder="e.g. John Doe"
               value={form.name}
               onChange={(e) => handleChange("name", e.target.value)}
+              aria-invalid={!!errors.name}
               className="bg-muted/30 border-border/60 h-12"
             />
+            <FieldError message={errors.name} />
           </div>
 
           {/* Company Name */}
           <div className="flex flex-col gap-1.5 ">
             <Label htmlFor="company-name" className="text-sm font-medium">
-              Company Name
+              Company Name <span className="text-destructive">*</span>
             </Label>
             <Input
               id="company-name"
@@ -100,18 +136,25 @@ export function AddClientDialog({ open, onOpenChange }: AddClientDialogProps) {
               onChange={(e) =>
                 handleChange("clientCompanyName", e.target.value)
               }
+              aria-invalid={!!errors.clientCompanyName}
               className="bg-muted/30 border-border/60 h-12"
             />
+            <FieldError message={errors.clientCompanyName} />
           </div>
 
           {/* Industry */}
-          <div className="flex flex-col h-12 gap-1.5 mb-6">
-            <Label className="text-sm font-medium">Industry</Label>
+          <div className="flex flex-col gap-1.5 mb-6">
+            <Label className="text-sm font-medium">
+              Industry <span className="text-destructive">*</span>
+            </Label>
             <Select
               value={form.industry}
               onValueChange={(v) => handleChange("industry", v)}
             >
-              <SelectTrigger className="bg-muted/30 border-border/60 h-12! text-base px-4 w-full py-3">
+              <SelectTrigger
+                aria-invalid={!!errors.industry}
+                className="bg-muted/30 border-border/60 h-12! text-base px-4 w-full py-3"
+              >
                 <SelectValue
                   placeholder="Select Industry"
                   className="text-sm"
@@ -139,13 +182,14 @@ export function AddClientDialog({ open, onOpenChange }: AddClientDialogProps) {
                 </SelectItem>
               </SelectContent>
             </Select>
+            <FieldError message={errors.industry} />
           </div>
 
           {/* Email + Phone side by side */}
           <div className="flex gap-3">
             <div className="flex flex-col gap-1.5 flex-1">
               <Label htmlFor="client-email" className="text-sm font-medium">
-                Primary Contact Email
+                Primary Contact Email <span className="text-destructive">*</span>
               </Label>
               <Input
                 id="client-email"
@@ -153,13 +197,15 @@ export function AddClientDialog({ open, onOpenChange }: AddClientDialogProps) {
                 placeholder="john@example.com"
                 value={form.email}
                 onChange={(e) => handleChange("email", e.target.value)}
+                aria-invalid={!!errors.email}
                 className="bg-muted/30 border-border/60 h-12"
               />
+              <FieldError message={errors.email} />
             </div>
 
             <div className="flex flex-col gap-1.5 flex-1">
               <Label htmlFor="client-phone" className="text-sm font-medium">
-                Phone Number
+                Phone Number <span className="text-destructive">*</span>
               </Label>
               <Input
                 id="client-phone"
@@ -167,8 +213,10 @@ export function AddClientDialog({ open, onOpenChange }: AddClientDialogProps) {
                 placeholder="+1 (555) 000-0000"
                 value={form.phone}
                 onChange={(e) => handleChange("phone", e.target.value)}
+                aria-invalid={!!errors.phone}
                 className="bg-muted/30 border-border/60 h-12"
               />
+              <FieldError message={errors.phone} />
             </div>
           </div>
 
