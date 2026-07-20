@@ -96,6 +96,7 @@ import { BBSQuestionModal } from "./components/BBSQuestionModal";
 import { BBSEntryModal } from "./components/BBSEntryModal";
 import { ScaleSetupModal } from "./components/ScaleSetupModal";
 import { ElementDetailPanel } from "./components/ElementDetailPanel";
+import { LiveMeasurementsPanel } from "./components/LiveMeasurementsPanel";
 import { AssignItemsModal } from "./components/AssignItemsModal";
 import { ConfirmAssignmentModal } from "./components/ConfirmAssignmentModal";
 import { AssignmentCompleteModal } from "./components/AssignmentCompleteModal";
@@ -394,6 +395,16 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
   const [showElementPanel, setShowElementPanel] = useState(false);
   const [concreteMeasurements, setConcreteMeasurements] = useState<WsConcreteMeasurement[]>([]);
 
+  // ── Auto-save ────────────────────────────────────────────────────────────────
+  // currentVariantId stays stable for one measurement round. It is the clientId
+  // used when upserting to the backend, making repeated auto-saves idempotent.
+  // Cycling it (on "Apply & Continue") starts a fresh measurement round.
+  const currentVariantId = useRef<string>(crypto.randomUUID());
+  const lastFormPayload = useRef<SaveMeasurementPayload | null>(null);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevMarkCount = useRef(0);
+
   // Assign element flow
   const [assigningElementId, setAssigningElementId] = useState<string | null>(null);
   const [assigningElement, setAssigningElement] = useState<CreatedElement | null>(null);
@@ -414,7 +425,7 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
   const router = useRouter();
 
   // Sidebar: DRAWINGS collapsible drawer + ELEMENTS panel
-  const [drawingsOpen, setDrawingsOpen] = useState(false);
+  const [drawingsOpen, setDrawingsOpen] = useState(() => (savedSession.drawings ?? []).length > 0);
   const [elementSearch, setElementSearch] = useState("");
   const [expandedCategories, setExpandedCategories] = useState<string[]>([]);
   // Elements — populated by Phase 2 hydration from backend, never from localStorage
@@ -445,7 +456,10 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
   useEffect(() => {
     saveSession(projectId, {
       createdElements: [],
-      concreteMeasurements: [],
+      // concreteMeasurements is intentionally NOT cleared here — the global element
+      // loader reads it from the backend, and localStorage acts as a fallback for
+      // pending variants that haven't been assigned yet. Clearing it on mount
+      // would destroy that fallback before it can be used.
       scaleFactor: null,
       scaleLocked: false,
       scaleFlowActive: false,
@@ -530,8 +544,9 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDrawing?.uploadedFileId, selectedPage, projectId]);
 
-  // ── Phase 2: Re-hydrate canvas elements and calibration from the backend session ──
-  // Runs once per sessionId; the Set guard prevents double-hydration on re-renders.
+  // ── Phase 2: Re-hydrate canvas calibration from the active session ───────────
+  // Restores scale factor and canvas marks for the current page only.
+  // Element aggregation across all pages is handled by the global loader below.
   useEffect(() => {
     if (!activeSessionData?.data || !activeSessionId) return;
     if (hydratedSessionIds.current.has(activeSessionId)) return;
@@ -541,8 +556,6 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
     const backendScale = session.canvas.scale;
     const backendUnit = session.canvas.unit ?? distanceUnit;
 
-    // Restore calibration and open the measurement panel when the session was
-    // previously calibrated, so the user lands back in a measuring-ready state.
     if (backendScale) {
       setGlobalScaleFactor(backendScale);
       setScaleLocked(true);
@@ -551,15 +564,10 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
       setScaleInfo(`Scale: 1 px = ${(1 / backendScale).toFixed(3)} ${backendUnit}`);
     }
 
-    // Restore calibration input fields from backend once backend change 3 is deployed
-    // (session.canvas.calibration returned). Falls back to localStorage until then.
     const calibration = session.canvas.calibration;
     if (calibration?.knownDistance) setKnownDistance(String(calibration.knownDistance));
     if (calibration?.unit) setDistanceUnit(calibration.unit);
 
-    // Rebuild local Measurement objects from the server elements, assigning
-    // sequential count indices to maintain correct label numbering.
-    // Count elements are stored as multipoint, yielding N marks per element.
     let countIdx = 1;
     const measurements: Measurement[] = [];
     for (const el of elements) {
@@ -573,83 +581,197 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
     if (measurements.length > 0 || backendScale) {
       measurementHook.resetWithData({ scaleFactor: backendScale ?? null, calibPts: null, measurements });
     }
+  }, [activeSessionData, activeSessionId, distanceUnit, measurementHook.resetWithData]);
 
-    // Reconstruct sidebar elements and pending variants from backend element attributes.
-    // Each element carries a _snapshot field (JSON-serialised WsConcreteMeasurement)
-    // written by upsertPendingVariant / persistVariantsToBackend.
-    // This path only activates once the backend returns full element documents
-    // (backend change 2). Until then localStorage values remain active as a fallback.
-    const pendingVariantsMap = new Map<string, WsConcreteMeasurement>();
-    const assignedElementMap = new Map<
-      string,
-      { meta: CreatedElement; variantMap: Map<string, WsConcreteMeasurement> }
-    >();
+  // ── Global element loader: merge assigned elements from ALL project sessions ──
+  // Runs once after the project document loads. Fetches every session in parallel
+  // and aggregates their assigned elements so the Elements tab shows all work
+  // regardless of which page is currently active.
+  const projectElementsLoaded = useRef(false);
+  useEffect(() => {
+    if (projectElementsLoaded.current) return;
+    if (!backendProject?._id) return;
+    projectElementsLoaded.current = true;
 
-    for (const el of elements) {
-      const attrs = el.attributes ?? {};
-      const snapshotStr = attrs._snapshot as string | undefined;
-      if (!snapshotStr) continue;
+    async function loadAllElements() {
+      const sessionsResult = await fetchProjectSessions(projectId);
+      if (!("data" in sessionsResult) || !sessionsResult.data?.data?.length) return;
 
-      let parsedVariant: WsConcreteMeasurement | null = null;
-      try { parsedVariant = JSON.parse(snapshotStr) as WsConcreteMeasurement; } catch { continue; }
+      const sessionIds = sessionsResult.data.data.map((s) => s._id);
+      const sessionResults = await Promise.all(sessionIds.map((id) => fetchSessionById(id)));
 
-      if (attrs.pending === true) {
-        if (!pendingVariantsMap.has(parsedVariant.id)) {
-          pendingVariantsMap.set(parsedVariant.id, parsedVariant);
+      const assignedElementMap = new Map<
+        string,
+        { meta: CreatedElement; variantMap: Map<string, WsConcreteMeasurement> }
+      >();
+      const pendingVariantsMap = new Map<string, WsConcreteMeasurement>();
+
+      for (const result of sessionResults) {
+        if (!("data" in result) || !result.data?.data) continue;
+        const { elements, session: sessionData } = result.data.data;
+        const sid = sessionData._id;
+
+        for (const el of elements) {
+          const attrs = el.attributes ?? {};
+          const snapshotStr = attrs._snapshot as string | undefined;
+          if (!snapshotStr) continue;
+
+          let parsedVariant: WsConcreteMeasurement | null = null;
+          try { parsedVariant = JSON.parse(snapshotStr) as WsConcreteMeasurement; } catch { continue; }
+
+          if (attrs.pending === true) {
+            if (!pendingVariantsMap.has(parsedVariant.id)) {
+              pendingVariantsMap.set(parsedVariant.id, parsedVariant);
+            }
+          } else {
+            const eid = attrs.elementId as string | undefined;
+            const elementName = attrs.elementName as string | undefined;
+            if (!eid || !elementName) continue;
+
+            if (!assignedElementMap.has(eid)) {
+              assignedElementMap.set(eid, {
+                meta: {
+                  id: eid,
+                  name: elementName,
+                  category: (attrs.elementCategory as string) ?? "Substructure",
+                  categoryFolder: (attrs.categoryFolder as string) ?? elementName,
+                  measurementUnit: (attrs.measurementUnit as string) ?? "items",
+                  variants: [],
+                  sessionId: sid,
+                  drawingId: parsedVariant.drawingId,
+                  pageNumber: parsedVariant.pageNumber,
+                  createdAt: parsedVariant.savedAt,
+                },
+                variantMap: new Map(),
+              });
+            }
+
+            const entry = assignedElementMap.get(eid)!;
+            if (!entry.variantMap.has(parsedVariant.id)) {
+              entry.variantMap.set(parsedVariant.id, parsedVariant);
+            }
+          }
         }
+      }
+
+      const reconstructedElements: CreatedElement[] = Array.from(
+        assignedElementMap.values(),
+      ).map(({ meta, variantMap }) => ({ ...meta, variants: Array.from(variantMap.values()) }));
+
+      const reconstructedPending = Array.from(pendingVariantsMap.values());
+
+      if (reconstructedElements.length > 0) {
+        setElements(reconstructedElements);
+      }
+      if (reconstructedPending.length > 0) {
+        setConcreteMeasurements(reconstructedPending);
       } else {
-        const eid = attrs.elementId as string | undefined;
-        const elementName = attrs.elementName as string | undefined;
-        if (!eid || !elementName) continue;
-
-        if (!assignedElementMap.has(eid)) {
-          assignedElementMap.set(eid, {
-            meta: {
-              id: eid,
-              name: elementName,
-              category: (attrs.elementCategory as string) ?? "Substructure",
-              categoryFolder: (attrs.categoryFolder as string) ?? elementName,
-              measurementUnit: (attrs.measurementUnit as string) ?? "items",
-              variants: [],
-              sessionId: activeSessionId,
-              drawingId: parsedVariant.drawingId,
-              pageNumber: parsedVariant.pageNumber,
-              createdAt: parsedVariant.savedAt,
-            },
-            variantMap: new Map(),
-          });
-        }
-
-        const entry = assignedElementMap.get(eid)!;
-        // Deduplicate by variant.id — length/area have one backend element per mark
-        // but all marks carry the same snapshot so the Map absorbs duplicates.
-        if (!entry.variantMap.has(parsedVariant.id)) {
-          entry.variantMap.set(parsedVariant.id, parsedVariant);
+        // Backend has no pending variants — fall back to localStorage for measurements
+        // saved in this session that weren't yet assigned to an element (e.g. after a
+        // hard refresh before assignment was completed).
+        const localPending = loadSession(projectId).concreteMeasurements;
+        if (localPending && localPending.length > 0) {
+          setConcreteMeasurements(localPending);
         }
       }
     }
 
-    const reconstructedElements: CreatedElement[] = Array.from(
-      assignedElementMap.values(),
-    ).map(({ meta, variantMap }) => ({ ...meta, variants: Array.from(variantMap.values()) }));
+    loadAllElements();
+  // fetchProjectSessions and fetchSessionById are stable references from RTK Query lazy hooks
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backendProject?._id, projectId]);
 
-    const reconstructedPending = Array.from(pendingVariantsMap.values());
+  // ── Auto-save: upsert the current variant to the backend ─────────────────────
+  // Called both by canvas-mark completions and by form field changes (debounced).
+  // Uses currentVariantId as a stable clientId so repeated calls are idempotent.
+  function handleAutoSave(formPayload?: SaveMeasurementPayload) {
+    if (!activeSessionId || !scaleFlowActive) return;
 
-    if (reconstructedElements.length > 0) {
-      setElements(reconstructedElements);
-      saveSession(projectId, { createdElements: reconstructedElements });
+    const payload = formPayload ?? lastFormPayload.current;
+    if (formPayload) lastFormPayload.current = formPayload;
+
+    const measurementIds = measurementHook.state.measurements.map((m) => m.id);
+    const tool: "count" | "length" | "area" =
+      activeTool === "count" ? "count" : activeTool === "area" ? "area" : "length";
+
+    const variant: WsConcreteMeasurement = {
+      id: currentVariantId.current,
+      measureType: scaleWhat,
+      tag: payload?.tag ?? "",
+      concreteFields: payload?.concreteFields ?? {},
+      rebar: payload?.rebar ?? null,
+      canvas: {
+        tool,
+        count: sessionTotals.count,
+        length: sessionTotals.length + (liveDrawingLength ?? 0),
+        area: sessionTotals.area,
+        unit: distanceUnit,
+        measurementIds,
+      },
+      sessionId: activeSessionId,
+      drawingId: selectedDrawing?.uploadedFileId ?? null,
+      pageNumber: selectedPage,
+      savedAt: Date.now(),
+    };
+
+    setConcreteMeasurements((prev) => {
+      const idx = prev.findIndex((v) => v.id === currentVariantId.current);
+      const next =
+        idx >= 0 ? prev.map((v, i) => (i === idx ? variant : v)) : [...prev, variant];
+      saveSession(projectId, { concreteMeasurements: next });
+      return next;
+    });
+
+    upsertPendingVariant(variant, activeSessionId);
+
+    setAutoSaveStatus("saving");
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => {
+      setAutoSaveStatus("saved");
+      autoSaveTimerRef.current = setTimeout(() => setAutoSaveStatus("idle"), 3000);
+    }, 400);
+  }
+
+  // Keep a stable ref so the canvas mark effect never captures a stale closure.
+  const handleAutoSaveRef = useRef(handleAutoSave);
+  useEffect(() => { handleAutoSaveRef.current = handleAutoSave; });
+
+  // Trigger auto-save whenever a new canvas mark is added.
+  useEffect(() => {
+    const count = measurementHook.state.measurements.length;
+    if (count > prevMarkCount.current && scaleFlowActive) {
+      handleAutoSaveRef.current();
     }
-    if (reconstructedPending.length > 0) {
-      setConcreteMeasurements(reconstructedPending);
-      saveSession(projectId, { concreteMeasurements: reconstructedPending });
+    prevMarkCount.current = count;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [measurementHook.state.measurements.length]);
+
+  // ── Keyboard shortcuts: Cmd/Ctrl+Z = undo, Cmd/Ctrl+Shift+Z or Ctrl+Y = redo ──
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      if (e.key === "z" && !e.shiftKey) { e.preventDefault(); measurementHook.undo(); }
+      if ((e.key === "z" && e.shiftKey) || e.key === "y") { e.preventDefault(); measurementHook.redo(); }
     }
-  }, [activeSessionData, activeSessionId, distanceUnit, measurementHook.resetWithData, projectId]);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [measurementHook.undo, measurementHook.redo]);
 
   // ── Tool click ───────────────────────────────────────────────────────────────
 
   function handleToolClick(id: ToolId) {
     if (id === "undo") { measurementHook.undo(); return; }
     if (id === "redo") { measurementHook.redo(); return; }
+    // Scale already configured — activate tool directly, skip BBS/Scale modal chain.
+    // This lets the user navigate to another page for additional rebar/concrete
+    // measurements without being re-prompted for BBS or scale every time.
+    if (scaleFlowActive) {
+      setActiveTool(id);
+      setCountModeActive(id === "count");
+      setPendingTool(null);
+      return;
+    }
     setPendingTool(id);
     setBbsModalStep("question");
   }
@@ -751,7 +873,6 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
     const approxRatio = Math.round(calibBasePxDist / realDist);
     const newScaleInfo = `Scale: 1:${approxRatio} | ${sf.toFixed(1)} px/${distanceUnit}`;
     setScaleInfo(newScaleInfo);
-    setScaleLocked(true);
     setShowScaleNotification(true);
     if (scaleNotifTimerRef.current) clearTimeout(scaleNotifTimerRef.current);
     scaleNotifTimerRef.current = setTimeout(() => setShowScaleNotification(false), 5000);
@@ -761,7 +882,7 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
       scaleWhat,
       scaleInfo: newScaleInfo,
       scaleFlowActive: true,
-      scaleLocked: true,
+      scaleLocked: false,
       scaleFactor: sf,
     });
 
@@ -797,8 +918,10 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
   function handleSaveMeasurement(payload: SaveMeasurementPayload) {
     const measurementIds = measurementHook.state.measurements.map((m) => m.id);
 
+    // Use currentVariantId so "Apply & Continue" finalises whatever auto-save
+    // already persisted, rather than creating a duplicate with a new UUID.
     const variant: WsConcreteMeasurement = {
-      id: crypto.randomUUID(),
+      id: currentVariantId.current,
       measureType: scaleWhat,
       tag: payload.tag,
       concreteFields: payload.concreteFields,
@@ -811,13 +934,17 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
     };
 
     setConcreteMeasurements((prev) => {
-      const next = [...prev, variant];
+      const idx = prev.findIndex((v) => v.id === currentVariantId.current);
+      const next =
+        idx >= 0 ? prev.map((v, i) => (i === idx ? variant : v)) : [...prev, variant];
       saveSession(projectId, { concreteMeasurements: next });
       return next;
     });
 
-    // Push to backend immediately so the session can be reconstructed on reload
-    // without relying on localStorage. Assignment later re-upserts with full metadata.
+    // Cycle to a fresh ID so the next measurement round gets its own slot.
+    currentVariantId.current = crypto.randomUUID();
+    lastFormPayload.current = null;
+
     if (activeSessionId) {
       upsertPendingVariant(variant, activeSessionId);
     }
@@ -998,15 +1125,23 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
   }
 
   async function handleViewBoq() {
-    if (activeSessionId) {
-      try {
-        await finalizeSession({ sessionId: activeSessionId, body: { commit: true } }).unwrap();
-      } catch {
-        toast.error("Could not finalize session — try again");
-        return;
-      }
+    if (!activeSessionId) {
+      toast.warning("No active session — open a drawing page first before viewing the BOQ.");
+      return;
     }
-    router.push(`${basePath}/${projectId}/boq`);
+    try {
+      await finalizeSession({ sessionId: activeSessionId, body: { commit: true } }).unwrap();
+      router.push(`${basePath}/${projectId}/boq`);
+    } catch (err: unknown) {
+      const status = (err as { status?: number })?.status;
+      const msg =
+        status === 404
+          ? "Session not found — it may have already been finalized."
+          : status === 400
+            ? "Cannot finalize: ensure at least one measurement is saved."
+            : `Could not finalize session (${status ?? "unknown error"}) — try again.`;
+      toast.error(msg);
+    }
   }
 
   // ── Calibration callback (from MeasurementCanvas) ────────────────────────────
@@ -1398,7 +1533,14 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
     );
   }
 
-  const apiHydrateIds = backendProject?.drawings ?? [];
+  // Merge backend drawing IDs with session-saved IDs (set by wizard before navigation).
+  // The backend may not return `drawings` immediately after creation, so the session
+  // fallback ensures drawings always hydrate on first workspace visit.
+  const apiHydrateIds = useMemo(() => {
+    const ids = new Set<string>(backendProject?.drawings ?? []);
+    for (const d of savedSession.drawings ?? []) ids.add(d.id);
+    return Array.from(ids);
+  }, [backendProject?.drawings, savedSession.drawings]);
 
   return (
     <>
@@ -1443,12 +1585,17 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
           </div>
           <TooltipProvider delayDuration={400}>
             <div className="flex gap-1.5">
-              {TOOLS.map((tool) => (
+              {TOOLS.map((tool) => {
+                const isDisabled =
+                  (tool.id === "undo" && !measurementHook.canUndo) ||
+                  (tool.id === "redo" && !measurementHook.canRedo);
+                return (
                 <Tooltip key={tool.id}>
                   <TooltipTrigger asChild>
                     <button
                       onClick={() => handleToolClick(tool.id)}
-                      className={`w-9 h-9 flex items-center justify-center rounded-lg border transition-colors ${
+                      disabled={isDisabled}
+                      className={`w-9 h-9 flex items-center justify-center rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                         activeTool === tool.id
                           ? "bg-amber-500 border-amber-500 text-white shadow-sm"
                           : pendingTool === tool.id
@@ -1464,7 +1611,8 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
                     <p className="text-[10px] opacity-75 mt-0.5">{tool.description}</p>
                   </TooltipContent>
                 </Tooltip>
-              ))}
+              );
+              })}
             </div>
           </TooltipProvider>
 
@@ -1496,18 +1644,6 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
             </div>
           )}
 
-          {/* Colour palette */}
-          <div className="mt-2.5 h-7 rounded-lg flex overflow-hidden border border-slate-200">
-            {PALETTE.map((c) => (
-              <button
-                key={c}
-                title={c}
-                onClick={() => setActiveColor(c)}
-                style={{ backgroundColor: c, flex: 1 }}
-                className={`h-full transition-opacity ${activeColor === c ? "ring-2 ring-inset ring-white/70 opacity-100" : "opacity-85 hover:opacity-100"}`}
-              />
-            ))}
-          </div>
         </div>
 
         {/* ELEMENTS + DRAWINGS drawer */}
@@ -1763,9 +1899,17 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
             ))}
           </nav>
           <div className="flex items-center gap-2.5 shrink-0">
-            <span className="flex items-center gap-1 text-[10px] text-slate-400">
-              <Save className="w-3 h-3" /> Auto-saved just now
-            </span>
+            {autoSaveStatus === "saving" ? (
+              <span className="flex items-center gap-1 text-[10px] text-amber-500">
+                <div className="w-2.5 h-2.5 border border-amber-400 border-t-transparent rounded-full animate-spin" />
+                Saving...
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-[10px] text-slate-400">
+                <Save className="w-3 h-3" />
+                {autoSaveStatus === "saved" ? "Auto-saved just now" : "Auto-saved just now"}
+              </span>
+            )}
             {scaleLocked && (
               <div className="flex items-center gap-1.5 px-2.5 py-1 bg-green-100 rounded-lg border border-green-200">
                 <Lock className="w-3 h-3 text-green-600" />
@@ -1859,10 +2003,19 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
               hasMeasurements={
                 sessionTotals.count > 0 || sessionTotals.length > 0 || sessionTotals.area > 0
               }
+              activeColor={activeColor}
+              onColorChange={setActiveColor}
               onClose={() => setShowElementPanel(false)}
-              onAssignElement={() => setAssignModalOpen(true)}
+              onAssignElement={() => {
+                if (concreteMeasurements.length === 0) {
+                  toast.warning("Take a measurement on the drawing first — draw some marks before assigning an element.");
+                  return;
+                }
+                setAssignModalOpen(true);
+              }}
               onApplyAndContinue={handleSessionReset}
               onSaveMeasurement={handleSaveMeasurement}
+              onFormChange={handleAutoSave}
               onResetMeasurements={handleSessionReset}
             />
           )}
@@ -1875,8 +2028,10 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
               <div className="px-6 pt-3 pb-5" style={{ backgroundColor: "#FEF2F280" }}>
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
-                    <div className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" />
-                    <span className="text-[11px] font-bold tracking-wide text-red-600">CALIBRATION REQUIRED</span>
+                    <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${scaleInfo ? "bg-amber-500" : "bg-red-500"}`} />
+                    <span className={`text-[11px] font-bold tracking-wide ${scaleInfo ? "text-amber-600" : "text-red-600"}`}>
+                      {scaleInfo ? "SCALE APPLIED — Lock when ready" : "CALIBRATION REQUIRED"}
+                    </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] text-slate-500">Lock Scale:</span>
@@ -1984,6 +2139,16 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
               </div>
             )}
           </div>
+        )}
+
+        {/* Live Measurements panel — visible once measuring has started */}
+        {scaleFlowActive && scaleLocked && (
+          <LiveMeasurementsPanel
+            elements={elements}
+            pendingVariants={concreteMeasurements}
+            scaleWhat={scaleWhat}
+            distanceUnit={distanceUnit}
+          />
         )}
       </div>
 

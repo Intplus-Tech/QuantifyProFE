@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { X, Plus, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { ELEMENT_CONFIGS, BAR_SIZE_OPTIONS } from "./constants";
+import { ELEMENT_CONFIGS, BAR_SIZE_OPTIONS, PALETTE, PALETTE_LABELS } from "./constants";
 import type { RebarBar } from "./types";
 import type { VariantRebar } from "../workspaceSession";
 
@@ -39,10 +39,13 @@ interface ElementDetailPanelProps {
   liveArea?: number;
   distanceUnit?: string;
   hasMeasurements?: boolean;
+  activeColor?: string;
+  onColorChange?: (color: string) => void;
   onClose: () => void;
   onAssignElement: () => void;
   onApplyAndContinue: () => void;
   onSaveMeasurement?: (payload: SaveMeasurementPayload) => void;
+  onFormChange?: (payload: SaveMeasurementPayload) => void;
   onResetMeasurements?: () => void;
 }
 
@@ -57,10 +60,13 @@ export function ElementDetailPanel({
   liveArea = 0,
   distanceUnit = "Meters",
   hasMeasurements = false,
+  activeColor,
+  onColorChange,
   onClose,
   onAssignElement,
   onApplyAndContinue,
   onSaveMeasurement,
+  onFormChange,
   onResetMeasurements,
 }: ElementDetailPanelProps) {
   const cfg = ELEMENT_CONFIGS[measure] ?? ELEMENT_CONFIGS["Pile"];
@@ -163,6 +169,41 @@ export function ElementDetailPanel({
     });
 
   const canSubmit = hasMeasurements && concreteFormFilled && rebarFormFilled;
+
+  // ── Debounced form auto-save ─────────────────────────────────────────────────
+  // Fires 700 ms after any form field changes so the parent can persist the
+  // current form state without waiting for an explicit "Apply & Continue".
+  // Canvas measurement values (liveCount/liveLength/liveArea) are excluded from
+  // the deps — those are handled by the canvas-mark auto-save in the parent.
+  const onFormChangeRef = useRef(onFormChange);
+  useEffect(() => { onFormChangeRef.current = onFormChange; });
+
+  useEffect(() => {
+    if (!onFormChangeRef.current) return;
+    const timer = setTimeout(() => {
+      const { tag = "", ...restFields } = fieldValues;
+      const rebarPayload: VariantRebar | null = showRebarTab
+        ? {
+            method: rebarMethod,
+            mainBars: mainBars.map((b) => ({ id: b.id, size: b.size, count: b.count, depth: b.depth })),
+            additionBars: additionBars.map((b) => ({ id: b.id, size: b.size, count: b.count, depth: b.depth })),
+            includeStirups: inclStirrupsLocal,
+            stirrupSize,
+            stirrupSpacing,
+          }
+        : null;
+      const tool: "count" | "length" | "area" = activeMeasureTool ?? "count";
+      onFormChangeRef.current?.({
+        tag,
+        concreteFields: { tag, ...restFields },
+        rebar: rebarPayload,
+        canvas: { tool, count: liveCount, length: liveLength, area: liveArea, unit: distanceUnit ?? "Meters" },
+      });
+    }, 700);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fieldValues, mainBars, additionBars, inclStirrupsLocal, stirrupSize, stirrupSpacing, rebarMethod, showRebarTab]);
+
 
   // ── Apply & Continue ────────────────────────────────────────────────────────
 
@@ -324,8 +365,23 @@ export function ElementDetailPanel({
             ))}
 
             <div className="space-y-1">
-              <label className="text-[11px] text-slate-500">Color</label>
-              <div className="h-8 rounded-lg overflow-hidden border border-slate-200 bg-green-400 cursor-pointer" />
+              <label className="text-[11px] text-slate-500">Measurement Color</label>
+              <div className="flex gap-1.5 flex-wrap py-1">
+                {PALETTE.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => onColorChange?.(c)}
+                    title={PALETTE_LABELS[c] ?? c}
+                    className={`w-6 h-6 rounded-full border-2 transition-all ${
+                      (activeColor ?? PALETTE[0]) === c
+                        ? "border-white ring-2 ring-slate-400 scale-110"
+                        : "border-transparent hover:scale-110"
+                    }`}
+                    style={{ backgroundColor: c }}
+                  />
+                ))}
+              </div>
             </div>
           </>
         ) : (
@@ -544,8 +600,23 @@ export function ElementDetailPanel({
             </div>
 
             <div className="space-y-1">
-              <label className="text-[11px] text-slate-500">Color</label>
-              <div className="h-8 rounded-lg overflow-hidden border border-slate-200 bg-blue-500 cursor-pointer" />
+              <label className="text-[11px] text-slate-500">Measurement Color</label>
+              <div className="flex gap-1.5 flex-wrap py-1">
+                {PALETTE.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => onColorChange?.(c)}
+                    title={PALETTE_LABELS[c] ?? c}
+                    className={`w-6 h-6 rounded-full border-2 transition-all ${
+                      (activeColor ?? PALETTE[0]) === c
+                        ? "border-white ring-2 ring-slate-400 scale-110"
+                        : "border-transparent hover:scale-110"
+                    }`}
+                    style={{ backgroundColor: c }}
+                  />
+                ))}
+              </div>
             </div>
           </>
         )}
