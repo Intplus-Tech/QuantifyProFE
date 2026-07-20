@@ -84,6 +84,7 @@ export interface Project {
   projectType?: string;
   projectLocation?: string;
   clientName?: string;
+  drawings?: string[];
 }
 
 export interface ProjectDashboardSummary {

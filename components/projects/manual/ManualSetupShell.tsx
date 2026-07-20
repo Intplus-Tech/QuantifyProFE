@@ -19,6 +19,7 @@ import { StepDrawings } from "./StepDrawings";
 import { SaveSetupModal } from "./SaveSetupModal";
 import { useCreateProjectMutation } from "@/store/api/projectsApi";
 import { buildCreateProjectPayload } from "./manualWizardTransformers";
+import { saveSession } from "@/components/projects/workspace/workspaceSession";
 
 const WIZARD_STEPS = [
   { id: 1, label: "Project Details", subtitle: "Info & location" },
@@ -36,6 +37,7 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
   const currentStep = useAppSelector((state) => state.manualWizard.currentStep);
   const draftSavedAt = useAppSelector((state) => state.manualWizard.draftSavedAt);
   const details = useAppSelector((state) => state.manualWizard.details);
+  const drawings = useAppSelector((state) => state.manualWizard.drawings);
   const createdProjectId = useAppSelector((state) => state.manualWizard.createdProjectId);
 
   const [showSaveModal, setShowSaveModal] = useState(false);
@@ -67,11 +69,29 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
       let projectId = createdProjectId;
 
       if (!projectId) {
-        const payload = buildCreateProjectPayload(details);
+        const drawingIds = drawings
+          .filter((d) => d.status === "complete" && d.uploadedFileId)
+          .map((d) => d.uploadedFileId!);
+        const payload = buildCreateProjectPayload(details, drawingIds);
         const result = await createProject(payload).unwrap();
         projectId = result.data?._id;
         if (!projectId) throw new Error("Project creation did not return a valid ID.");
         dispatch(setCreatedProjectId(projectId));
+
+        // Persist drawing metadata to workspace session so the workspace
+        // can hydrate the sidebar without calling GET /uploads/:id
+        const sessionDrawings = drawings
+          .filter((d) => d.status === "complete" && d.uploadedFileId && d.uploadedUrl)
+          .map((d) => ({
+            id: d.uploadedFileId!,
+            name: d.name,
+            url: d.uploadedUrl!,
+            extension: d.extension,
+            size: d.size,
+          }));
+        if (sessionDrawings.length > 0) {
+          saveSession(projectId, { drawings: sessionDrawings });
+        }
       }
 
       setSavedProjectId(projectId);

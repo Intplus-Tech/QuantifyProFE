@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useMemo } from "react";
+import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import dynamic from "next/dynamic";
 import {
   Search,
@@ -26,6 +26,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -38,7 +45,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useGetProjectByIdQuery } from "@/store/api/projectsApi";
+import { useRouter } from "next/navigation";
+import { useGetProjectByIdQuery, useUpdateProjectMutation } from "@/store/api/projectsApi";
+import { useUploadFileMutation, useGetUploadQuery, useDownloadUploadQuery } from "@/store/api/uploadApi";
+import {
+  useCreateMeasurementSessionMutation,
+  useGetMeasurementSessionQuery,
+  useUpdateMeasurementCanvasMutation,
+  useUpdateMeasurementSessionStatusMutation,
+  useUpsertMeasurementElementMutation,
+  useDeleteMeasurementElementMutation,
+  useFinalizeMeasurementSessionMutation,
+  useLazyListProjectMeasurementSessionsQuery,
+  useLazyGetMeasurementSessionQuery,
+  useDeleteMeasurementSessionMutation,
+} from "@/store/api/measurementSessionApi";
+import type { MeasurementElement as BackendMeasurementElement, UpsertElementBody } from "@/types/measurementSession";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   addDrawing,
@@ -54,6 +76,7 @@ import {
   type WsConcreteMeasurement,
   type WsElementAssignment,
 } from "./workspaceSession";
+import type { SaveMeasurementPayload } from "./components/ElementDetailPanel";
 
 import { DrawingCanvas } from "./components/DrawingCanvas";
 import { DrawingPreloader } from "./components/DrawingPreloader";
@@ -77,9 +100,207 @@ import { AssignItemsModal } from "./components/AssignItemsModal";
 import { ConfirmAssignmentModal } from "./components/ConfirmAssignmentModal";
 import { AssignmentCompleteModal } from "./components/AssignmentCompleteModal";
 import { CreateNewElementModal } from "./components/CreateNewElementModal";
-import { PALETTE, TOOLS, ACCEPTED_EXTENSIONS, EXT_CATEGORY, MOCK_EXISTING_ELEMENTS } from "./components/constants";
-import { getExt, simulateUpload } from "./components/utils";
-import type { ToolId, BBSRow, PileRow, CreatedElement, Measurement } from "./components/types";
+import { PALETTE, TOOLS, ACCEPTED_EXTENSIONS, EXT_CATEGORY } from "./components/constants";
+import { getExt } from "./components/utils";
+import type { ToolId, BBSRow, PileRow, CreatedElement, Measurement, LengthMeasurement, AreaMeasurement, CountMark } from "./components/types";
+import { elementTotalDisplay } from "./components/types";
+
+// ── Measurement ↔ backend element converters ──────────────────────────────────
+
+const HYDRATION_COLOR = "#f59e0b";
+
+function toXY(p: { x: number; y: number }): [number, number] {
+  return [p.x, p.y];
+}
+
+// Returns 0..N Measurement objects for a single backend element.
+// Count elements stored as multipoint produce one CountMark per point.
+function backendElementToMeasurement(
+  el: BackendMeasurementElement,
+  countIndex: number,
+): Measurement[] {
+  const pts = el.geometry?.points ?? [];
+
+  if (el.tool === "count") {
+    if (pts.length === 0) return [];
+    return pts.map((pt, i) => ({
+      id: `${el.clientId}:${i}`,
+      type: "count" as const,
+      point: { x: pt[0], y: pt[1] },
+      index: countIndex + i,
+      color: HYDRATION_COLOR,
+    }));
+  }
+
+  if (el.tool === "length" && pts.length >= 2) {
+    return [{
+      id: el.clientId,
+      type: "length" as const,
+      points: pts.map(([x, y]) => ({ x, y })),
+      pixelLength: el.computed?.lengthPx ?? 0,
+      realLength: el.computed?.length ?? 0,
+      unit: "m",
+      color: HYDRATION_COLOR,
+    }];
+  }
+
+  if (el.tool === "area" && pts.length >= 3) {
+    return [{
+      id: el.clientId,
+      type: "area" as const,
+      points: pts.map(([x, y]) => ({ x, y })),
+      pixelArea: el.computed?.areaPx ?? 0,
+      realArea: el.computed?.area ?? 0,
+      unit: "m²",
+      color: HYDRATION_COLOR,
+    }];
+  }
+
+  return [];
+}
+
+function measurementToBackendBody(m: Measurement): UpsertElementBody {
+  if (m.type === "count") {
+    return {
+      clientId: m.id,
+      tool: "count",
+      geometry: { type: "point", points: [toXY(m.point)] },
+    };
+  }
+  if (m.type === "length") {
+    return {
+      clientId: m.id,
+      tool: "length",
+      geometry: { type: "polyline", points: m.points.map(toXY) },
+    };
+  }
+  return {
+    clientId: m.id,
+    tool: "area",
+    geometry: { type: "polygon", points: m.points.map(toXY) },
+  };
+}
+
+// Maps UI display names → backend takeoff element type strings (underscore_case).
+// The backend materializes only elements whose mapsToElementType matches a known type.
+function toBackendElementType(measureType: string): string {
+  const map: Record<string, string> = {
+    // Substructure
+    "Pile":                        "pile",
+    "Pile Cap":                    "pile_cap",
+    "Pile Cap Frames":             "pile_cap_frames",
+    "Column in Foundation":        "column_in_foundation",
+    "Column Footing":              "column_footing",
+    "Pad Footing":                 "pad_footing",
+    "Ground Beam":                 "ground_beam",
+    "Excavation Ground Beam":      "excavation_ground_beam",
+    "Strip":                       "strip_foundation",
+    "Strip Foundation":            "strip_foundation",
+    "Strip Length Calculator":     "strip_length_calculator",
+    "Excavation Strip":            "excavation_strip",
+    "Raft Foundation":             "raft_foundation",
+    "Oversite Slab":               "oversite_slab",
+    "Ground Floor Bed":            "ground_floor_bed",
+    "Ground Floor Bed Void":       "ground_floor_bed_void",
+    "Water Slab":                  "water_slab",
+    "Swimming Pool":               "swimming_pool",
+    "Deduction: Pad Pit in Strip": "ddt_pad_pit_in_strip",
+    "Excavation Clearing":         "excavation_clearing",
+    // Superstructure
+    "Column":                      "column",
+    "Beam":                        "beam",
+    "Roof Beams":                  "roof_beam",
+    "Roof Column":                 "roof_column",
+    "Slabs":                       "slab",
+    "Roof Slab":                   "roof_slab",
+    "Upper Floor Void":            "upper_floor_ddt_void",
+    "Wall":                        "wall",
+    "Shear Wall":                  "shear_wall",
+    "Lift Wall":                   "lift_wall",
+    "Lift Shaft":                  "lift_shaft",
+    "Lintels":                     "lintels",
+    "Staircase":                   "staircase",
+    "Staircase Landing":           "staircase_landing",
+    "Staircase Strings & Steps":   "staircase_strings_steps",
+    "Staircase Upper Floors":      "staircase_upper_floors",
+    // Roof / Finishing
+    "Roof Upstands / Parapet":     "parapet_wall",
+    "Parapet Wall":                "parapet_wall",
+    "Parapet Wall Coping":         "parapet_wall_copping",
+    "Kitchen Countertop":          "kitchen_countertop",
+  };
+  return map[measureType] ?? measureType.toLowerCase().replace(/[\s/]+/g, "_");
+}
+
+// Converts our internal VariantRebar → the backend's reinforcement array.
+// barSize format: "Y16" → barType "Y", diameter 16. depth is stored in mm → convert to m.
+function rebarToReinforcement(
+  rebar: import("./workspaceSession").VariantRebar | null,
+) {
+  if (!rebar) return undefined;
+  const rows = [...rebar.mainBars, ...rebar.additionBars];
+  const result = rows
+    .filter((b) => b.size && b.count)
+    .map((b) => {
+      const match = b.size.match(/^([A-Z])(\d+)$/);
+      return {
+        barMark: b.id,
+        barCount: parseInt(b.count, 10) || 0,
+        barType: match?.[1] ?? "Y",
+        diameter: parseInt(match?.[2] ?? "16", 10),
+        length: Math.round((parseFloat(b.depth) / 1000) * 1000) / 1000, // mm → m
+      };
+    })
+    .filter((r) => r.barCount > 0);
+  return result.length > 0 ? result : undefined;
+}
+
+
+function DrawingHydrator({
+  fileId,
+  folderId,
+  onLoaded,
+}: {
+  fileId: string;
+  folderId: string;
+  onLoaded: (id: string) => void;
+}) {
+  const dispatch = useAppDispatch();
+  const existsInRedux = useAppSelector((s) =>
+    s.manualWizard.drawings.some((d) => d.id === fileId || d.uploadedFileId === fileId),
+  );
+  const { data: metaData } = useGetUploadQuery(fileId, { skip: existsInRedux });
+  const { data: blobUrl } = useDownloadUploadQuery(fileId, { skip: existsInRedux });
+  const dispatched = useRef(false);
+
+  useEffect(() => {
+    if (dispatched.current || existsInRedux || !metaData?.data || !blobUrl) return;
+    dispatched.current = true;
+
+    const file = metaData.data;
+    const ext = getExt(file.originalName);
+    const category = EXT_CATEGORY[ext] ?? "pdf";
+
+    dispatch(
+      addDrawing({
+        id: file._id,
+        name: file.originalName,
+        size: file.metadata?.bytes ?? 0,
+        extension: ext,
+        category,
+        status: "complete",
+        progress: 100,
+        previewUrl: blobUrl,
+        uploadedUrl: file.url,
+        uploadedFileId: file._id,
+        folderId,
+      }),
+    );
+    onLoaded(file._id);
+  }, [metaData, blobUrl, existsInRedux, dispatch, folderId, onLoaded]);
+
+  return null;
+}
 
 interface ProjectWorkspaceViewProps {
   projectId: string;
@@ -95,13 +316,52 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
   const drawings = useAppSelector((state) => state.manualWizard.drawings);
   const folders = useAppSelector((state) => state.manualWizard.folders);
 
+  const [uploadFile] = useUploadFileMutation();
+  const [updateProject] = useUpdateProjectMutation();
+
+  // ── Measurement session ─────────────────────────────────────────────────────
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const openedSessionKeys = useRef<Map<string, string>>(new Map()); // `${uploadedFileId}-${page}` → sessionId
+  const hydratedSessionIds = useRef<Set<string>>(new Set());
+
+  const [createMeasurementSession] = useCreateMeasurementSessionMutation();
+  const [updateMeasurementCanvas] = useUpdateMeasurementCanvasMutation();
+  const [updateSessionStatus] = useUpdateMeasurementSessionStatusMutation();
+  const [upsertMeasurementElement] = useUpsertMeasurementElementMutation();
+  const [deleteMeasurementElement] = useDeleteMeasurementElementMutation();
+  const [deleteMeasurementSession] = useDeleteMeasurementSessionMutation();
+  const [fetchProjectSessions] = useLazyListProjectMeasurementSessionsQuery();
+  const [fetchSessionById] = useLazyGetMeasurementSessionQuery();
+
+  // Populated when session create returns 409 (another live session exists for this project)
+  const [sessionConflict, setSessionConflict] = useState<{
+    liveSessionId: string;
+    uploadedFileId?: string;
+    pageNumber?: number;
+  } | null>(null);
+
+  const { data: activeSessionData } = useGetMeasurementSessionQuery(activeSessionId ?? "", {
+    skip: !activeSessionId,
+  });
+
   const projectName = backendProject?.name ?? `Project ${projectId.slice(0, 8)}`;
 
+  // Selects the first drawing that arrives from DrawingHydrator (API path)
+  const firstDrawingSelected = useRef(false);
+  const handleDrawingHydrated = useCallback((id: string) => {
+    if (firstDrawingSelected.current) return;
+    firstDrawingSelected.current = true;
+    setSelectedDrawingId(id);
+    setSelectedPage(1);
+    setScale(1.0);
+  }, []);
+
   // ── Local UI state ──────────────────────────────────────────────────────────
+  // UI preferences only — loaded from localStorage once on mount.
+  // All measurement data (scale, elements, variants) comes from backend hydration.
   const [savedSession] = useState(() => loadSession(projectId));
   const [activeTool, setActiveTool] = useState<ToolId | null>(null);
   const [pendingTool, setPendingTool] = useState<ToolId | null>(null);
-  const [scaleFlowActive, setScaleFlowActive] = useState(() => savedSession.scaleFlowActive ?? false);
   const [activeColor, setActiveColor] = useState(PALETTE[0]);
   const [search, setSearch] = useState("");
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(() => drawings[0]?.id ?? null);
@@ -110,7 +370,7 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [openFolders, setOpenFolders] = useState<string[]>(() => folders.map((f) => f.id));
 
-  // Count tool BBS flow
+  // Count tool BBS flow — UI preferences, kept in localStorage
   const [bbsModalStep, setBbsModalStep] = useState<"question" | "entry" | null>(null);
   const [bbsAnswer, setBbsAnswer] = useState<"yes" | "no">(() => savedSession.bbsAnswer ?? "yes");
   const [bbsRows, setBbsRows] = useState<BBSRow[]>(
@@ -119,39 +379,46 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
   const [showScaleSetup, setShowScaleSetup] = useState(false);
   const [scaleWhat, setScaleWhat] = useState(() => savedSession.scaleWhat ?? "Pile");
   const [countModeActive, setCountModeActive] = useState(false);
-  const [knownDistance, setKnownDistance] = useState(() => savedSession.knownDistance ?? "");
-  const [distanceUnit, setDistanceUnit] = useState(() => savedSession.distanceUnit ?? "Meters");
-  const [scaleLocked, setScaleLocked] = useState(() => savedSession.scaleLocked ?? false);
-  const [scaleInfo, setScaleInfo] = useState<string | null>(() => savedSession.scaleInfo ?? null);
-  // Global scale factor — persists across every page and every tool activation
-  const [globalScaleFactor, setGlobalScaleFactor] = useState<number | null>(() => savedSession.scaleFactor ?? null);
+  const [showRebarTab, setShowRebarTab] = useState(() => savedSession.showRebarTab ?? false);
+
+  // ── Backend-owned state — start empty, populated by Phase 2 hydration ────────
+  const [scaleFlowActive, setScaleFlowActive] = useState(false);
+  const [knownDistance, setKnownDistance] = useState("");
+  const [distanceUnit, setDistanceUnit] = useState("Meters");
+  const [scaleLocked, setScaleLocked] = useState(false);
+  const [scaleInfo, setScaleInfo] = useState<string | null>(null);
+  const [globalScaleFactor, setGlobalScaleFactor] = useState<number | null>(null);
   const [showScaleNotification, setShowScaleNotification] = useState(false);
   const scaleNotifTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Element detail panel — restore from session if scale was already active
-  const [showElementPanel, setShowElementPanel] = useState(() => savedSession.scaleFlowActive ?? false);
-  const [showRebarTab, setShowRebarTab] = useState(() => savedSession.showRebarTab ?? false);
-  const [concreteMeasurements, setConcreteMeasurements] = useState<WsConcreteMeasurement[]>(
-    () => savedSession.concreteMeasurements ?? [],
-  );
+  const [showElementPanel, setShowElementPanel] = useState(false);
+  const [concreteMeasurements, setConcreteMeasurements] = useState<WsConcreteMeasurement[]>([]);
 
   // Assign element flow
   const [assigningElementId, setAssigningElementId] = useState<string | null>(null);
+  const [assigningElement, setAssigningElement] = useState<CreatedElement | null>(null);
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [confirmAssignOpen, setConfirmAssignOpen] = useState(false);
   const [assignCompleteOpen, setAssignCompleteOpen] = useState(false);
   const [createNewElOpen, setCreateNewElOpen] = useState(false);
+  const [assignCompleteData, setAssignCompleteData] = useState<{
+    elementName: string;
+    addedCount: number;
+    addedUnit: string;
+    newTotal: number;
+    elementId: string;
+  } | null>(null);
+
+  // Finalize session for View BOQ
+  const [finalizeSession, { isLoading: finalizing }] = useFinalizeMeasurementSessionMutation();
+  const router = useRouter();
 
   // Sidebar: DRAWINGS collapsible drawer + ELEMENTS panel
   const [drawingsOpen, setDrawingsOpen] = useState(false);
   const [elementSearch, setElementSearch] = useState("");
   const [expandedCategories, setExpandedCategories] = useState<string[]>([]);
-  const [elements, setElements] = useState<CreatedElement[]>(() => {
-    try {
-      const raw = localStorage.getItem(`ws-elements-${projectId}`);
-      return raw ? (JSON.parse(raw) as CreatedElement[]) : [];
-    } catch { return []; }
-  });
+  // Elements — populated by Phase 2 hydration from backend, never from localStorage
+  const [elements, setElements] = useState<CreatedElement[]>([]);
 
   // ── Calibration points (received from canvas during calibration) ─────────────
   const [calibPtCount, setCalibPtCount] = useState<0 | 1 | 2>(0);
@@ -172,6 +439,212 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
   const fileInputRef = useRef<HTMLInputElement>(null);
   const selectedDrawing = drawings.find((d) => d.id === selectedDrawingId) ?? null;
 
+  // ── On mount: wipe stale backend-owned keys from localStorage ───────────────
+  // Scale, elements, and variants are now sourced from the backend session.
+  // This runs once per projectId so stale data from before the migration is gone.
+  useEffect(() => {
+    saveSession(projectId, {
+      createdElements: [],
+      concreteMeasurements: [],
+      scaleFactor: null,
+      scaleLocked: false,
+      scaleFlowActive: false,
+      scaleInfo: null,
+      knownDistance: "",
+      elementAssignments: [],
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  // ── Phase 1: Open/resume a measurement session whenever the drawing+page changes ──
+  // The backend allows only one active session per project. Before switching to a new
+  // page we pause the current session; on return to a cached page we resume it.
+  // This prevents the 409 conflict that previously fired on every page navigation.
+  useEffect(() => {
+    const uploadedFileId = selectedDrawing?.uploadedFileId;
+    if (!uploadedFileId) return;
+
+    const sessionKey = `${uploadedFileId}-${selectedPage}`;
+    let cancelled = false;
+
+    async function switchSession() {
+      if (!uploadedFileId) return; // satisfies TS narrowing inside async scope
+
+      // Pause the session we are leaving so the backend frees the "active" slot.
+      if (activeSessionId) {
+        await updateSessionStatus({ sessionId: activeSessionId, body: { status: "paused" } });
+      }
+
+      if (cancelled) return;
+
+      const cached = openedSessionKeys.current.get(sessionKey);
+
+      if (cached) {
+        // Already visited this page — just resume the existing session.
+        await updateSessionStatus({ sessionId: cached, body: { status: "active" } });
+        if (!cancelled) setActiveSessionId(cached);
+        return;
+      }
+
+      // First visit to this page — create a fresh session.
+      const result = await createMeasurementSession({
+        projectId,
+        body: { uploadedFileId, pageNumber: selectedPage, canvas: { width: 1920, height: 1080 } },
+      });
+
+      if (cancelled) return;
+
+      if ("data" in result && result.data?.data?._id) {
+        const sid = result.data.data._id;
+        openedSessionKeys.current.set(sessionKey, sid);
+        setActiveSessionId(sid);
+        return;
+      }
+
+      // 409 still possible if an active session exists from another device / tab.
+      // List sessions to surface the conflict dialog so the user can resolve it.
+      if ("error" in result && (result.error as { status?: number })?.status === 409) {
+        const sessionsResult = await fetchProjectSessions(projectId);
+        if (cancelled) return;
+        const list = "data" in sessionsResult ? sessionsResult.data?.data : [];
+        const live = list?.find((s) => s.status === "active");
+        if (!live) return;
+
+        const sessionResult = await fetchSessionById(live._id);
+        if (cancelled) return;
+        const fullSession =
+          "data" in sessionResult ? sessionResult.data?.data?.session : null;
+
+        setSessionConflict({
+          liveSessionId: live._id,
+          uploadedFileId: fullSession?.uploadedFileId,
+          pageNumber: fullSession?.pageNumber ?? live.pageNumber,
+        });
+      }
+    }
+
+    switchSession();
+    return () => { cancelled = true; };
+  // activeSessionId intentionally excluded — including it would cause the effect
+  // to re-run every time a session is set, creating an infinite loop.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDrawing?.uploadedFileId, selectedPage, projectId]);
+
+  // ── Phase 2: Re-hydrate canvas elements and calibration from the backend session ──
+  // Runs once per sessionId; the Set guard prevents double-hydration on re-renders.
+  useEffect(() => {
+    if (!activeSessionData?.data || !activeSessionId) return;
+    if (hydratedSessionIds.current.has(activeSessionId)) return;
+    hydratedSessionIds.current.add(activeSessionId);
+
+    const { session, elements } = activeSessionData.data;
+    const backendScale = session.canvas.scale;
+    const backendUnit = session.canvas.unit ?? distanceUnit;
+
+    // Restore calibration and open the measurement panel when the session was
+    // previously calibrated, so the user lands back in a measuring-ready state.
+    if (backendScale) {
+      setGlobalScaleFactor(backendScale);
+      setScaleLocked(true);
+      setScaleFlowActive(true);
+      setShowElementPanel(true);
+      setScaleInfo(`Scale: 1 px = ${(1 / backendScale).toFixed(3)} ${backendUnit}`);
+    }
+
+    // Restore calibration input fields from backend once backend change 3 is deployed
+    // (session.canvas.calibration returned). Falls back to localStorage until then.
+    const calibration = session.canvas.calibration;
+    if (calibration?.knownDistance) setKnownDistance(String(calibration.knownDistance));
+    if (calibration?.unit) setDistanceUnit(calibration.unit);
+
+    // Rebuild local Measurement objects from the server elements, assigning
+    // sequential count indices to maintain correct label numbering.
+    // Count elements are stored as multipoint, yielding N marks per element.
+    let countIdx = 1;
+    const measurements: Measurement[] = [];
+    for (const el of elements) {
+      const newMarks = backendElementToMeasurement(el, countIdx);
+      for (const m of newMarks) {
+        measurements.push(m);
+        if (m.type === "count") countIdx++;
+      }
+    }
+
+    if (measurements.length > 0 || backendScale) {
+      measurementHook.resetWithData({ scaleFactor: backendScale ?? null, calibPts: null, measurements });
+    }
+
+    // Reconstruct sidebar elements and pending variants from backend element attributes.
+    // Each element carries a _snapshot field (JSON-serialised WsConcreteMeasurement)
+    // written by upsertPendingVariant / persistVariantsToBackend.
+    // This path only activates once the backend returns full element documents
+    // (backend change 2). Until then localStorage values remain active as a fallback.
+    const pendingVariantsMap = new Map<string, WsConcreteMeasurement>();
+    const assignedElementMap = new Map<
+      string,
+      { meta: CreatedElement; variantMap: Map<string, WsConcreteMeasurement> }
+    >();
+
+    for (const el of elements) {
+      const attrs = el.attributes ?? {};
+      const snapshotStr = attrs._snapshot as string | undefined;
+      if (!snapshotStr) continue;
+
+      let parsedVariant: WsConcreteMeasurement | null = null;
+      try { parsedVariant = JSON.parse(snapshotStr) as WsConcreteMeasurement; } catch { continue; }
+
+      if (attrs.pending === true) {
+        if (!pendingVariantsMap.has(parsedVariant.id)) {
+          pendingVariantsMap.set(parsedVariant.id, parsedVariant);
+        }
+      } else {
+        const eid = attrs.elementId as string | undefined;
+        const elementName = attrs.elementName as string | undefined;
+        if (!eid || !elementName) continue;
+
+        if (!assignedElementMap.has(eid)) {
+          assignedElementMap.set(eid, {
+            meta: {
+              id: eid,
+              name: elementName,
+              category: (attrs.elementCategory as string) ?? "Substructure",
+              categoryFolder: (attrs.categoryFolder as string) ?? elementName,
+              measurementUnit: (attrs.measurementUnit as string) ?? "items",
+              variants: [],
+              sessionId: activeSessionId,
+              drawingId: parsedVariant.drawingId,
+              pageNumber: parsedVariant.pageNumber,
+              createdAt: parsedVariant.savedAt,
+            },
+            variantMap: new Map(),
+          });
+        }
+
+        const entry = assignedElementMap.get(eid)!;
+        // Deduplicate by variant.id — length/area have one backend element per mark
+        // but all marks carry the same snapshot so the Map absorbs duplicates.
+        if (!entry.variantMap.has(parsedVariant.id)) {
+          entry.variantMap.set(parsedVariant.id, parsedVariant);
+        }
+      }
+    }
+
+    const reconstructedElements: CreatedElement[] = Array.from(
+      assignedElementMap.values(),
+    ).map(({ meta, variantMap }) => ({ ...meta, variants: Array.from(variantMap.values()) }));
+
+    const reconstructedPending = Array.from(pendingVariantsMap.values());
+
+    if (reconstructedElements.length > 0) {
+      setElements(reconstructedElements);
+      saveSession(projectId, { createdElements: reconstructedElements });
+    }
+    if (reconstructedPending.length > 0) {
+      setConcreteMeasurements(reconstructedPending);
+      saveSession(projectId, { concreteMeasurements: reconstructedPending });
+    }
+  }, [activeSessionData, activeSessionId, distanceUnit, measurementHook.resetWithData, projectId]);
+
   // ── Tool click ───────────────────────────────────────────────────────────────
 
   function handleToolClick(id: ToolId) {
@@ -179,6 +652,10 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
     if (id === "redo") { measurementHook.redo(); return; }
     setPendingTool(id);
     setBbsModalStep("question");
+  }
+
+  function handleScaleSetupMeasureChange(value: string) {
+    setScaleWhat(value);
   }
 
   // ── BBS question ─────────────────────────────────────────────────────────────
@@ -287,7 +764,16 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
       scaleLocked: true,
       scaleFactor: sf,
     });
-    // activeTool is already set from handleScaleSetupProceed — nothing more to do here
+
+    // Phase 3: persist calibration to backend
+    if (activeSessionId) {
+      updateMeasurementCanvas({
+        sessionId: activeSessionId,
+        body: {
+          calibration: { knownDistance: realDist, pixelDistance: calibBasePxDist, unit: distanceUnit },
+        },
+      });
+    }
   }
 
   function handleResetScale() {
@@ -308,43 +794,125 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
     saveSession(projectId, { scaleInfo: null, knownDistance: "", scaleLocked: false, scaleFlowActive: false, scaleFactor: null });
   }
 
-  function handleSaveMeasurement(data: Record<string, string>) {
-    const { tag = "", ...fields } = data;
-    const m: WsConcreteMeasurement = {
+  function handleSaveMeasurement(payload: SaveMeasurementPayload) {
+    const measurementIds = measurementHook.state.measurements.map((m) => m.id);
+
+    const variant: WsConcreteMeasurement = {
       id: crypto.randomUUID(),
       measureType: scaleWhat,
-      tag,
-      fields,
+      tag: payload.tag,
+      concreteFields: payload.concreteFields,
+      rebar: payload.rebar,
+      canvas: { ...payload.canvas, measurementIds },
+      sessionId: activeSessionId,
+      drawingId: selectedDrawing?.uploadedFileId ?? null,
+      pageNumber: selectedPage,
       savedAt: Date.now(),
     };
+
     setConcreteMeasurements((prev) => {
-      const next = [...prev, m];
+      const next = [...prev, variant];
       saveSession(projectId, { concreteMeasurements: next });
       return next;
     });
+
+    // Push to backend immediately so the session can be reconstructed on reload
+    // without relying on localStorage. Assignment later re-upserts with full metadata.
+    if (activeSessionId) {
+      upsertPendingVariant(variant, activeSessionId);
+    }
   }
 
   // ── Assign element flow ───────────────────────────────────────────────────────
 
   function handleAssignContinue(mode: "new" | "existing", elementId?: string) {
     setAssignModalOpen(false);
-    setAssigningElementId(elementId ?? null);
-    if (mode === "existing") { setConfirmAssignOpen(true); } else { setCreateNewElOpen(true); }
+    if (mode === "existing") {
+      const target = elements.find((e) => e.id === elementId) ?? null;
+      setAssigningElementId(elementId ?? null);
+      setAssigningElement(target);
+      setConfirmAssignOpen(true);
+    } else {
+      setCreateNewElOpen(true);
+    }
   }
+
   function handleConfirmMerge() {
-    setConfirmAssignOpen(false);
-    setAssignCompleteOpen(true);
-    const el = MOCK_EXISTING_ELEMENTS.find((e) => e.id === assigningElementId);
-    const a: WsElementAssignment = {
+    if (!assigningElement) return;
+
+    const updatedElement: CreatedElement = {
+      ...assigningElement,
+      variants: [...assigningElement.variants, ...concreteMeasurements],
+    };
+
+    const updatedElements = elements.map((e) =>
+      e.id === assigningElement.id ? updatedElement : e,
+    );
+
+    const addedCount =
+      concreteMeasurements[0]?.canvas.tool === "count"
+        ? concreteMeasurements.reduce((s, v) => s + v.canvas.count, 0)
+        : concreteMeasurements[0]?.canvas.tool === "length"
+          ? Math.round(concreteMeasurements.reduce((s, v) => s + v.canvas.length, 0) * 100) / 100
+          : Math.round(concreteMeasurements.reduce((s, v) => s + v.canvas.area, 0) * 100) / 100;
+
+    const addedUnit =
+      concreteMeasurements[0]?.canvas.tool === "count"
+        ? "items"
+        : concreteMeasurements[0]?.canvas.tool === "length"
+          ? (concreteMeasurements[0]?.canvas.unit ?? "m")
+          : concreteMeasurements[0]?.canvas.unit === "Meters"
+            ? "m²"
+            : `${concreteMeasurements[0]?.canvas.unit ?? ""}²`;
+
+    const newTotal = updatedElement.variants.reduce((s, v) => {
+      const tool = v.canvas.tool;
+      return s + (tool === "count" ? v.canvas.count : tool === "length" ? v.canvas.length : v.canvas.area);
+    }, 0);
+
+    setElements(updatedElements);
+    saveSession(projectId, { createdElements: updatedElements });
+
+    const assignment: WsElementAssignment = {
       id: crypto.randomUUID(),
-      elementId: assigningElementId ?? "unknown",
-      elementName: el?.name ?? "Unknown Element",
+      elementId: assigningElement.id,
+      elementName: assigningElement.name,
       assignedAt: Date.now(),
     };
-    const prev = loadSession(projectId).elementAssignments ?? [];
-    saveSession(projectId, { elementAssignments: [...prev, a] });
+    const prevAssignments = loadSession(projectId).elementAssignments ?? [];
+    saveSession(projectId, { elementAssignments: [...prevAssignments, assignment] });
+
+    // Persist all variant geometry + data to the backend now that they're assigned.
+    // Pass element metadata so the backend can return it on hydration and we can
+    // reconstruct the sidebar element list without relying on localStorage.
+    if (activeSessionId) {
+      persistVariantsToBackend(
+        concreteMeasurements,
+        activeSessionId,
+        assigningElement.id,
+        assigningElement.name,
+        assigningElement.category,
+        assigningElement.categoryFolder,
+        assigningElement.measurementUnit,
+      );
+    }
+
+    setConcreteMeasurements([]);
+    saveSession(projectId, { concreteMeasurements: [] });
+
+    setAssignCompleteData({
+      elementName: assigningElement.name,
+      addedCount,
+      addedUnit,
+      newTotal: Math.round(newTotal * 100) / 100,
+      elementId: assigningElement.id,
+    });
+
+    setConfirmAssignOpen(false);
+    setAssignCompleteOpen(true);
   }
-  function handleCreateNewEl(data: { categoryFolder: string; rows: PileRow[] }) {
+
+  function handleCreateNewEl(data: { categoryFolder: string; measurementUnit: string; rows: PileRow[] }) {
     const parts = data.categoryFolder.split(" / ");
     const category = parts[0] ?? "Substructure";
     const name = parts.slice(1).join(" / ") || "Element";
@@ -353,23 +921,92 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
       id: crypto.randomUUID(),
       name,
       category,
-      variants: data.rows,
-      drawnCount: 0,
+      categoryFolder: data.categoryFolder,
+      measurementUnit: data.measurementUnit,
+      variants: concreteMeasurements,
+      sessionId: activeSessionId,
+      drawingId: selectedDrawing?.uploadedFileId ?? null,
+      pageNumber: selectedPage,
       createdAt: Date.now(),
     };
 
-    setElements((prev) => {
-      const next = [...prev, newEl];
-      localStorage.setItem(`ws-elements-${projectId}`, JSON.stringify(next));
-      return next;
-    });
+    const updatedElements = [...elements, newEl];
+    setElements(updatedElements);
+    saveSession(projectId, { createdElements: updatedElements });
+
+    // Persist all variant geometry + data to the backend now that they're assigned.
+    // Pass element metadata so the backend can return it on hydration and we can
+    // reconstruct the sidebar element list without relying on localStorage.
+    if (activeSessionId) {
+      persistVariantsToBackend(
+        concreteMeasurements,
+        activeSessionId,
+        newEl.id,
+        newEl.name,
+        newEl.category,
+        newEl.categoryFolder,
+        newEl.measurementUnit,
+      );
+    }
+
+    setConcreteMeasurements([]);
+    saveSession(projectId, { concreteMeasurements: [] });
 
     setExpandedCategories((prev) =>
       prev.includes(category) ? prev : [...prev, category],
     );
 
+    const addedCount =
+      concreteMeasurements[0]?.canvas.tool === "count"
+        ? concreteMeasurements.reduce((s, v) => s + v.canvas.count, 0)
+        : concreteMeasurements[0]?.canvas.tool === "length"
+          ? Math.round(concreteMeasurements.reduce((s, v) => s + v.canvas.length, 0) * 100) / 100
+          : Math.round(concreteMeasurements.reduce((s, v) => s + v.canvas.area, 0) * 100) / 100;
+
+    const addedUnit =
+      concreteMeasurements[0]?.canvas.tool === "count"
+        ? "items"
+        : concreteMeasurements[0]?.canvas.tool === "length"
+          ? (concreteMeasurements[0]?.canvas.unit ?? "m")
+          : concreteMeasurements[0]?.canvas.unit === "Meters"
+            ? "m²"
+            : `${concreteMeasurements[0]?.canvas.unit ?? ""}²`;
+
+    setAssignCompleteData({
+      elementName: name,
+      addedCount,
+      addedUnit,
+      newTotal: addedCount,
+      elementId: newEl.id,
+    });
+
     setCreateNewElOpen(false);
-    toast.success("Element created and saved");
+    setAssignCompleteOpen(true);
+    toast.success(`"${name}" element created`);
+  }
+
+  function handleElementClick(el: CreatedElement) {
+    if (!el.drawingId) return;
+    const drawing = drawings.find(
+      (d) => d.uploadedFileId === el.drawingId || d.id === el.drawingId,
+    );
+    if (!drawing) return;
+    setSelectedDrawingId(drawing.id);
+    setSelectedPage(el.pageNumber || 1);
+    setScale(1.0);
+    setDrawingsOpen(false);
+  }
+
+  async function handleViewBoq() {
+    if (activeSessionId) {
+      try {
+        await finalizeSession({ sessionId: activeSessionId, body: { commit: true } }).unwrap();
+      } catch {
+        toast.error("Could not finalize session — try again");
+        return;
+      }
+    }
+    router.push(`${basePath}/${projectId}/boq`);
   }
 
   // ── Calibration callback (from MeasurementCanvas) ────────────────────────────
@@ -384,7 +1021,9 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
     setCalibPtCount(ptCount);
   }
 
-  // ── Measurement add — updates canvas state AND session totals ─────────────────
+  // ── Measurement add/remove — canvas-only, no backend call at draw time ──────────
+  // Elements are persisted to the backend in batch when the user creates or assigns
+  // an element (see persistVariantsToBackend below).
 
   function handleMeasurementAdd(m: Measurement) {
     measurementHook.addMeasurement(m);
@@ -394,6 +1033,199 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
       setSessionTotals((prev) => ({ ...prev, length: prev.length + m.realLength }));
     } else if (m.type === "area") {
       setSessionTotals((prev) => ({ ...prev, area: prev.area + m.realArea }));
+    }
+  }
+
+  function handleMeasurementRemove(id: string) {
+    measurementHook.removeMeasurement(id);
+  }
+
+  // ── Persist all variant geometry + data to the backend in one batch ───────────
+  // Called only at element creation / assignment, never during drawing.
+  // Each canvas mark is sent with its parent variant's concrete + rebar attributes.
+
+  function persistVariantsToBackend(
+    variants: WsConcreteMeasurement[],
+    sessionId: string,
+    elementId: string,
+    elementName: string,
+    elementCategory: string,
+    categoryFolder: string,
+    measurementUnit: string,
+  ) {
+    const allMeasurements = measurementHook.state.measurements;
+
+    for (const variant of variants) {
+      const variantMarks = allMeasurements.filter((m) =>
+        variant.canvas.measurementIds.includes(m.id),
+      );
+      const backendType = toBackendElementType(variant.measureType);
+
+      // Flatten concreteFields values to numbers where possible, then spread them
+      // directly into attributes so the server's BOQ materializer can read them.
+      const flatFields = Object.fromEntries(
+        Object.entries(variant.concreteFields).map(([k, v]) => {
+          const n = parseFloat(v);
+          return [k, Number.isFinite(n) ? n : v];
+        }),
+      );
+
+      // Snapshot is stored on every backend element so the hydration pass can
+      // reconstruct WsConcreteMeasurement objects without touching localStorage.
+      // measurementIds are canvas-local and meaningless after a page reload, so exclude them.
+      const _snapshot = JSON.stringify({ ...variant, canvas: { ...variant.canvas, measurementIds: [] } });
+
+      const sharedAttrs: Record<string, unknown> = {
+        elementId,
+        elementName,
+        elementCategory,
+        categoryFolder,
+        measurementUnit,
+        measureType: variant.measureType,
+        pending: false,
+        _snapshot,
+        ...flatFields,
+        reinforcement: rebarToReinforcement(variant.rebar),
+      };
+
+      // Derive color from the first canvas mark belonging to this variant
+      const color = variantMarks[0]?.color ?? "#f59e0b";
+
+      if (variant.canvas.tool === "count") {
+        // All count dots → one multipoint element keyed by variant id.
+        // This naturally overwrites the pending element (same clientId).
+        const points: [number, number][] = variantMarks
+          .filter((m): m is CountMark => m.type === "count")
+          .map((m) => [m.point.x, m.point.y]);
+
+        if (points.length === 0) continue;
+
+        upsertMeasurementElement({
+          sessionId,
+          body: {
+            clientId: variant.id,
+            tool: "count",
+            label: variant.tag || variant.measureType,
+            mapsToElementType: backendType,
+            geometry: { type: "multipoint", points, page: variant.pageNumber },
+            style: { color, strokeWidth: 2 },
+            attributes: sharedAttrs,
+          },
+        });
+      } else {
+        // Length / area: remove the pending placeholder (keyed by variant.id) first,
+        // then upsert one real element per canvas mark under its own mark id.
+        deleteMeasurementElement({ sessionId, clientId: variant.id });
+        for (const mark of variantMarks) {
+          const baseBody = measurementToBackendBody(mark);
+          upsertMeasurementElement({
+            sessionId,
+            body: {
+              ...baseBody,
+              label: variant.tag || variant.measureType,
+              mapsToElementType: backendType,
+              geometry: { ...baseBody.geometry!, page: variant.pageNumber },
+              style: { color, strokeWidth: 2 },
+              attributes: { ...sharedAttrs, variantId: variant.id },
+            },
+          });
+        }
+      }
+    }
+  }
+
+  // ── Upsert a single variant to the backend immediately on "Apply & Continue" ──
+  // Uses variant.id as clientId so it is idempotent and cleanly overwritten
+  // (count) or deleted (length/area) when the element is later assigned.
+  function upsertPendingVariant(variant: WsConcreteMeasurement, sessionId: string) {
+    const allMeasurements = measurementHook.state.measurements;
+    const variantMarks = allMeasurements.filter((m) =>
+      variant.canvas.measurementIds.includes(m.id),
+    );
+    const backendType = toBackendElementType(variant.measureType);
+    const color = variantMarks[0]?.color ?? "#f59e0b";
+    const _snapshot = JSON.stringify({ ...variant, canvas: { ...variant.canvas, measurementIds: [] } });
+    const pendingAttrs: Record<string, unknown> = {
+      pending: true,
+      measureType: variant.measureType,
+      _snapshot,
+      reinforcement: rebarToReinforcement(variant.rebar),
+    };
+
+    if (variant.canvas.tool === "count") {
+      const points: [number, number][] = variantMarks
+        .filter((m): m is CountMark => m.type === "count")
+        .map((m) => [m.point.x, m.point.y]);
+      if (points.length === 0) return;
+      upsertMeasurementElement({
+        sessionId,
+        body: {
+          clientId: variant.id,
+          tool: "count",
+          label: variant.tag || variant.measureType,
+          mapsToElementType: backendType,
+          geometry: { type: "multipoint", points, page: variant.pageNumber },
+          style: { color, strokeWidth: 2 },
+          attributes: pendingAttrs,
+        },
+      });
+    } else {
+      // For length/area pending: send first mark's geometry under variant.id so
+      // persistVariantsToBackend can delete it cleanly on assignment.
+      const firstMark = variantMarks[0];
+      if (!firstMark) return;
+      const baseBody = measurementToBackendBody(firstMark);
+      upsertMeasurementElement({
+        sessionId,
+        body: {
+          ...baseBody,
+          clientId: variant.id,
+          label: variant.tag || variant.measureType,
+          mapsToElementType: backendType,
+          geometry: { ...baseBody.geometry!, page: variant.pageNumber },
+          style: { color, strokeWidth: 2 },
+          attributes: pendingAttrs,
+        },
+      });
+    }
+  }
+
+  // ── Session conflict resolution (409 on session create) ──────────────────────
+
+  function handleResumeConflictSession() {
+    if (!sessionConflict) return;
+    const { liveSessionId, uploadedFileId, pageNumber } = sessionConflict;
+    setActiveSessionId(liveSessionId);
+    if (uploadedFileId) {
+      openedSessionKeys.current.set(`${uploadedFileId}-${pageNumber ?? 1}`, liveSessionId);
+      const drawing = drawings.find((d) => d.uploadedFileId === uploadedFileId);
+      if (drawing) {
+        setSelectedDrawingId(drawing.id);
+        setSelectedPage(pageNumber ?? 1);
+        setScale(1.0);
+      }
+    }
+    setSessionConflict(null);
+  }
+
+  async function handleDeleteConflictAndCreate() {
+    if (!sessionConflict) return;
+    const uploadedFileId = selectedDrawing?.uploadedFileId;
+    if (!uploadedFileId) return;
+    try {
+      await deleteMeasurementSession(sessionConflict.liveSessionId).unwrap();
+      setSessionConflict(null);
+      const result = await createMeasurementSession({
+        projectId,
+        body: { uploadedFileId, pageNumber: selectedPage, canvas: { width: 1920, height: 1080 } },
+      });
+      if ("data" in result && result.data?.data?._id) {
+        const sid = result.data.data._id;
+        openedSessionKeys.current.set(`${uploadedFileId}-${selectedPage}`, sid);
+        setActiveSessionId(sid);
+      }
+    } catch {
+      toast.error("Could not start fresh session — please try again.");
     }
   }
 
@@ -468,6 +1300,7 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
     e.target.value = "";
     const targetFolderId = folders[0]?.id ?? "default";
     let firstNewId: string | null = null;
+
     for (const file of files) {
       const ext = getExt(file.name);
       const category = EXT_CATEGORY[ext] ?? "pdf";
@@ -475,19 +1308,48 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
       if (!firstNewId) firstNewId = id;
       const previewUrl = category === "pdf" || category === "image" ? URL.createObjectURL(file) : undefined;
       dispatch(addDrawing({ id, name: file.name, size: file.size, extension: ext, category, status: "uploading", progress: 0, previewUrl, folderId: targetFolderId }));
+
       try {
-        const url = await simulateUpload(file, (progress) => {
-          dispatch({ type: "manualWizard/updateDrawing", payload: { id, progress, status: "uploading" } });
-        });
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const result = await uploadFile({
+          formData,
+          onUploadProgress: (event) => {
+            if (event.total) {
+              const pct = Math.round((event.loaded / event.total) * 100);
+              dispatch({ type: "manualWizard/updateDrawing", payload: { id, progress: pct, status: "uploading" } });
+            }
+          },
+        }).unwrap();
+
+        const uploadedFileId = result.data._id;
+        const uploadedUrl = result.data.url;
+
         dispatch({ type: "manualWizard/updateDrawing", payload: { id, status: "processing", progress: 100 } });
-        await new Promise((r) => setTimeout(r, 500));
-        dispatch({ type: "manualWizard/updateDrawing", payload: { id, status: "complete", uploadedUrl: url } });
+        await new Promise((r) => setTimeout(r, 400));
+        dispatch({ type: "manualWizard/updateDrawing", payload: { id, status: "complete", uploadedFileId, uploadedUrl } });
+
+        // Persist drawing to workspace session so it survives a page reload
+        const currentSession = loadSession(projectId);
+        const sessionDrawings = currentSession.drawings ?? [];
+        if (!sessionDrawings.some((d) => d.id === uploadedFileId)) {
+          saveSession(projectId, {
+            drawings: [...sessionDrawings, { id: uploadedFileId, name: file.name, url: uploadedUrl, extension: ext, size: file.size }],
+          });
+        }
+
+        // Append new file ID to project's drawings array on the backend
+        const existingIds = backendProject?.drawings ?? [];
+        await updateProject({ projectId, body: { drawings: [...existingIds, uploadedFileId] } });
+
         toast.success(`"${file.name}" uploaded`);
       } catch {
         dispatch({ type: "manualWizard/updateDrawing", payload: { id, status: "error", error: "Upload failed" } });
         toast.error(`Failed to upload "${file.name}"`);
       }
     }
+
     if (firstNewId) { setSelectedDrawingId(firstNewId); setSelectedPage(1); setScale(1.0); }
   }
 
@@ -536,7 +1398,18 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
     );
   }
 
+  const apiHydrateIds = backendProject?.drawings ?? [];
+
   return (
+    <>
+      {apiHydrateIds.map((fileId) => (
+        <DrawingHydrator
+          key={fileId}
+          fileId={fileId}
+          folderId={folders[0]?.id ?? "default"}
+          onLoaded={handleDrawingHydrated}
+        />
+      ))}
     <div className="flex h-screen overflow-hidden bg-[#e8edf2]">
       {/* ── Left sidebar ── */}
       <aside className="w-[248px] shrink-0 bg-white border-r border-slate-100 flex flex-col overflow-hidden">
@@ -701,23 +1574,30 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
                           els.map((el) => (
                             <button
                               key={el.id}
-                              className="w-full flex items-start gap-2 px-4 py-2 hover:bg-slate-50 transition-colors text-left border-b border-slate-50"
+                              onClick={() => handleElementClick(el)}
+                              className="w-full flex items-start gap-2 px-4 py-2 hover:bg-amber-50 transition-colors text-left border-b border-slate-50 group"
                             >
-                              <FolderOpen className="w-3.5 h-3.5 text-slate-300 shrink-0 mt-0.5" />
+                              <FolderOpen className="w-3.5 h-3.5 text-slate-300 group-hover:text-amber-400 shrink-0 mt-0.5 transition-colors" />
                               <div className="flex-1 min-w-0">
-                                <p className="text-[12px] font-semibold text-slate-700 truncate">{el.name}</p>
+                                <p className="text-[12px] font-semibold text-slate-700 truncate group-hover:text-amber-700 transition-colors">
+                                  {el.name}
+                                </p>
                                 {el.variants.length > 0 ? (
-                                  <div className="flex items-center gap-1 mt-0.5">
+                                  <div className="flex items-center gap-1 mt-0.5 flex-wrap">
                                     <div className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
                                     <span className="text-[10px] text-slate-500">
                                       {el.variants.length} variant{el.variants.length !== 1 ? "s" : ""}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400">·</span>
+                                    <span className="text-[10px] text-slate-500">
+                                      {elementTotalDisplay(el.variants)}
                                     </span>
                                   </div>
                                 ) : (
                                   <p className="text-[10px] text-slate-400 mt-0.5">(0 drawn)</p>
                                 )}
                               </div>
-                              <ChevronRight className="w-3.5 h-3.5 text-slate-300 shrink-0 mt-0.5" />
+                              <ChevronRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-amber-400 shrink-0 mt-0.5 transition-colors" />
                             </button>
                           ))}
                       </div>
@@ -892,12 +1772,18 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
                 <span className="text-[10px] font-semibold text-green-700">Scale Locked</span>
               </div>
             )}
-            {activeTool === "count" && (
+            {scaleFlowActive && (
               <button
-                onClick={() => console.log("[BOQ] View BOQ")}
-                className="flex items-center gap-1.5 px-3 py-1 bg-amber-500 hover:bg-amber-600 rounded-lg text-white text-[11px] font-semibold transition-colors"
+                onClick={handleViewBoq}
+                disabled={finalizing}
+                className="flex items-center gap-1.5 px-3 py-1 bg-amber-500 hover:bg-amber-600 rounded-lg text-white text-[11px] font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                <FileUp className="w-3 h-3" /> View BOQ
+                {finalizing ? (
+                  <div className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <FileUp className="w-3 h-3" />
+                )}
+                View BOQ
               </button>
             )}
           </div>
@@ -966,11 +1852,13 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
                   ? activeTool
                   : null
               }
-              liveCount={countTotal}
-              liveLength={lengthTotal + (liveDrawingLength ?? 0)}
-              liveArea={areaTotal}
+              liveCount={sessionTotals.count}
+              liveLength={sessionTotals.length + (liveDrawingLength ?? 0)}
+              liveArea={sessionTotals.area}
               distanceUnit={distanceUnit}
-              hasMeasurements={countTotal > 0 || lengthTotal > 0 || areaTotal > 0}
+              hasMeasurements={
+                sessionTotals.count > 0 || sessionTotals.length > 0 || sessionTotals.area > 0
+              }
               onClose={() => setShowElementPanel(false)}
               onAssignElement={() => setAssignModalOpen(true)}
               onApplyAndContinue={handleSessionReset}
@@ -1102,6 +1990,29 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
       {/* ── Dialogs ── */}
       <NewFolderDialog open={newFolderOpen} onOpenChange={setNewFolderOpen} onConfirm={handleCreateFolder} />
 
+      {/* 409 conflict — another live session exists for this project */}
+      <Dialog open={!!sessionConflict} onOpenChange={(v) => { if (!v) setSessionConflict(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-bold">Active Session Conflict</DialogTitle>
+            <DialogDescription className="text-[13px] text-slate-500 pt-1">
+              There is already an active measurement session for this project. You can resume
+              that session (and navigate to its drawing) or delete it and start a new one here.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <Button variant="outline" onClick={() => setSessionConflict(null)}>Cancel</Button>
+            <Button variant="outline" onClick={handleResumeConflictSession}>Resume Existing</Button>
+            <Button
+              className="bg-amber-500 hover:bg-amber-600 text-white"
+              onClick={handleDeleteConflictAndCreate}
+            >
+              Delete &amp; Start Fresh
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <BBSQuestionModal
         open={bbsModalStep === "question"}
         answer={bbsAnswer}
@@ -1123,7 +2034,7 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
       <ScaleSetupModal
         open={showScaleSetup}
         measure={scaleWhat}
-        onMeasureChange={setScaleWhat}
+        onMeasureChange={handleScaleSetupMeasureChange}
         onCancel={handleScaleSetupCancel}
         onYes={handleScaleSetupProceed}
       />
@@ -1131,32 +2042,50 @@ export function ProjectWorkspaceView({ projectId, basePath }: ProjectWorkspaceVi
       <AssignItemsModal
         open={assignModalOpen}
         existingElements={elements}
+        pendingVariants={concreteMeasurements}
         onClose={() => setAssignModalOpen(false)}
         onContinue={handleAssignContinue}
       />
 
       <ConfirmAssignmentModal
         open={confirmAssignOpen}
+        pendingVariants={concreteMeasurements}
+        targetElement={assigningElement}
         onCancel={() => { setConfirmAssignOpen(false); setAssignModalOpen(true); }}
         onConfirm={handleConfirmMerge}
       />
 
       <AssignmentCompleteModal
         open={assignCompleteOpen}
-        onClose={() => setAssignCompleteOpen(false)}
-        onViewElement={() => { setAssignCompleteOpen(false); console.log("[Assignment] View element"); }}
+        elementName={assignCompleteData?.elementName ?? ""}
+        addedCount={assignCompleteData?.addedCount ?? 0}
+        addedUnit={assignCompleteData?.addedUnit ?? "items"}
+        newTotal={assignCompleteData?.newTotal ?? 0}
+        onClose={() => { setAssignCompleteOpen(false); setAssignCompleteData(null); }}
+        onViewElement={() => {
+          const el = elements.find((e) => e.id === assignCompleteData?.elementId);
+          setAssignCompleteOpen(false);
+          setAssignCompleteData(null);
+          if (el) handleElementClick(el);
+        }}
       />
 
-      <CreateNewElementModal
-        open={createNewElOpen}
-        onClose={() => setCreateNewElOpen(false)}
-        onUseExisting={() => { setCreateNewElOpen(false); setAssignModalOpen(true); }}
-        onCreate={handleCreateNewEl}
-      />
+      {/* Mount fresh each open so useState initializers fire with the latest variants */}
+      {createNewElOpen && (
+        <CreateNewElementModal
+          open={createNewElOpen}
+          pendingVariants={concreteMeasurements}
+          measureType={scaleWhat}
+          onClose={() => setCreateNewElOpen(false)}
+          onUseExisting={() => { setCreateNewElOpen(false); setAssignModalOpen(true); }}
+          onCreate={handleCreateNewEl}
+        />
+      )}
 
       {/* Hidden PDF preloaders — eagerly resolve page count so sidebar shows all pages without
           requiring the user to click each file first. */}
       <DrawingPreloader drawings={drawings} onPageCountResolved={handlePageCountResolved} />
     </div>
+    </>
   );
 }

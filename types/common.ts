@@ -9,13 +9,13 @@ export interface FileUploadResponse {
   uploadedBy: string;
   metadata: {
     format: string;
-    width: number;
-    height: number;
     bytes: number;
+    width?: number;
+    height?: number;
   };
   createdAt: string;
   updatedAt: string;
-  timestamp?: string;
+  __v?: number;
 }
 
 export interface ApiResponse<T> {
