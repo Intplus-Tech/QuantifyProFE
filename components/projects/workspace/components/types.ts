@@ -48,6 +48,9 @@ export interface ConcreteRowDef {
 }
 
 export interface ElementConcreteConfig {
+  /** Which canvas tool auto-activates for this category. "choice" means the user
+   *  picks Count or Area right after selecting the category (see rowsByChoice). */
+  tool: "count" | "length" | "area" | "choice";
   sectionHeader: string;
   tagLabel: string;
   tagPlaceholder: string;
@@ -55,6 +58,8 @@ export interface ElementConcreteConfig {
   measureUnit: string;
   mockMeasureValue: string;
   rows: ConcreteRowDef[];
+  /** Only present when tool === "choice" — field rows per chosen tool. */
+  rowsByChoice?: { count: ConcreteRowDef[]; area: ConcreteRowDef[] };
 }
 
 // ─── Created element ──────────────────────────────────────────────────────────
@@ -88,47 +93,39 @@ export function computeVolume(
   const pi = Math.PI;
 
   switch (measureType) {
-    case "Pile": {
+    case "Piles": {
       const depth = n("depth");
       const diameter = n("diameter");
       const radius = diameter / 2;
       const vol = pi * radius * radius * depth;
       return vol > 0 ? vol.toFixed(3) : "0";
     }
-    case "Column in Foundation":
-    case "Shear Wall": {
-      const shape = fields["shape"] ?? "Square";
-      const depth = n("depth");
-      const height = n("height");
-      const actualDepth = depth || height;
-      if (shape === "Circular") {
-        const diameter = n("diameter");
-        const vol = pi * Math.pow(diameter / 2, 2) * actualDepth;
+    case "Stud Column / Column in Foundation":
+    case "Columns": {
+      // Choice categories: count → length × width × height, area → traced area × height.
+      if (canvas.tool === "area") {
+        const height = n("height");
+        const vol = canvas.area * height;
         return vol > 0 ? vol.toFixed(3) : "0";
       }
+      const length = n("length");
       const width = n("width");
-      const breadth = n("breadth") || width;
-      const vol = width * breadth * actualDepth;
+      const height = n("height");
+      const vol = length * width * height;
       return vol > 0 ? vol.toFixed(3) : "0";
     }
-    case "Ground Beam":
-    case "Roof Beams":
-    case "Roof Upstands / Parapet":
-    case "Roof Gutter": {
+    case "Ground Beam / Raft":
+    case "Floor Beams": {
       const width = n("width");
-      const depth = n("depth") || n("height");
+      const depth = n("depth");
       const length = canvas.length;
       const vol = width * depth * length;
       return vol > 0 ? vol.toFixed(3) : "0";
     }
-    case "Strip": {
-      const excavDepth = n("excavationDepth");
-      const length = canvas.length;
-      const vol = excavDepth * length;
-      return vol > 0 ? vol.toFixed(3) : "0";
-    }
-    case "Slabs":
-    case "Roof Slab": {
+    case "Pile Cap":
+    case "Column Base / Pad":
+    case "Ground Floor Slab":
+    case "Upper Floor Slab": {
       const thickness = n("thickness");
       const area = canvas.area;
       const vol = thickness * area;
