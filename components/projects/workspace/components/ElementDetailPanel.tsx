@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { X, Plus, Trash2 } from "lucide-react";
+import { Minus, Plus, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -32,11 +32,15 @@ export interface SaveMeasurementPayload {
 
 interface ElementDetailPanelProps {
   measure?: string;
+  /** Only meaningful when the category's tool is "choice" (Stud Column / Columns). */
+  measureChoice?: "count" | "area" | null;
   showRebarTab?: boolean;
   activeMeasureTool?: "length" | "area" | "count" | null;
   liveCount?: number;
   liveLength?: number;
   liveArea?: number;
+  /** Length drawn on canvas while the Rebar tab is active — fills "read" bar depths. */
+  liveRebarLength?: number | null;
   distanceUnit?: string;
   hasMeasurements?: boolean;
   activeColor?: string;
@@ -47,17 +51,22 @@ interface ElementDetailPanelProps {
   onSaveMeasurement?: (payload: SaveMeasurementPayload) => void;
   onFormChange?: (payload: SaveMeasurementPayload) => void;
   onResetMeasurements?: () => void;
+  onTabChange?: (tab: "concrete" | "rebar") => void;
+  /** Pointer handlers from the parent's drag logic — spread onto the header to make it a drag handle. */
+  dragHandleProps?: React.HTMLAttributes<HTMLDivElement>;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ElementDetailPanel({
-  measure = "Pile",
+  measure = "Piles",
+  measureChoice = null,
   showRebarTab = false,
   activeMeasureTool = null,
   liveCount = 0,
   liveLength = 0,
   liveArea = 0,
+  liveRebarLength = null,
   distanceUnit = "Meters",
   hasMeasurements = false,
   activeColor,
@@ -68,27 +77,34 @@ export function ElementDetailPanel({
   onSaveMeasurement,
   onFormChange,
   onResetMeasurements,
+  onTabChange,
+  dragHandleProps,
 }: ElementDetailPanelProps) {
-  const cfg = ELEMENT_CONFIGS[measure] ?? ELEMENT_CONFIGS["Pile"];
+  const cfg = ELEMENT_CONFIGS[measure] ?? ELEMENT_CONFIGS["Piles"];
+  const rows =
+    cfg.tool === "choice" && cfg.rowsByChoice
+      ? cfg.rowsByChoice[measureChoice ?? "count"]
+      : cfg.rows;
   const [activeTab, setActiveTab] = useState<"concrete" | "rebar">("concrete");
   const [savedFeedback, setSavedFeedback] = useState(false);
 
   // ── Concrete form ───────────────────────────────────────────────────────────
 
-  const buildDefaultFields = (m: string): Record<string, string> => {
-    const c = ELEMENT_CONFIGS[m] ?? ELEMENT_CONFIGS["Pile"];
+  const buildDefaultFields = (m: string, choice: "count" | "area" | null): Record<string, string> => {
+    const c = ELEMENT_CONFIGS[m] ?? ELEMENT_CONFIGS["Piles"];
+    const r = c.tool === "choice" && c.rowsByChoice ? c.rowsByChoice[choice ?? "count"] : c.rows;
     const init: Record<string, string> = { tag: "" };
-    c.rows.forEach((row) => row.fields.forEach((f) => { init[f.key] = f.defaultValue; }));
+    r.forEach((row) => row.fields.forEach((f) => { init[f.key] = f.defaultValue; }));
     return init;
   };
 
   const [fieldValues, setFieldValues] = useState<Record<string, string>>(
-    () => buildDefaultFields(measure),
+    () => buildDefaultFields(measure, measureChoice),
   );
 
   useEffect(() => {
-    setFieldValues(buildDefaultFields(measure));
-  }, [measure]);
+    setFieldValues(buildDefaultFields(measure, measureChoice));
+  }, [measure, measureChoice]);
 
   function setField(key: string, value: string) {
     setFieldValues((prev) => ({ ...prev, [key]: value }));
@@ -106,6 +122,14 @@ export function ElementDetailPanel({
   const [inclStirrupsLocal, setInclStirrupsLocal] = useState(true);
   const [stirrupSize, setStirrupSize] = useState("Y8");
   const [stirrupSpacing, setStirrupSpacing] = useState("0");
+
+  // "Read from drawing": one length drawn on canvas fills every bar row's depth.
+  useEffect(() => {
+    if (rebarMethod !== "read" || liveRebarLength == null) return;
+    const depth = liveRebarLength.toFixed(2);
+    setMainBars((prev) => prev.map((b) => ({ ...b, depth })));
+    setAdditionBars((prev) => prev.map((b) => ({ ...b, depth })));
+  }, [liveRebarLength, rebarMethod]);
 
   function resetRebarToDefaults() {
     setRebarMethod("manual");
@@ -152,7 +176,7 @@ export function ElementDetailPanel({
 
   const concreteFormFilled =
     fieldValues.tag.trim() !== "" ||
-    cfg.rows.some((row) =>
+    rows.some((row) =>
       row.fields.some((f) => {
         if (f.type === "select") return false;
         const v = fieldValues[f.key] ?? "";
@@ -240,9 +264,10 @@ export function ElementDetailPanel({
     onApplyAndContinue();
 
     // Reset both forms to defaults for the next variant
-    setFieldValues(buildDefaultFields(measure));
+    setFieldValues(buildDefaultFields(measure, measureChoice));
     resetRebarToDefaults();
     setActiveTab("concrete");
+    onTabChange?.("concrete");
 
     setSavedFeedback(true);
     setTimeout(() => setSavedFeedback(false), 2000);
@@ -251,15 +276,21 @@ export function ElementDetailPanel({
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <div className="w-[290px] shrink-0 bg-white border-l border-slate-200 flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 shrink-0">
+    <div className="w-full h-full bg-white flex flex-col overflow-hidden">
+      {/* Header — also the drag handle when floating */}
+      <div
+        {...dragHandleProps}
+        style={{ touchAction: "none", ...dragHandleProps?.style }}
+        className="flex items-center justify-between px-4 py-3 border-b border-slate-200 shrink-0 cursor-grab active:cursor-grabbing"
+      >
         <span className="text-sm font-bold text-slate-800 uppercase tracking-wider">{measure}</span>
         <button
           onClick={onClose}
+          onPointerDown={(e) => e.stopPropagation()}
+          title="Minimize"
           className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
         >
-          <X className="w-3.5 h-3.5" />
+          <Minus className="w-3.5 h-3.5" />
         </button>
       </div>
 
@@ -268,7 +299,7 @@ export function ElementDetailPanel({
         {(showRebarTab ? (["concrete", "rebar"] as const) : (["concrete"] as const)).map((tab) => (
           <button
             key={tab}
-            onClick={() => setActiveTab(tab)}
+            onClick={() => { setActiveTab(tab); onTabChange?.(tab); }}
             className={`flex-1 py-2.5 text-[11px] font-bold uppercase tracking-wider transition-colors ${
               activeTab === tab
                 ? "text-amber-600 border-b-2 border-amber-500"
@@ -326,7 +357,7 @@ export function ElementDetailPanel({
               )}
             </div>
 
-            {cfg.rows.map((row, i) => (
+            {rows.map((row, i) => (
               <div key={i} className="space-y-2">
                 {row.sectionLabel && (
                   <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">

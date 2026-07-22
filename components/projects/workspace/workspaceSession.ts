@@ -89,6 +89,11 @@ export interface WorkspaceSession {
   createdElements: CreatedElement[];
   elementAssignments: WsElementAssignment[];
   drawings: SessionDrawing[];
+  /** Floating Element Detail Panel — position relative to the canvas viewport, and collapsed state */
+  elementPanelPos: { x: number; y: number } | null;
+  elementPanelCollapsed: boolean;
+  /** Left workspace sidebar — collapses to a small floating header, canvas fills the freed space */
+  sidebarCollapsed: boolean;
 }
 
 // ─── Storage helpers ──────────────────────────────────────────────────────────

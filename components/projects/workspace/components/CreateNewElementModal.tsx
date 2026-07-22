@@ -120,16 +120,25 @@ function measureColumnMeta(tool: "count" | "length" | "area", unit: string) {
 
 function defaultCategoryFolder(measureType: string): string {
   const map: Record<string, string> = {
-    "Pile":                    "Substructure / Piles",
-    "Column in Foundation":    "Substructure / Foundations (Strip/Raft)",
-    "Ground Beam":             "Substructure / Ground Beams",
-    "Strip":                   "Substructure / Foundations (Strip/Raft)",
-    "Shear Wall":              "Superstructure / Shear Walls",
-    "Slabs":                   "Superstructure / Slabs",
-    "Roof Beams":              "Superstructure / Roof Structure",
-    "Roof Slab":               "Superstructure / Roof Structure",
-    "Roof Upstands / Parapet": "Architectural / Parapet Walls",
-    "Roof Gutter":             "External Works / Drainage",
+    "Piles":                              "Substructure / Piles",
+    "Pile Cap":                           "Substructure / Pile Caps",
+    "Ground Beam / Raft":                 "Substructure / Ground Beams",
+    "Column Base / Pad":                  "Substructure / Foundations (Strip/Raft)",
+    "Stud Column / Column in Foundation": "Substructure / Foundations (Strip/Raft)",
+    "Ground Floor Slab":                  "Substructure / Blinding Concrete",
+    "Blockwork on Foundation":            "Architectural / External Walls (Blockwork/Brick)",
+    "Columns":                            "Superstructure / Columns",
+    "Floor Beams":                        "Superstructure / Beams",
+    "Staircase":                          "Superstructure / Stairs",
+    "Upper Floor Slab":                   "Superstructure / Slabs",
+    "Lintel":                             "Architectural / Lintel",
+    "Blockwork":                          "Architectural / External Walls (Blockwork/Brick)",
+    "Roof":                               "Superstructure / Roof Structure",
+    "Windows":                            "Architectural / Windows",
+    "Doors":                              "Architectural / Doors",
+    "Floor Finishes":                     "Architectural / Floor Finishes (Paint/Tiles)",
+    "Wall Finishes":                      "Architectural / Internal Walls (Partition)",
+    "Ceiling Finishes":                   "Architectural / Ceiling Finishes",
   };
   return map[measureType] ?? "Substructure / Piles";
 }
@@ -174,13 +183,17 @@ export function CreateNewElementModal({
     () => defaultMeasurementUnit(activeTool),
   );
 
+  // No measurements yet — still allow creating the element as a zero-value shell
+  // (e.g. right after "+ New Element", before anything's been drawn).
   const [rows, setRows] = useState<PileRow[]>(() =>
-    pendingVariants.map((v) => ({
-      id: v.id,
-      name: v.tag || v.measureType,
-      count: colMeta.accessor(v),
-      volume: computeVolume(v.measureType, v.concreteFields, v.canvas),
-    })),
+    pendingVariants.length > 0
+      ? pendingVariants.map((v) => ({
+          id: v.id,
+          name: v.tag || v.measureType,
+          count: colMeta.accessor(v),
+          volume: computeVolume(v.measureType, v.concreteFields, v.canvas),
+        }))
+      : [{ id: "placeholder", name: measureType, count: "0", volume: "0" }],
   );
 
   function updateRow(id: string, field: keyof PileRow, value: string) {
