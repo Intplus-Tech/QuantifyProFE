@@ -173,7 +173,7 @@ export function LiveMeasurementsPanel({
   scaleWhat: string;
   distanceUnit: string;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [expanded, setExpanded] = useState(false);
 
   const totalRows = elements.length + (pendingVariants.length > 0 ? 1 : 0);

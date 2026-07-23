@@ -7,8 +7,10 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
-  Minimize2,
+  Expand,
+  Ban,
   FolderOpen,
+  Folder,
   FolderPlus,
   Upload,
   Home,
@@ -131,7 +133,6 @@ import type {
   AreaMeasurement,
   CountMark,
 } from "./components/types";
-import { elementTotalDisplay } from "./components/types";
 
 // ── Measurement ↔ backend element converters ──────────────────────────────────
 
@@ -265,12 +266,41 @@ function toBackendElementType(measureType: string): string {
     "Staircase Strings & Steps": "staircase_strings_steps",
     "Staircase Upper Floors": "staircase_upper_floors",
     // Roof / Finishing
+    Roof: "roof_beam",
     "Roof Upstands / Parapet": "parapet_wall",
     "Parapet Wall": "parapet_wall",
     "Parapet Wall Coping": "parapet_wall_copping",
     "Kitchen Countertop": "kitchen_countertop",
+    // Blockwork has no dedicated backend type yet — closest existing match is "wall".
+    Blockwork: "wall",
+    "Blockwork on Foundation": "wall",
   };
   return map[measureType] ?? measureType.toLowerCase().replace(/[\s/]+/g, "_");
+}
+
+// Maps the UI's distance-unit vocabulary (used throughout the app for display,
+// e.g. "Meters") to the backend's calibration.unit enum ('mm'|'cm'|'m'|'ft'|'in'|'px').
+function toBackendDistanceUnit(unit: string): string {
+  const map: Record<string, string> = {
+    Meters: "m",
+    mm: "mm",
+    cm: "cm",
+    ft: "ft",
+  };
+  return map[unit] ?? unit.toLowerCase();
+}
+
+// Reverse of toBackendDistanceUnit — used when hydrating calibration.unit back
+// from the backend so it matches the UI's own vocabulary (Select options, "Meters"
+// string comparisons for m²/m³ labels, etc.).
+function toUiDistanceUnit(unit: string): string {
+  const map: Record<string, string> = {
+    m: "Meters",
+    mm: "mm",
+    cm: "cm",
+    ft: "ft",
+  };
+  return map[unit] ?? unit;
 }
 
 // Converts our internal VariantRebar → the backend's reinforcement array.
@@ -473,6 +503,10 @@ export function ProjectWorkspaceView({
   );
   const [showScaleNotification, setShowScaleNotification] = useState(false);
   const scaleNotifTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Whether the calibration/scale bar at the bottom is visible — auto-hides a
+  // couple seconds after locking, brought back via the "Edit Calibration" button.
+  const [showCalibrationBar, setShowCalibrationBar] = useState(true);
+  const calibrationBarHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [showElementPanel, setShowElementPanel] = useState(false);
   const [concreteMeasurements, setConcreteMeasurements] = useState<
@@ -581,9 +615,13 @@ export function ProjectWorkspaceView({
   const selectedDrawing =
     drawings.find((d) => d.id === selectedDrawingId) ?? null;
 
-  // ── On mount: wipe stale backend-owned keys from localStorage ───────────────
+  // ── On mount: wipe stale backend-owned keys from localStorage AND live state ──
   // Scale, elements, and variants are now sourced from the backend session.
-  // This runs once per projectId so stale data from before the migration is gone.
+  // This runs once per projectId so stale data from before the migration — or from
+  // a previously-viewed project, if this component instance gets reused across a
+  // client-side navigation between two different projects' workspaces — is gone.
+  // Phase 2 hydration (below) re-populates these from the backend afterward if the
+  // new project's session actually has a locked scale.
   useEffect(() => {
     saveSession(projectId, {
       createdElements: [],
@@ -598,6 +636,21 @@ export function ProjectWorkspaceView({
       knownDistance: "",
       elementAssignments: [],
     });
+
+    hydratedSessionIds.current = new Set();
+    openedSessionKeys.current = new Map();
+    projectElementsLoaded.current = false;
+
+    setScaleFlowActive(false);
+    setShowElementPanel(false);
+    setShowCalibrationBar(true);
+    setScaleLocked(false);
+    setGlobalScaleFactor(null);
+    setScaleInfo(null);
+    setKnownDistance("");
+    setActiveTool(null);
+    setElements([]);
+    setConcreteMeasurements([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
@@ -700,9 +753,19 @@ export function ProjectWorkspaceView({
 
     const { session, elements } = activeSessionData.data;
     const backendScale = session.canvas.scale;
-    const backendUnit = session.canvas.unit ?? distanceUnit;
+    const backendUnit = session.canvas.unit
+      ? toUiDistanceUnit(session.canvas.unit)
+      : distanceUnit;
+    const calibration = session.canvas.calibration;
 
-    if (backendScale) {
+    // A truthy `scale` alone isn't proof the user ever calibrated this session —
+    // the backend may default it to a non-null placeholder for brand-new sessions.
+    // Only treat it as genuinely calibrated when the calibration inputs that Apply
+    // Scale actually sends (knownDistance + pixelDistance) are both present too.
+    const isGenuinelyCalibrated =
+      !!backendScale && !!calibration?.knownDistance && !!calibration?.pixelDistance;
+
+    if (isGenuinelyCalibrated) {
       setGlobalScaleFactor(backendScale);
       setScaleLocked(true);
       setScaleFlowActive(true);
@@ -712,10 +775,9 @@ export function ProjectWorkspaceView({
       );
     }
 
-    const calibration = session.canvas.calibration;
     if (calibration?.knownDistance)
       setKnownDistance(String(calibration.knownDistance));
-    if (calibration?.unit) setDistanceUnit(calibration.unit);
+    if (calibration?.unit) setDistanceUnit(toUiDistanceUnit(calibration.unit));
 
     let countIdx = 1;
     const measurements: Measurement[] = [];
@@ -727,9 +789,9 @@ export function ProjectWorkspaceView({
       }
     }
 
-    if (measurements.length > 0 || backendScale) {
+    if (measurements.length > 0 || isGenuinelyCalibrated) {
       measurementHook.resetWithData({
-        scaleFactor: backendScale ?? null,
+        scaleFactor: isGenuinelyCalibrated ? backendScale : null,
         calibPts: null,
         measurements,
       });
@@ -993,7 +1055,7 @@ export function ProjectWorkspaceView({
     setSessionTotals({ count: 0, length: 0, area: 0 });
     setLiveDrawingLength(null);
     setPendingTool(null);
-    setBbsModalStep("question");
+    setShowScaleSetup(true);
   }
 
   // ── Floating Element Detail Panel: drag + collapse ────────────────────────────
@@ -1056,6 +1118,12 @@ export function ProjectWorkspaceView({
     });
   }
 
+  function handleDeselectTool() {
+    setActiveTool(null);
+    setCountModeActive(false);
+    setPendingTool(null);
+  }
+
   // ── Tool click ───────────────────────────────────────────────────────────────
 
   function handleToolClick(id: ToolId) {
@@ -1101,7 +1169,7 @@ export function ProjectWorkspaceView({
     setShowRebarTab(false);
     saveSession(projectId, { bbsAnswer, showRebarTab: false });
     setBbsModalStep(null);
-    setShowScaleSetup(true);
+    activateScaleFlow();
   }
   function handleBBSContinue() {
     if (bbsAnswer === "yes") {
@@ -1111,7 +1179,7 @@ export function ProjectWorkspaceView({
       setShowRebarTab(true);
       saveSession(projectId, { bbsAnswer, showRebarTab: true });
       setBbsModalStep(null);
-      setShowScaleSetup(true);
+      activateScaleFlow();
     }
   }
 
@@ -1127,7 +1195,7 @@ export function ProjectWorkspaceView({
     setShowRebarTab(false);
     saveSession(projectId, { bbsAnswer, bbsRows, showRebarTab: false });
     setBbsModalStep(null);
-    setShowScaleSetup(true);
+    activateScaleFlow();
   }
   function handleBBSRowChange(id: string, field: keyof BBSRow, value: string) {
     setBbsRows((rows) =>
@@ -1149,57 +1217,29 @@ export function ProjectWorkspaceView({
 
   // ── Scale setup ──────────────────────────────────────────────────────────────
 
+  // "Yes, I want to Scale" — category is chosen, next step is the BBS question.
+  // Scale flow itself only activates once BBS is answered (see activateScaleFlow).
   function handleScaleSetupProceed() {
     setShowScaleSetup(false);
+    setBbsModalStep("question");
+  }
+  function handleScaleSetupCancel() {
+    setShowScaleSetup(false);
+    setPendingTool(null);
+  }
+
+  // ── Enter the workspace — last step of "+ New Element" (after BBS) ───────────
+  // Activates the tool derived from the chosen category. Canvas drawing is still
+  // blocked: clicks are either calibration-mode (red reference dots) or fully
+  // gated by the scaleFactor=null guard until Apply Scale is clicked.
+  function activateScaleFlow() {
     setScaleFlowActive(true);
     setShowElementPanel(true);
+    setShowCalibrationBar(true);
     setPendingTool(null);
-    // Next step of the "+ New Element" flow — same modal as the sidebar's
-    // "Create Elements" button, so the element is real and shows up there too.
-    setCreateNewElOpen(true);
 
-    // Activate the tool derived from the chosen category immediately, so the user
-    // sees the right tool selected. Canvas drawing is still blocked: clicks are
-    // either calibration-mode (red reference dots) or fully gated by the
-    // scaleFactor=null guard until Apply Scale is clicked.
     setActiveTool(concreteToolForCategory);
     setCountModeActive(concreteToolForCategory === "count");
-
-    // Bar Bending Schedule already known for this element — seed it as the rebar
-    // payload on the zero-measurement element created below, instead of nulls.
-    if (
-      bbsAnswer === "yes" &&
-      bbsRows.some((r) => r.mark || r.size !== "Y16" || r.length || r.quantity)
-    ) {
-      lastFormPayload.current = {
-        tag: "",
-        concreteFields: {},
-        rebar: {
-          method: "manual",
-          mainBars: bbsRows.map((r) => ({
-            id: r.id,
-            size: r.size,
-            count: r.quantity,
-            depth: r.length,
-          })),
-          additionBars: [],
-          includeStirups: false,
-          stirrupSize: "Y8",
-          stirrupSpacing: "0",
-        },
-        canvas: {
-          tool: concreteToolForCategory,
-          count: 0,
-          length: 0,
-          area: 0,
-          unit: distanceUnit,
-        },
-      };
-    }
-
-    // Create the element on the backend right away with a zero-value measurement —
-    // drawing on the canvas afterward upserts this same variant via auto-save.
-    setTimeout(() => handleAutoSaveRef.current(), 0);
 
     if (scaleLocked && globalScaleFactor !== null) {
       // Scale already applied and locked — jump straight to measuring, no re-calibration
@@ -1215,10 +1255,6 @@ export function ProjectWorkspaceView({
       setCalibPts(null);
       saveSession(projectId, { scaleWhat, scaleFlowActive: true });
     }
-  }
-  function handleScaleSetupCancel() {
-    setShowScaleSetup(false);
-    setPendingTool(null);
   }
 
   // ── Calibration ──────────────────────────────────────────────────────────────
@@ -1257,7 +1293,7 @@ export function ProjectWorkspaceView({
           calibration: {
             knownDistance: realDist,
             pixelDistance: calibBasePxDist,
-            unit: distanceUnit,
+            unit: toBackendDistanceUnit(distanceUnit),
           },
         },
       }).unwrap();
@@ -1291,8 +1327,21 @@ export function ProjectWorkspaceView({
     });
   }
 
+  function handleShowCalibrationBar() {
+    if (calibrationBarHideTimerRef.current) {
+      clearTimeout(calibrationBarHideTimerRef.current);
+      calibrationBarHideTimerRef.current = null;
+    }
+    setShowCalibrationBar(true);
+  }
+
   function handleResetScale() {
     if (scaleNotifTimerRef.current) clearTimeout(scaleNotifTimerRef.current);
+    if (calibrationBarHideTimerRef.current) {
+      clearTimeout(calibrationBarHideTimerRef.current);
+      calibrationBarHideTimerRef.current = null;
+    }
+    setShowCalibrationBar(true);
     setScaleInfo(null);
     setShowScaleNotification(false);
     setKnownDistance("");
@@ -2068,6 +2117,18 @@ export function ProjectWorkspaceView({
       : []),
   ];
 
+  // Merge backend drawing IDs with session-saved IDs (set by wizard before navigation).
+  // The backend may not return `drawings` immediately after creation, so the session
+  // fallback ensures drawings always hydrate on first workspace visit.
+  // Must run before the loading early-return below — a hook can never be called
+  // conditionally, or React throws a "rendered fewer/more hooks than expected"
+  // mismatch on the loading→loaded transition, which breaks DrawingHydrator mounting.
+  const apiHydrateIds = useMemo(() => {
+    const ids = new Set<string>(backendProject?.drawings ?? []);
+    for (const d of savedSession.drawings ?? []) ids.add(d.id);
+    return Array.from(ids);
+  }, [backendProject?.drawings, savedSession.drawings]);
+
   if (isLoading && !backendProject) {
     return (
       <div className="flex items-center justify-center h-screen bg-slate-100">
@@ -2078,15 +2139,6 @@ export function ProjectWorkspaceView({
       </div>
     );
   }
-
-  // Merge backend drawing IDs with session-saved IDs (set by wizard before navigation).
-  // The backend may not return `drawings` immediately after creation, so the session
-  // fallback ensures drawings always hydrate on first workspace visit.
-  const apiHydrateIds = useMemo(() => {
-    const ids = new Set<string>(backendProject?.drawings ?? []);
-    for (const d of savedSession.drawings ?? []) ids.add(d.id);
-    return Array.from(ids);
-  }, [backendProject?.drawings, savedSession.drawings]);
 
   return (
     <>
@@ -2143,7 +2195,7 @@ export function ProjectWorkspaceView({
                 title="Collapse sidebar"
                 className="w-8 h-8 flex items-center justify-center rounded-lg bg-amber-500 hover:bg-amber-600 text-white shrink-0 transition-colors"
               >
-                <Minimize2 className="w-4 h-4" />
+                <Expand className="w-4 h-4" />
               </button>
             </div>
 
@@ -2187,6 +2239,21 @@ export function ProjectWorkspaceView({
                       </Tooltip>
                     );
                   })}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={handleDeselectTool}
+                        disabled={!activeTool}
+                        className="w-9 h-9 flex items-center justify-center rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-white border-slate-200 text-slate-500 hover:bg-slate-50 hover:border-slate-300"
+                      >
+                        <Ban className="w-4 h-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" sideOffset={6}>
+                      <p className="font-semibold text-xs">Deselect Tool</p>
+                      <p className="text-[10px] opacity-75 mt-0.5">Stop drawing with the active tool</p>
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
               </TooltipProvider>
 
@@ -2239,14 +2306,14 @@ export function ProjectWorkspaceView({
                   <div className="flex items-center gap-1.5">
                     <Box className="w-3.5 h-3.5 text-slate-400" />
                     <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                      Elements
+                      Element
                     </span>
                   </div>
                   <button
                     onClick={handleAddNewElement}
-                    className="text-[10px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-700 transition-colors"
+                    className="text-[10px] font-bold uppercase tracking-widest text-slate-800 underline hover:text-amber-600 transition-colors"
                   >
-                    + New Element
+                    New Element
                   </button>
                 </div>
               </div>
@@ -2285,59 +2352,48 @@ export function ProjectWorkspaceView({
                       <>
                         {Object.entries(elementsByCategory).map(
                           ([category, els]) => (
-                            <div key={category}>
+                            <div key={category} className="py-1">
                               <button
                                 onClick={() => toggleCategory(category)}
-                                className="w-full flex items-center justify-between px-3 py-2 hover:bg-slate-50 transition-colors border-b border-slate-100"
+                                className="w-full flex items-center justify-between px-3 py-2 hover:bg-slate-50 transition-colors"
                               >
                                 <div className="flex items-center gap-2">
-                                  <FolderOpen className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">
+                                  <Folder className="w-4 h-4 text-blue-500 fill-blue-100 shrink-0" />
+                                  <span className="text-[13px] font-bold uppercase tracking-wide text-slate-900">
                                     {category}
                                   </span>
                                 </div>
                                 <ChevronDown
-                                  className={`w-3 h-3 text-slate-400 transition-transform duration-150 ${expandedCategories.includes(category) ? "" : "-rotate-90"}`}
+                                  className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-150 ${expandedCategories.includes(category) ? "" : "-rotate-90"}`}
                                 />
                               </button>
 
-                              {expandedCategories.includes(category) &&
-                                els.map((el) => (
-                                  <button
-                                    key={el.id}
-                                    onClick={() => handleElementClick(el)}
-                                    className="w-full flex items-start gap-2 px-4 py-2 hover:bg-amber-50 transition-colors text-left border-b border-slate-50 group"
-                                  >
-                                    <FolderOpen className="w-3.5 h-3.5 text-slate-300 group-hover:text-amber-400 shrink-0 mt-0.5 transition-colors" />
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-[12px] font-semibold text-slate-700 truncate group-hover:text-amber-700 transition-colors">
-                                        {el.name}
-                                      </p>
-                                      {el.variants.length > 0 ? (
-                                        <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-                                          <div className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
-                                          <span className="text-[10px] text-slate-500">
-                                            {el.variants.length} variant
-                                            {el.variants.length !== 1
-                                              ? "s"
-                                              : ""}
-                                          </span>
-                                          <span className="text-[10px] text-slate-400">
-                                            ·
-                                          </span>
-                                          <span className="text-[10px] text-slate-500">
-                                            {elementTotalDisplay(el.variants)}
-                                          </span>
-                                        </div>
-                                      ) : (
-                                        <p className="text-[10px] text-slate-400 mt-0.5">
-                                          (0 drawn)
-                                        </p>
-                                      )}
-                                    </div>
-                                    <ChevronRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-amber-400 shrink-0 mt-0.5 transition-colors" />
-                                  </button>
-                                ))}
+                              {expandedCategories.includes(category) && (
+                                <div className="ml-[19px] border-l border-slate-200 pl-3">
+                                  {els.map((el) => (
+                                    <button
+                                      key={el.id}
+                                      onClick={() => handleElementClick(el)}
+                                      className="w-full block py-2 hover:bg-amber-50/60 transition-colors text-left group"
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <Folder className="w-3.5 h-3.5 text-slate-400 group-hover:text-amber-500 shrink-0 transition-colors" />
+                                        <span className="flex-1 min-w-0 text-[13px] font-bold text-slate-800 truncate group-hover:text-amber-700 transition-colors">
+                                          {el.name}
+                                        </span>
+                                        <ChevronRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-amber-400 shrink-0 transition-colors" />
+                                      </div>
+                                      <div className="flex items-center gap-1.5 mt-1 pl-[22px]">
+                                        <div className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+                                        <span className="text-[12px] text-slate-500">
+                                          {el.variants.length} variant
+                                          {el.variants.length !== 1 ? "s" : ""}
+                                        </span>
+                                      </div>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           ),
                         )}
@@ -2515,9 +2571,9 @@ export function ProjectWorkspaceView({
             <button
               onClick={handleSidebarToggle}
               title="Expand sidebar"
-              className="w-8 h-8 flex items-center justify-center rounded-lg bg-amber-500 hover:bg-amber-600 text-white shrink-0 transition-colors ml-1"
+              className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-500 shrink-0 transition-colors ml-1"
             >
-              <Maximize2 className="w-4 h-4" />
+              <Expand className="w-4 h-4" />
             </button>
           </div>
         )}
@@ -2560,6 +2616,14 @@ export function ProjectWorkspaceView({
                     Scale Locked
                   </span>
                 </div>
+              )}
+              {scaleLocked && !showCalibrationBar && (
+                <button
+                  onClick={handleShowCalibrationBar}
+                  className="text-[10px] font-semibold text-slate-500 hover:text-slate-700 underline transition-colors"
+                >
+                  Edit Calibration
+                </button>
               )}
               {scaleFlowActive && (
                 <button
@@ -2727,9 +2791,16 @@ export function ProjectWorkspaceView({
             </div>
           </div>
 
-          {/* Calibration / Ready bar */}
+          {/* Calibration / Ready bar — fades/collapses out a couple seconds after
+              locking; "Edit Calibration" in the top header brings it back. */}
           {scaleFlowActive && (
-            <div className="shrink-0 bg-white border-t border-slate-200">
+            <div
+              className={`shrink-0 bg-white overflow-hidden transition-all duration-300 ease-in-out ${
+                showCalibrationBar
+                  ? "max-h-[320px] opacity-100 border-t border-slate-200"
+                  : "max-h-0 opacity-0 border-t-0"
+              }`}
+            >
               {!scaleInfo ? (
                 <div
                   className="px-6 pt-3 pb-5"
@@ -2838,6 +2909,12 @@ export function ProjectWorkspaceView({
                         onClick={() => {
                           setScaleLocked(true);
                           saveSession(projectId, { scaleLocked: true });
+                          if (calibrationBarHideTimerRef.current)
+                            clearTimeout(calibrationBarHideTimerRef.current);
+                          calibrationBarHideTimerRef.current = setTimeout(
+                            () => setShowCalibrationBar(false),
+                            2500,
+                          );
                         }}
                         className="relative w-9 h-5 rounded-full bg-slate-200 hover:bg-slate-300 cursor-pointer transition-colors"
                       >
@@ -2873,6 +2950,7 @@ export function ProjectWorkspaceView({
                           onClick={() => {
                             setScaleLocked(false);
                             saveSession(projectId, { scaleLocked: false });
+                            handleShowCalibrationBar();
                           }}
                           className="relative w-9 h-5 rounded-full bg-green-500 transition-colors"
                         >
@@ -2886,7 +2964,7 @@ export function ProjectWorkspaceView({
                         onClick={handleResetScale}
                         className="text-[11px] text-slate-500 hover:text-slate-700 font-medium transition-colors"
                       >
-                        Edit Calibration
+                        Reset Scale
                       </button>
                     </div>
                   </div>
