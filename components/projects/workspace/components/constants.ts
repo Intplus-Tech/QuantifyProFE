@@ -83,6 +83,23 @@ const areaHeightOnly: ConcreteRowDef[] = [
   { fields: [{ key: "height", label: "Height (m)", defaultValue: "0" }] },
 ];
 
+export const WALL_TYPE_OPTIONS = ["100mm", "150mm", "225mm"];
+
+const blockworkRows: ConcreteRowDef[] = [
+  {
+    fields: [
+      { key: "height", label: "Height (m)", defaultValue: "0" },
+      {
+        key: "wallType",
+        label: "Wall Type",
+        type: "select",
+        defaultValue: WALL_TYPE_OPTIONS[0],
+        options: WALL_TYPE_OPTIONS,
+      },
+    ],
+  },
+];
+
 export const ELEMENT_CONFIGS: Record<string, ElementConcreteConfig> = {
   Piles: {
     tool: "count",
@@ -167,13 +184,14 @@ export const ELEMENT_CONFIGS: Record<string, ElementConcreteConfig> = {
   },
   "Blockwork on Foundation": {
     tool: "length",
-    sectionHeader: "BLOCKWORK (FROM MEASUREMENT)",
-    tagLabel: "Tag this run as:",
+    blockworkSides: true,
+    sectionHeader: "BLOCKWORK",
+    tagLabel: "Tag this Blockwork as:",
     tagPlaceholder: "e.g. BW-F1",
     measureLabel: "Length",
     measureUnit: "m",
     mockMeasureValue: "0",
-    rows: [{ fields: [{ key: "height", label: "Height (m)", defaultValue: "0" }] }],
+    rows: blockworkRows,
   },
   Columns: {
     tool: "choice",
@@ -235,13 +253,14 @@ export const ELEMENT_CONFIGS: Record<string, ElementConcreteConfig> = {
   },
   Blockwork: {
     tool: "length",
-    sectionHeader: "BLOCKWORK (FROM MEASUREMENT)",
-    tagLabel: "Tag this run as:",
+    blockworkSides: true,
+    sectionHeader: "BLOCKWORK",
+    tagLabel: "Tag this Blockwork as:",
     tagPlaceholder: "e.g. BW1",
     measureLabel: "Length",
     measureUnit: "m",
     mockMeasureValue: "0",
-    rows: [{ fields: [{ key: "height", label: "Height (m)", defaultValue: "0" }] }],
+    rows: blockworkRows,
   },
   Roof: {
     tool: "length",

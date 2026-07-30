@@ -133,6 +133,8 @@ function defaultCategoryFolder(measureType: string): string {
     "Upper Floor Slab":                   "Superstructure / Slabs",
     "Lintel":                             "Architectural / Lintel",
     "Blockwork":                          "Architectural / External Walls (Blockwork/Brick)",
+    "External Blockwork":                 "Architectural / External Walls (Blockwork/Brick)",
+    "Internal Blockwork":                 "Architectural / Internal Walls (Partition)",
     "Roof":                               "Superstructure / Roof Structure",
     "Windows":                            "Architectural / Windows",
     "Doors":                              "Architectural / Doors",

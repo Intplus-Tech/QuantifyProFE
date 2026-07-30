@@ -274,6 +274,8 @@ function toBackendElementType(measureType: string): string {
     // Blockwork has no dedicated backend type yet — closest existing match is "wall".
     Blockwork: "wall",
     "Blockwork on Foundation": "wall",
+    "External Blockwork": "wall",
+    "Internal Blockwork": "wall",
   };
   return map[measureType] ?? measureType.toLowerCase().replace(/[\s/]+/g, "_");
 }
@@ -491,6 +493,11 @@ export function ProjectWorkspaceView({
   );
   // Length drawn on canvas while the Rebar tab is active, passed down to auto-fill bar depths.
   const [rebarDrawnLength, setRebarDrawnLength] = useState<number | null>(null);
+  // Blockwork-only: External/Internal are independent elements, not tab views of
+  // the same one. Defaults to External whenever a Blockwork round starts fresh.
+  const [blockworkSide, setBlockworkSide] = useState<"external" | "internal">(
+    "external",
+  );
 
   // ── Backend-owned state — start empty, populated by Phase 2 hydration ────────
   const [scaleFlowActive, setScaleFlowActive] = useState(false);
@@ -596,14 +603,13 @@ export function ProjectWorkspaceView({
     null,
   );
 
-  // ── Session totals — accumulate across files until Apply & Continue ───────────
+  // ── Round totals — derived from actual canvas marks, never a drifting counter ──
   // Left sidebar  = per-page totals (lengthTotal / countTotal / areaTotal below)
-  // Right sidebar = session totals (what you've measured this round across all files)
-  const [sessionTotals, setSessionTotals] = useState({
-    count: 0,
-    length: 0,
-    area: 0,
-  });
+  // Right panel   = current-round totals: marks not yet "claimed" by a finished
+  // round (Apply & Continue, +New Element, Blockwork side switch, hydration).
+  // Deriving straight from measurementHook.state.measurements means undo/redo can
+  // never desync it, unlike an incrementing counter that only ever counted up.
+  const [claimedMarkIds, setClaimedMarkIds] = useState<Set<string>>(new Set());
 
   // ── Per-page measurement state (persisted to localStorage) ───────────────────
   const measurementHook = useCanvasMeasurements(
@@ -614,6 +620,34 @@ export function ProjectWorkspaceView({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const selectedDrawing =
     drawings.find((d) => d.id === selectedDrawingId) ?? null;
+
+  // Current-round totals: sum of marks that aren't yet claimed by a finished
+  // round and aren't rebar-tab reference lengths. Recomputed from the actual
+  // mark list on every render, so undo/redo can never leave it stale.
+  const sessionTotals = useMemo(() => {
+    let count = 0,
+      length = 0,
+      area = 0;
+    for (const m of measurementHook.state.measurements) {
+      if (claimedMarkIds.has(m.id) || rebarMarkIds.current.has(m.id)) continue;
+      if (m.type === "count") count++;
+      else if (m.type === "length") length += m.realLength;
+      else if (m.type === "area") area += m.realArea;
+    }
+    return { count, length, area };
+  }, [measurementHook.state.measurements, claimedMarkIds]);
+
+  // Marks the marks currently on canvas as "belonging to a finished round" so
+  // the next round's live totals start fresh at zero without touching the
+  // drawing itself — used by Apply & Continue, +New Element, and Blockwork
+  // side switching.
+  function claimCurrentMarks() {
+    setClaimedMarkIds((prev) => {
+      const next = new Set(prev);
+      for (const m of measurementHook.state.measurements) next.add(m.id);
+      return next;
+    });
+  }
 
   // ── On mount: wipe stale backend-owned keys from localStorage AND live state ──
   // Scale, elements, and variants are now sourced from the backend session.
@@ -651,6 +685,8 @@ export function ProjectWorkspaceView({
     setActiveTool(null);
     setElements([]);
     setConcreteMeasurements([]);
+    setClaimedMarkIds(new Set());
+    rebarMarkIds.current = new Set();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
@@ -795,6 +831,15 @@ export function ProjectWorkspaceView({
         calibPts: null,
         measurements,
       });
+      // These marks belong to already-saved elements from a prior round —
+      // exclude them from the next fresh round's live totals.
+      if (measurements.length > 0) {
+        setClaimedMarkIds((prev) => {
+          const next = new Set(prev);
+          for (const m of measurements) next.add(m.id);
+          return next;
+        });
+      }
     }
   }, [
     activeSessionData,
@@ -928,7 +973,7 @@ export function ProjectWorkspaceView({
       .filter((id) => !rebarMarkIds.current.has(id));
     const variant: WsConcreteMeasurement = {
       id: currentVariantId.current,
-      measureType: scaleWhat,
+      measureType: effectiveMeasureType,
       tag: payload?.tag ?? "",
       concreteFields: payload?.concreteFields ?? {},
       rebar: payload?.rebar ?? null,
@@ -1024,6 +1069,18 @@ export function ProjectWorkspaceView({
     return cfg.tool;
   }, [scaleWhat, columnMeasureChoice]);
 
+  const isBlockworkCategory =
+    ELEMENT_CONFIGS[scaleWhat]?.blockworkSides === true;
+
+  // External/Internal Blockwork are independent elements — this is the name
+  // actually used for measureType, backend type mapping, and category folder,
+  // wherever scaleWhat would normally be used for those purposes.
+  const effectiveMeasureType = isBlockworkCategory
+    ? blockworkSide === "external"
+      ? "External Blockwork"
+      : "Internal Blockwork"
+    : scaleWhat;
+
   // While the Rebar tab is active, the canvas always draws lengths (rebar runs),
   // regardless of what tool the concrete measurement uses. Switching back to the
   // Concrete tab restores the category's own tool.
@@ -1044,6 +1101,17 @@ export function ProjectWorkspaceView({
     if (tab === "concrete") setRebarDrawnLength(null);
   }
 
+  // External/Internal Blockwork are independent elements — switching starts a
+  // fresh round (live length back to zero, new variant) without touching
+  // whatever's already drawn on the sheet.
+  function handleBlockworkSideChange(side: "external" | "internal") {
+    if (side === blockworkSide) return;
+    setBlockworkSide(side);
+    claimCurrentMarks();
+    currentVariantId.current = crypto.randomUUID();
+    lastFormPayload.current = null;
+  }
+
   function handleAddNewElement() {
     // Start a fresh measurement round so this doesn't overwrite whatever variant
     // was previously being drawn.
@@ -1052,7 +1120,8 @@ export function ProjectWorkspaceView({
     setColumnMeasureChoice(null);
     setElementPanelTab("concrete");
     setRebarDrawnLength(null);
-    setSessionTotals({ count: 0, length: 0, area: 0 });
+    setBlockworkSide("external");
+    claimCurrentMarks();
     setLiveDrawingLength(null);
     setPendingTool(null);
     setShowScaleSetup(true);
@@ -1219,8 +1288,14 @@ export function ProjectWorkspaceView({
 
   // "Yes, I want to Scale" — category is chosen, next step is the BBS question.
   // Scale flow itself only activates once BBS is answered (see activateScaleFlow).
+  // Blockwork has no rebar involved at all, so it skips BBS entirely.
   function handleScaleSetupProceed() {
     setShowScaleSetup(false);
+    if (isBlockworkCategory) {
+      setShowRebarTab(false);
+      activateScaleFlow();
+      return;
+    }
     setBbsModalStep("question");
   }
   function handleScaleSetupCancel() {
@@ -1237,6 +1312,7 @@ export function ProjectWorkspaceView({
     setShowElementPanel(true);
     setShowCalibrationBar(true);
     setPendingTool(null);
+    setBlockworkSide("external");
 
     setActiveTool(concreteToolForCategory);
     setCountModeActive(concreteToolForCategory === "count");
@@ -1376,7 +1452,7 @@ export function ProjectWorkspaceView({
     // already persisted, rather than creating a duplicate with a new UUID.
     const variant: WsConcreteMeasurement = {
       id: currentVariantId.current,
-      measureType: scaleWhat,
+      measureType: effectiveMeasureType,
       tag: payload.tag,
       concreteFields: payload.concreteFields,
       rebar: payload.rebar,
@@ -1648,22 +1724,12 @@ export function ProjectWorkspaceView({
     measurementHook.addMeasurement(m);
 
     // Rebar tab: the drawn length fills bar depths in the panel instead of
-    // contributing to this element's own concrete quantity.
+    // contributing to this element's own concrete quantity. sessionTotals is
+    // derived from measurementHook.state.measurements, so no manual increment
+    // is needed for the concrete case — it updates automatically on re-render.
     if (elementPanelTab === "rebar" && m.type === "length") {
       rebarMarkIds.current.add(m.id);
       setRebarDrawnLength(m.realLength);
-      return;
-    }
-
-    if (m.type === "count") {
-      setSessionTotals((prev) => ({ ...prev, count: prev.count + 1 }));
-    } else if (m.type === "length") {
-      setSessionTotals((prev) => ({
-        ...prev,
-        length: prev.length + m.realLength,
-      }));
-    } else if (m.type === "area") {
-      setSessionTotals((prev) => ({ ...prev, area: prev.area + m.realArea }));
     }
   }
 
@@ -1880,7 +1946,7 @@ export function ProjectWorkspaceView({
   // Canvas lines are permanent records; only the session totals reset.
 
   function handleSessionReset() {
-    setSessionTotals({ count: 0, length: 0, area: 0 });
+    claimCurrentMarks();
     setLiveDrawingLength(null);
     setRebarDrawnLength(null);
     setElementPanelTab("concrete");
@@ -2718,6 +2784,7 @@ export function ProjectWorkspaceView({
               {showElementPanel && (
                 <div
                   ref={elementPanelRef}
+                  onWheel={(e) => e.stopPropagation()}
                   className={`absolute z-20 ${elementPanelPos ? "" : "right-6 top-4"}`}
                   style={
                     elementPanelPos
@@ -2745,7 +2812,7 @@ export function ProjectWorkspaceView({
                       )}
                     </button>
                   ) : (
-                    <div className="w-[290px] rounded-xl shadow-xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-right">
+                    <div className="w-[290px] max-h-[70vh] flex flex-col rounded-xl shadow-xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-right">
                       <ElementDetailPanel
                         measure={scaleWhat}
                         measureChoice={columnMeasureChoice}
@@ -2778,6 +2845,8 @@ export function ProjectWorkspaceView({
                         onFormChange={handleAutoSave}
                         onResetMeasurements={handleSessionReset}
                         onTabChange={handleElementPanelTabChange}
+                        blockworkSide={blockworkSide}
+                        onBlockworkSideChange={handleBlockworkSideChange}
                         dragHandleProps={{
                           onPointerDown: handlePanelDragStart,
                           onPointerMove: handlePanelDragMove,
@@ -3009,7 +3078,7 @@ export function ProjectWorkspaceView({
             <LiveMeasurementsPanel
               elements={elements}
               pendingVariants={concreteMeasurements}
-              scaleWhat={scaleWhat}
+              scaleWhat={effectiveMeasureType}
               distanceUnit={distanceUnit}
             />
           )}
@@ -3132,7 +3201,7 @@ export function ProjectWorkspaceView({
           <CreateNewElementModal
             open={createNewElOpen}
             pendingVariants={concreteMeasurements}
-            measureType={scaleWhat}
+            measureType={effectiveMeasureType}
             onClose={() => setCreateNewElOpen(false)}
             onUseExisting={() => {
               setCreateNewElOpen(false);
