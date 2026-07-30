@@ -60,6 +60,9 @@ export interface ElementConcreteConfig {
   rows: ConcreteRowDef[];
   /** Only present when tool === "choice" — field rows per chosen tool. */
   rowsByChoice?: { count: ConcreteRowDef[]; area: ConcreteRowDef[] };
+  /** Blockwork-only: External/Internal act as independent measurement rounds
+   *  instead of the usual Concrete/Rebar tabs — no rebar involved at all. */
+  blockworkSides?: boolean;
 }
 
 // ─── Created element ──────────────────────────────────────────────────────────

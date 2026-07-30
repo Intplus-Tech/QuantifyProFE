@@ -54,6 +54,9 @@ interface ElementDetailPanelProps {
   onTabChange?: (tab: "concrete" | "rebar") => void;
   /** Pointer handlers from the parent's drag logic — spread onto the header to make it a drag handle. */
   dragHandleProps?: React.HTMLAttributes<HTMLDivElement>;
+  /** Only meaningful when the category's config has blockworkSides === true. */
+  blockworkSide?: "external" | "internal";
+  onBlockworkSideChange?: (side: "external" | "internal") => void;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -79,14 +82,19 @@ export function ElementDetailPanel({
   onResetMeasurements,
   onTabChange,
   dragHandleProps,
+  blockworkSide = "external",
+  onBlockworkSideChange,
 }: ElementDetailPanelProps) {
   const cfg = ELEMENT_CONFIGS[measure] ?? ELEMENT_CONFIGS["Piles"];
+  const isBlockwork = cfg.blockworkSides === true;
   const rows =
     cfg.tool === "choice" && cfg.rowsByChoice
       ? cfg.rowsByChoice[measureChoice ?? "count"]
       : cfg.rows;
   const [activeTab, setActiveTab] = useState<"concrete" | "rebar">("concrete");
   const [savedFeedback, setSavedFeedback] = useState(false);
+  const blockworkLabel =
+    blockworkSide === "external" ? "External Blockwork" : "Internal Blockwork";
 
   // ── Concrete form ───────────────────────────────────────────────────────────
 
@@ -283,7 +291,9 @@ export function ElementDetailPanel({
         style={{ touchAction: "none", ...dragHandleProps?.style }}
         className="flex items-center justify-between px-4 py-3 border-b border-slate-200 shrink-0 cursor-grab active:cursor-grabbing"
       >
-        <span className="text-sm font-bold text-slate-800 uppercase tracking-wider">{measure}</span>
+        <span className="text-sm font-bold text-slate-800 uppercase tracking-wider">
+          {isBlockwork ? blockworkLabel : measure}
+        </span>
         <button
           onClick={onClose}
           onPointerDown={(e) => e.stopPropagation()}
@@ -294,29 +304,44 @@ export function ElementDetailPanel({
         </button>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs — Blockwork gets External/Internal instead of Concrete/Rebar; each
+          switch is an independent element, not a view of the same data. */}
       <div className="flex shrink-0 border-b border-slate-200">
-        {(showRebarTab ? (["concrete", "rebar"] as const) : (["concrete"] as const)).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => { setActiveTab(tab); onTabChange?.(tab); }}
-            className={`flex-1 py-2.5 text-[11px] font-bold uppercase tracking-wider transition-colors ${
-              activeTab === tab
-                ? "text-amber-600 border-b-2 border-amber-500"
-                : "text-slate-400 hover:text-slate-600"
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
+        {isBlockwork
+          ? (["external", "internal"] as const).map((side) => (
+              <button
+                key={side}
+                onClick={() => onBlockworkSideChange?.(side)}
+                className={`flex-1 py-2.5 text-[11px] font-bold uppercase tracking-wider transition-colors ${
+                  blockworkSide === side
+                    ? "text-amber-600 border-b-2 border-amber-500"
+                    : "text-slate-400 hover:text-slate-600"
+                }`}
+              >
+                {side === "external" ? "External" : "Internal"}
+              </button>
+            ))
+          : (showRebarTab ? (["concrete", "rebar"] as const) : (["concrete"] as const)).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => { setActiveTab(tab); onTabChange?.(tab); }}
+                className={`flex-1 py-2.5 text-[11px] font-bold uppercase tracking-wider transition-colors ${
+                  activeTab === tab
+                    ? "text-amber-600 border-b-2 border-amber-500"
+                    : "text-slate-400 hover:text-slate-600"
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
       </div>
 
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {activeTab === "concrete" ? (
+        {activeTab === "concrete" || isBlockwork ? (
           <>
             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-              {cfg.sectionHeader}
+              {isBlockwork ? "BLOCKWORK" : cfg.sectionHeader}
             </p>
 
             <div className="space-y-1">
@@ -324,7 +349,11 @@ export function ElementDetailPanel({
               <Input
                 value={fieldValues.tag ?? ""}
                 onChange={(e) => setField("tag", e.target.value)}
-                placeholder={cfg.tagPlaceholder}
+                placeholder={
+                  isBlockwork
+                    ? blockworkSide === "external" ? "e.g. EXT-01" : "e.g. INT-01"
+                    : cfg.tagPlaceholder
+                }
                 className="h-8 text-sm"
               />
             </div>
