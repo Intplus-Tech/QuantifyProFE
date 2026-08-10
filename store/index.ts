@@ -18,6 +18,7 @@ import projectWorkspaceReducer, {
   saveProjectWorkspaceState,
 } from "./slices/projectWorkspaceSlice";
 import takeoffReducer from "./slices/takeoffSlice";
+import aiFlowReducer from "./slices/aiFlowSlice";
 
 // Import API slices to ensure they are registered
 import "./api/authApi";
@@ -67,6 +68,7 @@ export const store = configureStore({
     manualWizard: manualWizardReducer,
     projectWorkspace: projectWorkspaceReducer,
     takeoff: takeoffReducer,
+    aiFlow: aiFlowReducer,
   },
   middleware: (getDefaultMiddleware: any) =>
     getDefaultMiddleware().concat(baseApi.middleware, projectWorkspacePersistenceMiddleware),

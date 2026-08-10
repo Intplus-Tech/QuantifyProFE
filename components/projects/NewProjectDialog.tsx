@@ -13,7 +13,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { AiAnalysisContent } from "./AiAnalysisContent";
+// Superseded by the Figma AI flow (details → drawings → extract → report).
+// Kept commented rather than deleted so the old BIM/PDF job wiring in
+// AiAnalysisContent + ProcessingView can be revived if needed.
+// import { AiAnalysisContent } from "./AiAnalysisContent";
 
 interface NewProjectDialogProps {
   open?: boolean;
@@ -21,8 +24,6 @@ interface NewProjectDialogProps {
   basePath?: string; // "/projects" or "/enterprise/projects"
   hideTrigger?: boolean;
 }
-
-type Step = "modeSelection" | "ai";
 
 export function NewProjectDialog({
   open: controlledOpen,
@@ -34,14 +35,9 @@ export function NewProjectDialog({
   const open = controlledOpen ?? internalOpen;
   const setOpen = onOpenChange ?? setInternalOpen;
   const [selectedMode, setSelectedMode] = useState<"ai" | "manual">("ai");
-  const [step, setStep] = useState<Step>("modeSelection");
 
-  // Reset step to modeSelection when dialog closes
   const handleOpenChange = (newOpen: boolean) => {
     setOpen(newOpen);
-    if (!newOpen) {
-      setTimeout(() => setStep("modeSelection"), 300);
-    }
   };
 
   const cardBase =
@@ -68,8 +64,7 @@ export function NewProjectDialog({
         </DialogTrigger>
       )} */}
 
-      {step === "modeSelection" && (
-        <DialogContent className="sm:max-w-xl gap-5">
+      <DialogContent className="sm:max-w-xl gap-5">
           {/* Header */}
           <DialogHeader className="text-center px-2">
             <DialogTitle className="text-base font-semibold text-center">
@@ -150,12 +145,12 @@ export function NewProjectDialog({
               size="lg"
               className="flex-1 h-12"
               onClick={() => {
-                if (selectedMode === "manual") {
-                  handleOpenChange(false);
-                  router.push(`${basePath}/new`);
-                } else {
-                  setStep(selectedMode);
-                }
+                handleOpenChange(false);
+                router.push(
+                  selectedMode === "manual"
+                    ? `${basePath}/new`
+                    : `${basePath}/ai/new`,
+                );
               }}
             >
               Select and Continue
@@ -173,9 +168,9 @@ export function NewProjectDialog({
           <p className="text-xs text-muted-foreground text-center -mt-2">
             You can switch modes at any point before final submission.
           </p>
-        </DialogContent>
-      )}
+      </DialogContent>
 
+      {/* Old in-dialog AI step — superseded by the /ai/new route above.
       {step === "ai" && (
         <AiAnalysisContent
           onCancel={() => handleOpenChange(false)}
@@ -189,7 +184,7 @@ export function NewProjectDialog({
             handleOpenChange(false);
           }}
         />
-      )}
+      )} */}
     </Dialog>
   );
 }
