@@ -73,6 +73,8 @@ export interface AiFlowState {
   /** measure-type ids selected per page number */
   selectionsByPage: Record<number, string[]>;
   extractionPhase: ExtractionPhase;
+  /** stays true once a run has completed, even after the rail returns to select */
+  hasExtracted: boolean;
   extractionSteps: ExtractionStep[];
   globalParameters: GlobalParameters;
   groups: ExtractedGroup[];
@@ -110,6 +112,7 @@ const initialState: AiFlowState = {
   pages: MOCK_PAGES,
   selectionsByPage: {},
   extractionPhase: "idle",
+  hasExtracted: false,
   extractionSteps: EXTRACTION_STEPS,
   globalParameters: DEFAULT_GLOBAL_PARAMETERS,
   groups: MOCK_EXTRACTED_GROUPS,
@@ -239,6 +242,7 @@ const aiFlowSlice = createSlice({
         next.status = "running";
       } else {
         state.extractionPhase = "complete";
+        state.hasExtracted = true;
       }
     },
 
