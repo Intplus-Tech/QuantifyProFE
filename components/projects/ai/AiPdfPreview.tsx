@@ -14,12 +14,15 @@ export function AiPdfPreview({
   page,
   scale,
   onLoadSuccess,
+  onPageSize,
   className = "",
 }: {
   url: string;
   page: number;
   scale: number;
   onLoadSuccess?: (numPages: number) => void;
+  /** Natural page dimensions at scale 1, used to fit the page to its panel. */
+  onPageSize?: (size: { width: number; height: number }) => void;
   className?: string;
 }) {
   return (
@@ -42,6 +45,10 @@ export function AiPdfPreview({
         scale={scale}
         renderTextLayer={false}
         renderAnnotationLayer={false}
+        onLoadSuccess={(loaded) => {
+          const viewport = loaded.getViewport({ scale: 1 });
+          onPageSize?.({ width: viewport.width, height: viewport.height });
+        }}
         className="shadow-lg"
       />
     </Document>

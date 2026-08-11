@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useDispatch, useSelector } from "react-redux";
 import { toast } from "sonner";
 import { LayoutList, X } from "lucide-react";
@@ -33,7 +32,6 @@ export function ExtractWorkspaceView({
   projectId: string;
   basePath?: string;
 }) {
-  const router = useRouter();
   const dispatch = useDispatch();
 
   const {
@@ -44,6 +42,7 @@ export function ExtractWorkspaceView({
     selectionsByPage,
     extractionPhase,
     extractionSteps,
+    hasExtracted,
     groups,
     projectMeta,
   } = useSelector((state: RootState) => state.aiFlow);
@@ -108,6 +107,22 @@ export function ExtractWorkspaceView({
     });
   };
 
+  // "Review Results" drops back to the drawing with the element list open and
+  // the first row needing attention already in Quick Edit.
+  const handleReview = () => {
+    const all = groups.flatMap((g) => g.elements);
+    const target =
+      all.find((e) => e.page === activePage && e.status === "review") ??
+      all.find((e) => e.status === "review") ??
+      pageElements[0] ??
+      all[0];
+
+    setStepProgress(0);
+    dispatch(resetExtraction());
+    setShowElements(true);
+    if (target) setQuickEditId(target.id);
+  };
+
   const title = `${projectMeta.projectTitle}, ${projectMeta.clientName} ...`;
 
   return (
@@ -117,7 +132,7 @@ export function ExtractWorkspaceView({
         dashboardHref={dashboardHref}
         reportHref={reportHref}
         continueLaterHref={basePath}
-        reportLabel={complete ? "View BOQ" : "View Reports"}
+        reportLabel={hasExtracted ? "View BOQ" : "View Reports"}
       />
 
       <div className="flex min-h-0 flex-1">
@@ -134,7 +149,7 @@ export function ExtractWorkspaceView({
           }
           dimmed={running}
           topLeftSlot={
-            complete ? (
+            hasExtracted ? (
               <button
                 type="button"
                 onClick={() => setShowElements((v) => !v)}
@@ -150,7 +165,7 @@ export function ExtractWorkspaceView({
             ) : null
           }
           overlay={
-            showElements && complete ? (
+            showElements && hasExtracted ? (
               <ElementsOverlay
                 elements={pageElements}
                 onSelect={(id) => setQuickEditId(id)}
@@ -175,7 +190,7 @@ export function ExtractWorkspaceView({
               complete={complete}
               stepProgress={stepProgress}
               onCancel={handleCancel}
-              onReview={() => router.push(reportHref)}
+              onReview={handleReview}
               onBackToDrawing={() => {
                 setStepProgress(0);
                 dispatch(resetExtraction());

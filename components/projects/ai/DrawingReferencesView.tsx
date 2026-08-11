@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useDispatch, useSelector } from "react-redux";
@@ -96,10 +96,41 @@ export function DrawingReferencesView({
   const dispatch = useDispatch();
   const { drawings, activeDrawingId } = useSelector((state: RootState) => state.aiFlow);
 
-  const [scale, setScale] = useState(0.85);
+  // `zoom` is a multiplier on top of the fit-to-panel scale, so the default
+  // view (zoom = 1) always fits exactly and never produces a scrollbar.
+  const [zoom, setZoom] = useState(1);
   const [previewPage, setPreviewPage] = useState(1);
+  const [panel, setPanel] = useState({ width: 0, height: 0 });
+  const [pageSize, setPageSize] = useState<{ width: number; height: number } | null>(
+    null,
+  );
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const active = drawings.find((d) => d.id === activeDrawingId) ?? null;
+
+  useEffect(() => {
+    const node = panelRef.current;
+    if (!node) return;
+    // ResizeObserver fires once on observe, so the initial size arrives here
+    // rather than needing a synchronous measure.
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      setPanel({ width, height });
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  const fitScale = useMemo(() => {
+    if (!pageSize || panel.width === 0 || panel.height === 0) return 0.3;
+    const padding = 24;
+    return Math.min(
+      (panel.width - padding) / pageSize.width,
+      (panel.height - padding) / pageSize.height,
+    );
+  }, [pageSize, panel]);
+
+  const scale = Math.max(0.05, fitScale * zoom);
 
   const onDrop = useCallback(
     async (files: File[]) => {
@@ -168,8 +199,9 @@ export function DrawingReferencesView({
   };
 
   return (
-    <AiFlowShell backHref={basePath}>
+    <AiFlowShell backHref={basePath} fitToScreen>
       <AiFlowCard
+        fill
         title="Drawing References"
         description="Upload PDF or image files to serve as the source of truth for your estimates. These drawings will be available for quantity take-off in later steps."
         action={
@@ -199,12 +231,14 @@ export function DrawingReferencesView({
           </Button>
         }
       >
-        <div className="grid gap-6 lg:grid-cols-2">
+        {/* Fills the viewport-locked card, so adding files never changes the
+            page height — the file list absorbs the overflow inside its column. */}
+        <div className="grid h-full min-h-0 gap-6 lg:grid-cols-2">
           {/* ── Upload column ─────────────────────────────────────────── */}
-          <div className="space-y-4">
+          <div className="flex min-h-0 flex-col gap-3">
             <div
               {...getRootProps()}
-              className={`flex h-[220px] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed transition-colors ${
+              className={`flex h-[190px] min-h-[120px] shrink cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed transition-colors ${
                 isDragActive
                   ? "border-amber-400 bg-amber-50/60"
                   : "border-slate-200 bg-slate-50/50 hover:border-amber-300 hover:bg-amber-50/30"
@@ -224,8 +258,8 @@ export function DrawingReferencesView({
             </div>
 
             {drawings.length > 0 && (
-              <>
-                <div className="flex items-center justify-between">
+              <div className="flex min-h-0 flex-1 flex-col">
+                <div className="flex shrink-0 items-center justify-between pb-2">
                   <p className="text-xs font-medium text-slate-600">
                     Uploaded Files ({drawings.length})
                   </p>
@@ -238,7 +272,7 @@ export function DrawingReferencesView({
                   </button>
                 </div>
 
-                <ul className="space-y-2">
+                <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
                   {drawings.map((drawing) => (
                     <FileRow
                       key={drawing.id}
@@ -247,18 +281,19 @@ export function DrawingReferencesView({
                       onSelect={() => {
                         dispatch(setActiveAiDrawing(drawing.id));
                         setPreviewPage(1);
+                        setZoom(1);
                       }}
                       onRemove={() => dispatch(removeAiDrawing(drawing.id))}
                     />
                   ))}
                 </ul>
-              </>
+              </div>
             )}
           </div>
 
           {/* ── Preview column ────────────────────────────────────────── */}
-          <div className="flex min-h-[420px] flex-col overflow-hidden rounded-lg border border-slate-200">
-            <div className="flex items-center gap-2 border-b border-slate-100 bg-white px-3 py-2">
+          <div className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-slate-200">
+            <div className="flex shrink-0 items-center gap-2 border-b border-slate-100 bg-white px-3 py-2">
               <Eye className="h-3.5 w-3.5 shrink-0 text-slate-400" />
               <p className="min-w-0 flex-1 truncate text-[11px] font-medium text-slate-600">
                 {active ? `Preview: ${active.name}` : "No drawing selected"}
@@ -275,10 +310,15 @@ export function DrawingReferencesView({
               )}
             </div>
 
-            <div className="relative flex-1 overflow-auto bg-[#eef1f5] p-4">
-              <div className="flex min-h-full items-start justify-center">
+            <div
+              ref={panelRef}
+              className={`relative flex-1 bg-[#eef1f5] ${
+                zoom > 1 ? "overflow-auto" : "overflow-hidden"
+              }`}
+            >
+              <div className="flex h-full w-full items-center justify-center">
                 {!active && (
-                  <p className="mt-24 text-xs text-slate-400">
+                  <p className="text-xs text-slate-400">
                     Upload a drawing to preview it here
                   </p>
                 )}
@@ -288,6 +328,7 @@ export function DrawingReferencesView({
                     url={active.previewUrl}
                     page={previewPage}
                     scale={scale}
+                    onPageSize={setPageSize}
                     onLoadSuccess={(numPages) =>
                       dispatch(
                         setAiDrawingPageCount({ id: active.id, pageCount: numPages }),
@@ -301,8 +342,8 @@ export function DrawingReferencesView({
                   <img
                     src={active.previewUrl}
                     alt={active.name}
-                    style={{ transform: `scale(${scale})`, transformOrigin: "top center" }}
-                    className="max-w-full shadow-lg"
+                    style={{ transform: `scale(${zoom})` }}
+                    className="max-h-full max-w-full object-contain shadow-lg"
                   />
                 )}
               </div>
@@ -312,17 +353,17 @@ export function DrawingReferencesView({
                   <div className="absolute bottom-3 left-3 flex items-center gap-1 rounded-full border border-slate-200 bg-white/95 px-1.5 py-1 shadow-sm backdrop-blur">
                     <ZoomButton
                       label="Zoom out"
-                      onClick={() => setScale((s) => Math.max(0.25, s - 0.15))}
+                      onClick={() => setZoom((z) => Math.max(1, z - 0.25))}
                     >
                       <Minus className="h-3.5 w-3.5" />
                     </ZoomButton>
                     <ZoomButton
                       label="Zoom in"
-                      onClick={() => setScale((s) => Math.min(3, s + 0.15))}
+                      onClick={() => setZoom((z) => Math.min(4, z + 0.25))}
                     >
                       <Plus className="h-3.5 w-3.5" />
                     </ZoomButton>
-                    <ZoomButton label="Reset zoom" onClick={() => setScale(0.85)}>
+                    <ZoomButton label="Fit to panel" onClick={() => setZoom(1)}>
                       <Maximize2 className="h-3.5 w-3.5" />
                     </ZoomButton>
                   </div>
@@ -337,7 +378,7 @@ export function DrawingReferencesView({
             </div>
 
             {active?.pageCount && active.pageCount > 1 && (
-              <div className="flex items-center justify-center gap-2 border-t border-slate-100 bg-white px-3 py-2">
+              <div className="flex shrink-0 items-center justify-center gap-2 border-t border-slate-100 bg-white px-3 py-2">
                 <Button
                   variant="ghost"
                   size="sm"
