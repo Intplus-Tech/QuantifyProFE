@@ -7,6 +7,7 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
+  RotateCw,
   Expand,
   Ban,
   FolderOpen,
@@ -86,8 +87,12 @@ import { toast } from "sonner";
 import {
   loadSession,
   saveSession,
+  loadPageCalibration,
+  savePageCalibration,
+  clearPageCalibration,
   type WsConcreteMeasurement,
   type WsElementAssignment,
+  type VariantCalibration,
 } from "./workspaceSession";
 import type { SaveMeasurementPayload } from "./components/ElementDetailPanel";
 
@@ -328,6 +333,9 @@ function rebarToReinforcement(
   return result.length > 0 ? result : undefined;
 }
 
+// Stable reference so useMemo below doesn't create a new empty Set every render.
+const EMPTY_MARK_SET: ReadonlySet<string> = new Set();
+
 function DrawingHydrator({
   fileId,
   folderId,
@@ -406,8 +414,9 @@ export function ProjectWorkspaceView({
   const hydratedSessionIds = useRef<Set<string>>(new Set());
 
   const [createMeasurementSession] = useCreateMeasurementSessionMutation();
-  const [updateMeasurementCanvas, { isLoading: applyingScale }] =
-    useUpdateMeasurementCanvasMutation();
+  // Only called now when an element is actually assigned — calibration is
+  // otherwise applied locally, no backend round-trip while measuring.
+  const [updateMeasurementCanvas] = useUpdateMeasurementCanvasMutation();
   const [updateSessionStatus] = useUpdateMeasurementSessionStatusMutation();
   const [upsertMeasurementElement] = useUpsertMeasurementElementMutation();
   const [deleteMeasurementElement] = useDeleteMeasurementElementMutation();
@@ -440,6 +449,7 @@ export function ProjectWorkspaceView({
     setSelectedDrawingId(id);
     setSelectedPage(1);
     setScale(1.0);
+    setRotation(0);
   }, []);
 
   // ── Local UI state ──────────────────────────────────────────────────────────
@@ -455,6 +465,7 @@ export function ProjectWorkspaceView({
   );
   const [selectedPage, setSelectedPage] = useState(1);
   const [scale, setScale] = useState(1.0);
+  const [rotation, setRotation] = useState<0 | 90 | 180 | 270>(0);
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [openFolders, setOpenFolders] = useState<string[]>(() =>
     folders.map((f) => f.id),
@@ -597,6 +608,11 @@ export function ProjectWorkspaceView({
   const [calibPtCount, setCalibPtCount] = useState<0 | 1 | 2>(0);
   const [calibBasePxDist, setCalibBasePxDist] = useState<number | null>(null);
   const [calibPts, setCalibPts] = useState<[MPoint, MPoint] | null>(null);
+  // Snapshot taken at Apply Scale time — carried on every variant saved while
+  // this page's scale is active, since nothing pushes it to the backend
+  // until the variant's element is actually assigned.
+  const [appliedCalibration, setAppliedCalibration] =
+    useState<VariantCalibration | null>(null);
 
   // Live in-progress length from the canvas (A→cursor, null when not drawing)
   const [liveDrawingLength, setLiveDrawingLength] = useState<number | null>(
@@ -649,6 +665,28 @@ export function ProjectWorkspaceView({
     });
   }
 
+  // ── Click a Live Measurements row to bring its value + geometry back up ──────
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
+
+  const selectedVariant = useMemo(() => {
+    if (!selectedVariantId) return null;
+    const allVariants = [
+      ...elements.flatMap((el) => el.variants),
+      ...concreteMeasurements,
+    ];
+    return allVariants.find((v) => v.id === selectedVariantId) ?? null;
+  }, [selectedVariantId, elements, concreteMeasurements]);
+
+  const highlightedMarkIds = useMemo(() => {
+    return selectedVariant
+      ? new Set(selectedVariant.canvas.measurementIds)
+      : EMPTY_MARK_SET;
+  }, [selectedVariant]);
+
+  function handleSelectVariant(variant: WsConcreteMeasurement) {
+    setSelectedVariantId((prev) => (prev === variant.id ? null : variant.id));
+  }
+
   // ── On mount: wipe stale backend-owned keys from localStorage AND live state ──
   // Scale, elements, and variants are now sourced from the backend session.
   // This runs once per projectId so stale data from before the migration — or from
@@ -680,6 +718,7 @@ export function ProjectWorkspaceView({
     setShowCalibrationBar(true);
     setScaleLocked(false);
     setGlobalScaleFactor(null);
+    setAppliedCalibration(null);
     setScaleInfo(null);
     setKnownDistance("");
     setActiveTool(null);
@@ -825,27 +864,78 @@ export function ProjectWorkspaceView({
       }
     }
 
-    if (measurements.length > 0 || isGenuinelyCalibrated) {
-      measurementHook.resetWithData({
-        scaleFactor: isGenuinelyCalibrated ? backendScale : null,
-        calibPts: null,
-        measurements,
-      });
-      // These marks belong to already-saved elements from a prior round —
-      // exclude them from the next fresh round's live totals.
-      if (measurements.length > 0) {
-        setClaimedMarkIds((prev) => {
-          const next = new Set(prev);
-          for (const m of measurements) next.add(m.id);
-          return next;
+    // Marks now live in localStorage (useCanvasMeasurements already loaded this
+    // page's marks from its own storage before this effect ever runs) — drawing
+    // no longer pushes to the backend, so `measurements` here is only whatever
+    // was already finalized into a real element. Never blindly resetWithData:
+    // that would wipe out local-only, not-yet-finalized marks. Merge instead —
+    // add only backend marks the local state doesn't already have.
+    if (measurements.length > 0) {
+      const existingIds = new Set(
+        measurementHook.state.measurements.map((m) => m.id),
+      );
+      const newFromBackend = measurements.filter((m) => !existingIds.has(m.id));
+      if (newFromBackend.length > 0) {
+        measurementHook.resetWithData({
+          scaleFactor: isGenuinelyCalibrated ? backendScale : null,
+          calibPts: null,
+          measurements: [...measurementHook.state.measurements, ...newFromBackend],
         });
       }
+      // These marks belong to already-saved elements from a prior round —
+      // exclude them from the next fresh round's live totals.
+      setClaimedMarkIds((prev) => {
+        const next = new Set(prev);
+        for (const m of measurements) next.add(m.id);
+        return next;
+      });
     }
   }, [
     activeSessionData,
     activeSessionId,
     distanceUnit,
     measurementHook.resetWithData,
+  ]);
+
+  // ── Restore this page's calibration from localStorage ────────────────────────
+  // Calibration is frontend-only now (see handleApplyScale) — the backend never
+  // learns about it until an element is assigned, so it can't be the thing that
+  // restores scale on reload for a page that hasn't had anything assigned yet.
+  // measurementHook.state.scaleFactor is already loaded from ITS OWN page-scoped
+  // storage by the time this runs; pair it with the calibration metadata
+  // (knownDistance/unit) saved alongside it to fully restore the UI state.
+  useEffect(() => {
+    if (globalScaleFactor !== null) return; // already restored, e.g. via backend hydration
+    const uploadedFileId = selectedDrawing?.uploadedFileId;
+    if (!uploadedFileId) return;
+    const localScaleFactor = measurementHook.state.scaleFactor;
+    if (!localScaleFactor) return;
+    const saved = loadPageCalibration(uploadedFileId, selectedPage);
+    if (!saved) return;
+
+    setGlobalScaleFactor(localScaleFactor);
+    setKnownDistance(saved.knownDistance);
+    setDistanceUnit(saved.distanceUnit);
+    setScaleInfo(saved.scaleInfo);
+    setScaleLocked(saved.scaleLocked);
+    setScaleFlowActive(true);
+    setShowElementPanel(true);
+    setAppliedCalibration({
+      knownDistance: parseFloat(saved.knownDistance) || 0,
+      pixelDistance: measurementHook.state.calibPts
+        ? Math.hypot(
+            measurementHook.state.calibPts[1].x - measurementHook.state.calibPts[0].x,
+            measurementHook.state.calibPts[1].y - measurementHook.state.calibPts[0].y,
+          )
+        : 0,
+      unit: toBackendDistanceUnit(saved.distanceUnit),
+    });
+  }, [
+    selectedDrawing?.uploadedFileId,
+    selectedPage,
+    measurementHook.state.scaleFactor,
+    measurementHook.state.calibPts,
+    globalScaleFactor,
   ]);
 
   // ── Global element loader: merge assigned elements from ALL project sessions ──
@@ -985,6 +1075,7 @@ export function ProjectWorkspaceView({
         unit: distanceUnit,
         measurementIds,
       },
+      calibration: appliedCalibration,
       sessionId: activeSessionId,
       drawingId: selectedDrawing?.uploadedFileId ?? null,
       pageNumber: selectedPage,
@@ -1000,8 +1091,6 @@ export function ProjectWorkspaceView({
       saveSession(projectId, { concreteMeasurements: next });
       return next;
     });
-
-    upsertPendingVariant(variant, activeSessionId);
 
     setAutoSaveStatus("saving");
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
@@ -1338,7 +1427,11 @@ export function ProjectWorkspaceView({
   // Scale only takes effect locally once the backend confirms it — this is what
   // actually gates drawing (via isCalibrating in MeasurementCanvas), so a failed
   // save must never leave the app acting as if scale was applied.
-  async function handleApplyScale() {
+  // Applied entirely on the frontend — no backend call here. The calibration
+  // snapshot is instead carried on every variant saved while it's active, and
+  // only reaches the backend when that variant's element is actually assigned
+  // (see persistVariantsToBackend).
+  function handleApplyScale() {
     if (!knownDistance) {
       toast.warning("Enter a known distance first");
       return;
@@ -1354,34 +1447,26 @@ export function ProjectWorkspaceView({
       toast.warning("Enter a valid distance greater than 0");
       return;
     }
-    if (!activeSessionId) {
-      toast.error("No active session — reopen the page and try again.");
-      return;
-    }
 
     // scaleFactor = base pixels per real unit
     const sf = calibBasePxDist / realDist;
 
-    try {
-      await updateMeasurementCanvas({
-        sessionId: activeSessionId,
-        body: {
-          calibration: {
-            knownDistance: realDist,
-            pixelDistance: calibBasePxDist,
-            unit: toBackendDistanceUnit(distanceUnit),
-          },
-        },
-      }).unwrap();
-    } catch {
-      toast.error(
-        "Could not save the scale — check your connection and try again.",
-      );
-      return;
-    }
+    // TEMP diagnostic — remove once the pixel-to-real-unit bug is found.
+    console.log("[CALIBRATION]", {
+      pdfZoom: scale,
+      calibBasePxDist,
+      knownDistanceEntered: realDist,
+      unit: distanceUnit,
+      scaleFactor_pxPerUnit: sf,
+    });
 
     setGlobalScaleFactor(sf);
     measurementHook.setCalibration(calibPts, sf);
+    setAppliedCalibration({
+      knownDistance: realDist,
+      pixelDistance: calibBasePxDist,
+      unit: toBackendDistanceUnit(distanceUnit),
+    });
 
     const approxRatio = Math.round(calibBasePxDist / realDist);
     const newScaleInfo = `Scale: 1:${approxRatio} | ${sf.toFixed(1)} px/${distanceUnit}`;
@@ -1401,6 +1486,14 @@ export function ProjectWorkspaceView({
       scaleLocked: false,
       scaleFactor: sf,
     });
+    if (selectedDrawing?.uploadedFileId) {
+      savePageCalibration(selectedDrawing.uploadedFileId, selectedPage, {
+        knownDistance,
+        distanceUnit,
+        scaleInfo: newScaleInfo,
+        scaleLocked: false,
+      });
+    }
   }
 
   function handleShowCalibrationBar() {
@@ -1409,6 +1502,23 @@ export function ProjectWorkspaceView({
       calibrationBarHideTimerRef.current = null;
     }
     setShowCalibrationBar(true);
+  }
+
+  // Keeps this page's calibration restorable after a reload — calibration is
+  // frontend/localStorage-only now, so Lock Scale toggling needs to update the
+  // page-scoped record the same way handleApplyScale does when it's first set.
+  function handleToggleScaleLock(locked: boolean) {
+    setScaleLocked(locked);
+    saveSession(projectId, { scaleLocked: locked });
+    const uploadedFileId = selectedDrawing?.uploadedFileId;
+    if (uploadedFileId && scaleInfo) {
+      savePageCalibration(uploadedFileId, selectedPage, {
+        knownDistance,
+        distanceUnit,
+        scaleInfo,
+        scaleLocked: locked,
+      });
+    }
   }
 
   function handleResetScale() {
@@ -1431,6 +1541,7 @@ export function ProjectWorkspaceView({
     setCalibPtCount(0);
     setCalibBasePxDist(null);
     setCalibPts(null);
+    setAppliedCalibration(null);
     setColumnMeasureChoice(null);
     setElementPanelTab("concrete");
     setRebarDrawnLength(null);
@@ -1441,6 +1552,9 @@ export function ProjectWorkspaceView({
       scaleFlowActive: false,
       scaleFactor: null,
     });
+    if (selectedDrawing?.uploadedFileId) {
+      clearPageCalibration(selectedDrawing.uploadedFileId, selectedPage);
+    }
   }
 
   function handleSaveMeasurement(payload: SaveMeasurementPayload) {
@@ -1457,6 +1571,7 @@ export function ProjectWorkspaceView({
       concreteFields: payload.concreteFields,
       rebar: payload.rebar,
       canvas: { ...payload.canvas, measurementIds },
+      calibration: appliedCalibration,
       sessionId: activeSessionId,
       drawingId: selectedDrawing?.uploadedFileId ?? null,
       pageNumber: selectedPage,
@@ -1476,10 +1591,6 @@ export function ProjectWorkspaceView({
     // Cycle to a fresh ID so the next measurement round gets its own slot.
     currentVariantId.current = crypto.randomUUID();
     lastFormPayload.current = null;
-
-    if (activeSessionId) {
-      upsertPendingVariant(variant, activeSessionId);
-    }
   }
 
   // ── Assign element flow ───────────────────────────────────────────────────────
@@ -1676,6 +1787,7 @@ export function ProjectWorkspaceView({
     setSelectedDrawingId(drawing.id);
     setSelectedPage(el.pageNumber || 1);
     setScale(1.0);
+    setRotation(0);
     setDrawingsOpen(false);
   }
 
@@ -1751,6 +1863,16 @@ export function ProjectWorkspaceView({
     measurementUnit: string,
   ) {
     const allMeasurements = measurementHook.state.measurements;
+
+    // Calibration was applied locally only (no backend call at Apply Scale time
+    // anymore) — send it now, once, as part of actually assigning the element.
+    const calibratedVariant = variants.find((v) => v.calibration);
+    if (calibratedVariant?.calibration) {
+      updateMeasurementCanvas({
+        sessionId,
+        body: { calibration: calibratedVariant.calibration },
+      });
+    }
 
     for (const variant of variants) {
       const variantMarks = allMeasurements.filter((m) =>
@@ -1834,67 +1956,6 @@ export function ProjectWorkspaceView({
     }
   }
 
-  // ── Upsert a single variant to the backend immediately on "Apply & Continue" ──
-  // Uses variant.id as clientId so it is idempotent and cleanly overwritten
-  // (count) or deleted (length/area) when the element is later assigned.
-  function upsertPendingVariant(
-    variant: WsConcreteMeasurement,
-    sessionId: string,
-  ) {
-    const allMeasurements = measurementHook.state.measurements;
-    const variantMarks = allMeasurements.filter((m) =>
-      variant.canvas.measurementIds.includes(m.id),
-    );
-    const backendType = toBackendElementType(variant.measureType);
-    const color = variantMarks[0]?.color ?? "#f59e0b";
-    const _snapshot = JSON.stringify({
-      ...variant,
-      canvas: { ...variant.canvas, measurementIds: [] },
-    });
-    const pendingAttrs: Record<string, unknown> = {
-      pending: true,
-      measureType: variant.measureType,
-      _snapshot,
-      reinforcement: rebarToReinforcement(variant.rebar),
-    };
-
-    if (variant.canvas.tool === "count") {
-      const points: [number, number][] = variantMarks
-        .filter((m): m is CountMark => m.type === "count")
-        .map((m) => [m.point.x, m.point.y]);
-      if (points.length === 0) return;
-      upsertMeasurementElement({
-        sessionId,
-        body: {
-          clientId: variant.id,
-          tool: "count",
-          label: variant.tag || variant.measureType,
-          mapsToElementType: backendType,
-          geometry: { type: "multipoint", points, page: variant.pageNumber },
-          style: { color, strokeWidth: 2 },
-          attributes: pendingAttrs,
-        },
-      });
-    } else {
-      // For length/area pending: send first mark's geometry under variant.id so
-      // persistVariantsToBackend can delete it cleanly on assignment.
-      const firstMark = variantMarks[0];
-      if (!firstMark) return;
-      const baseBody = measurementToBackendBody(firstMark);
-      upsertMeasurementElement({
-        sessionId,
-        body: {
-          ...baseBody,
-          clientId: variant.id,
-          label: variant.tag || variant.measureType,
-          mapsToElementType: backendType,
-          geometry: { ...baseBody.geometry!, page: variant.pageNumber },
-          style: { color, strokeWidth: 2 },
-          attributes: pendingAttrs,
-        },
-      });
-    }
-  }
 
   // ── Session conflict resolution (409 on session create) ──────────────────────
 
@@ -1912,6 +1973,7 @@ export function ProjectWorkspaceView({
         setSelectedDrawingId(drawing.id);
         setSelectedPage(pageNumber ?? 1);
         setScale(1.0);
+        setRotation(0);
       }
     }
     setSessionConflict(null);
@@ -1980,15 +2042,35 @@ export function ProjectWorkspaceView({
   const zoomIn = () => setScale((s) => Math.min(+(s + 0.25).toFixed(2), 3));
   const zoomOut = () => setScale((s) => Math.max(+(s - 0.25).toFixed(2), 0.25));
   const resetZoom = () => setScale(1.0);
+  const rotateDrawing = () =>
+    setRotation((r) => ((r + 90) % 360) as 0 | 90 | 180 | 270);
 
-  // Mouse wheel and trackpad pinch (browsers report pinch as wheel + ctrlKey) both zoom.
-  function handleCanvasWheel(e: React.WheelEvent<HTMLDivElement>) {
-    e.preventDefault();
-    setScale((s) => {
-      const next = e.deltaY > 0 ? s - 0.1 : s + 0.1;
-      return Math.min(Math.max(+next.toFixed(2), 0.25), 3);
-    });
-  }
+  // Mouse wheel and trackpad pinch (browsers report pinch as wheel + ctrlKey) both
+  // zoom, and only while the cursor is over the drawing itself. Attached as a real
+  // native listener (not React's onWheel) with { passive: false } — React's
+  // synthetic wheel handler isn't guaranteed non-passive in every browser, so
+  // preventDefault() inside it can silently no-op and let the browser's own
+  // native pinch/ctrl+wheel page-zoom fire at the same time. A real non-passive
+  // listener is the only way to reliably suppress that.
+  useEffect(() => {
+    const el = canvasAreaRef.current;
+    if (!el) return;
+    function onWheel(e: WheelEvent) {
+      // Scrolling inside the floating Element panel should scroll that panel,
+      // not zoom the drawing underneath it — a native listener on an ancestor
+      // fires during real DOM bubbling, before React's synthetic event system
+      // even runs, so a descendant's React-level stopPropagation can't stop
+      // this one; check the actual target instead.
+      if (elementPanelRef.current?.contains(e.target as Node)) return;
+      e.preventDefault();
+      setScale((s) => {
+        const next = e.deltaY > 0 ? s - 0.1 : s + 0.1;
+        return Math.min(Math.max(+next.toFixed(2), 0.25), 3);
+      });
+    }
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
 
   function handleSidebarToggle() {
     setSidebarCollapsed((prev) => {
@@ -2003,11 +2085,13 @@ export function ProjectWorkspaceView({
     setSelectedDrawingId(fileId);
     setSelectedPage(1);
     setScale(1.0);
+    setRotation(0);
   }
   function handleSelectPage(fileId: string, pageNum: number) {
     if (selectedDrawingId !== fileId) {
       setSelectedDrawingId(fileId);
       setScale(1.0);
+      setRotation(0);
     }
     setSelectedPage(pageNum);
   }
@@ -2016,12 +2100,15 @@ export function ProjectWorkspaceView({
     (id: string, numPages: number) => {
       const drawing = drawings.find((d) => d.id === id);
       if (!drawing || drawing.pageCount === numPages) return;
+      const baseName = drawing.name.replace(/\.[^.]+$/, "");
+      const truncatedName =
+        baseName.length > 10 ? `${baseName.slice(0, 10)}...` : baseName;
       dispatch(
         setDrawingPages({
           id,
           pages: Array.from({ length: numPages }, (_, i) => ({
             number: i + 1,
-            label: `Page ${i + 1}`,
+            label: `${truncatedName}${i + 1}`,
           })),
         }),
       );
@@ -2135,6 +2222,7 @@ export function ProjectWorkspaceView({
       setSelectedDrawingId(firstNewId);
       setSelectedPage(1);
       setScale(1.0);
+      setRotation(0);
     }
   }
 
@@ -2712,13 +2800,17 @@ export function ProjectWorkspaceView({
           <div className="flex-1 min-h-0 flex overflow-hidden">
             <div
               ref={canvasAreaRef}
-              onWheel={handleCanvasWheel}
               className="flex-1 min-w-0 relative overflow-hidden bg-[#e8edf2]"
             >
               <DrawingCanvas
                 drawing={selectedDrawing}
                 page={selectedPage}
                 scale={scale}
+                rotation={rotation}
+                panEnabled={
+                  !(scaleFlowActive && !scaleLocked) &&
+                  (!activeTool || activeTool === "text")
+                }
                 onPageCountResolved={handlePageCountResolved}
                 measurementOverlay={
                   <MeasurementCanvas
@@ -2729,6 +2821,7 @@ export function ProjectWorkspaceView({
                     distanceUnit={distanceUnit}
                     activeColor={activeColor}
                     measurements={measurementHook.state.measurements}
+                    highlightedIds={highlightedMarkIds}
                     nextCountIndex={nextCountIndex}
                     pageKey={`${selectedDrawingId ?? "none"}-${selectedPage}`}
                     onCalibrationUpdate={handleCalibrationUpdate}
@@ -2765,6 +2858,14 @@ export function ProjectWorkspaceView({
                 >
                   <Maximize2 className="w-3.5 h-3.5" />
                 </button>
+                <div className="h-px bg-slate-200 mx-0.5" />
+                <button
+                  onClick={rotateDrawing}
+                  className="w-7 h-7 flex items-center justify-center rounded hover:bg-slate-100 text-slate-500"
+                  title="Rotate drawing 90°"
+                >
+                  <RotateCw className="w-3.5 h-3.5" />
+                </button>
               </div>
 
               {/* Page indicator */}
@@ -2784,7 +2885,6 @@ export function ProjectWorkspaceView({
               {showElementPanel && (
                 <div
                   ref={elementPanelRef}
-                  onWheel={(e) => e.stopPropagation()}
                   className={`absolute z-20 ${elementPanelPos ? "" : "right-6 top-4"}`}
                   style={
                     elementPanelPos
@@ -2822,6 +2922,7 @@ export function ProjectWorkspaceView({
                         liveLength={effectiveConcreteLength}
                         liveArea={sessionTotals.area}
                         liveRebarLength={rebarDrawnLength}
+                        selectedVariant={selectedVariant}
                         distanceUnit={distanceUnit}
                         hasMeasurements={
                           sessionTotals.count > 0 ||
@@ -2925,7 +3026,6 @@ export function ProjectWorkspaceView({
                           onChange={(e) => setKnownDistance(e.target.value)}
                           className="h-9 flex-1 text-sm"
                           placeholder="0"
-                          disabled={applyingScale}
                         />
                         <Select
                           value={distanceUnit}
@@ -2944,10 +3044,9 @@ export function ProjectWorkspaceView({
                         </Select>
                         <Button
                           onClick={handleApplyScale}
-                          disabled={applyingScale}
-                          className="h-9 bg-amber-500 hover:bg-amber-600 text-white text-[12px] font-semibold px-5 shrink-0 disabled:opacity-60"
+                          className="h-9 bg-amber-500 hover:bg-amber-600 text-white text-[12px] font-semibold px-5 shrink-0"
                         >
-                          {applyingScale ? "Saving…" : "Apply Scale"}
+                          Apply Scale
                         </Button>
                       </div>
                     </div>
@@ -2976,8 +3075,7 @@ export function ProjectWorkspaceView({
                       </span>
                       <button
                         onClick={() => {
-                          setScaleLocked(true);
-                          saveSession(projectId, { scaleLocked: true });
+                          handleToggleScaleLock(true);
                           if (calibrationBarHideTimerRef.current)
                             clearTimeout(calibrationBarHideTimerRef.current);
                           calibrationBarHideTimerRef.current = setTimeout(
@@ -3017,8 +3115,7 @@ export function ProjectWorkspaceView({
                         </span>
                         <button
                           onClick={() => {
-                            setScaleLocked(false);
-                            saveSession(projectId, { scaleLocked: false });
+                            handleToggleScaleLock(false);
                             handleShowCalibrationBar();
                           }}
                           className="relative w-9 h-5 rounded-full bg-green-500 transition-colors"
@@ -3078,8 +3175,9 @@ export function ProjectWorkspaceView({
             <LiveMeasurementsPanel
               elements={elements}
               pendingVariants={concreteMeasurements}
-              scaleWhat={effectiveMeasureType}
               distanceUnit={distanceUnit}
+              selectedVariantId={selectedVariantId}
+              onSelectVariant={handleSelectVariant}
             />
           )}
         </div>
