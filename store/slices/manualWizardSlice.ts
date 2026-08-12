@@ -82,10 +82,13 @@ const manualWizardSlice = createSlice({
       // PDFs start with no pages — DrawingPreloader eagerly counts them via pdf.js.
       // All other formats (image, bim-3d, cad-2d) default to 1 view immediately;
       // viewers may call setDrawingPages later to update (e.g. IFC storeys).
+      const baseName = action.payload.name.replace(/\.[^.]+$/, "");
+      const truncatedName =
+        baseName.length > 10 ? `${baseName.slice(0, 10)}...` : baseName;
       const defaultPages =
         action.payload.category === "pdf"
           ? []
-          : [{ number: 1, label: "Page 1" }];
+          : [{ number: 1, label: `${truncatedName}1` }];
 
       const file: DrawingFile = {
         ...action.payload,

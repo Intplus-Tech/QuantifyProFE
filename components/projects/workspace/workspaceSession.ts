@@ -30,6 +30,16 @@ export interface VariantCanvasMeasurement {
   measurementIds: string[];
 }
 
+// ─── Scale calibration snapshot — same shape the backend's canvas.calibration
+// expects, carried on each variant so it can be sent along at assign-time
+// instead of relying on a separate backend session-level record. ─────────────
+
+export interface VariantCalibration {
+  knownDistance: number;
+  pixelDistance: number;
+  unit: string;
+}
+
 // ─── A single saved variant (one "Apply & Continue" click) ───────────────────
 
 export interface WsConcreteMeasurement {
@@ -39,6 +49,7 @@ export interface WsConcreteMeasurement {
   concreteFields: Record<string, string>;
   rebar: VariantRebar | null;
   canvas: VariantCanvasMeasurement;
+  calibration: VariantCalibration | null;
   sessionId: string | null;
   drawingId: string | null;
   pageNumber: number;
@@ -137,5 +148,53 @@ export function clearSession(projectId: string): void {
   try {
     localStorage.removeItem(sessionKey(projectId));
     localStorage.removeItem(legacyElementsKey(projectId));
+  } catch {}
+}
+
+// ─── Page-scoped calibration ────────────────────────────────────────────────
+// Calibration is applied entirely on the frontend now (no backend call at Apply
+// Scale time), so it needs its own per-page storage the same way raw canvas
+// marks already have (useCanvasMeasurements) — otherwise every page would
+// share one flat scale value and a reload would restore the wrong page's scale
+// (or none at all).
+
+export interface PageCalibrationData {
+  knownDistance: string;
+  distanceUnit: string;
+  scaleInfo: string;
+  scaleLocked: boolean;
+}
+
+const calibrationKey = (drawingId: string, page: number) =>
+  `ws-calibration-v1-${drawingId}-p${page}`;
+
+export function loadPageCalibration(
+  drawingId: string,
+  page: number,
+): PageCalibrationData | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(calibrationKey(drawingId, page));
+    return raw ? (JSON.parse(raw) as PageCalibrationData) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function savePageCalibration(
+  drawingId: string,
+  page: number,
+  data: PageCalibrationData,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(calibrationKey(drawingId, page), JSON.stringify(data));
+  } catch {}
+}
+
+export function clearPageCalibration(drawingId: string, page: number): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(calibrationKey(drawingId, page));
   } catch {}
 }

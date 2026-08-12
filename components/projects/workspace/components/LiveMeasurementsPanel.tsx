@@ -9,92 +9,81 @@ import type { WsConcreteMeasurement } from "../workspaceSession";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function variantLabel(el: CreatedElement): string {
-  const count = el.variants.length;
-  if (count === 0) return "—";
-  return `${count} ${el.name}`;
+function unitLabel(distanceUnit: string, squared: boolean): string {
+  const base = distanceUnit === "Meters" ? "m" : distanceUnit;
+  return squared ? `${base}²` : base;
 }
 
-function measuredTotal(variants: WsConcreteMeasurement[], distanceUnit: string): string {
-  if (variants.length === 0) return "0.00";
-  const tool = variants[0].canvas.tool;
-  if (tool === "count") {
-    const total = variants.reduce((s, v) => s + v.canvas.count, 0);
-    return `${total}`;
-  }
-  if (tool === "length") {
-    const total = variants.reduce((s, v) => s + v.canvas.length, 0);
-    return `${total.toFixed(2)} ${distanceUnit === "Meters" ? "m" : distanceUnit}`;
-  }
-  const total = variants.reduce((s, v) => s + v.canvas.area, 0);
-  return `${total.toFixed(2)} ${distanceUnit === "Meters" ? "m²" : `${distanceUnit}²`}`;
+function volumeDisplay(variant: WsConcreteMeasurement): string {
+  const vol = parseFloat(computeVolume(variant.measureType, variant.concreteFields, variant.canvas));
+  return !isNaN(vol) && vol > 0 ? `${vol.toFixed(2)} m³` : "—";
 }
 
-function volumeTotal(variants: WsConcreteMeasurement[]): string {
-  if (variants.length === 0) return "0.00";
-  const total = variants.reduce((s, v) => {
-    const vol = parseFloat(computeVolume(v.measureType, v.concreteFields, v.canvas));
-    return s + (isNaN(vol) ? 0 : vol);
-  }, 0);
-  return total > 0 ? `${total.toFixed(2)} m³` : "0.00";
-}
-
-function rebarSummary(variants: WsConcreteMeasurement[]): string {
+function rebarDisplay(variant: WsConcreteMeasurement): string {
+  if (!variant.rebar) return "—";
   let totalBars = 0;
-  for (const v of variants) {
-    if (!v.rebar) continue;
-    for (const bar of [...v.rebar.mainBars, ...v.rebar.additionBars]) {
-      const n = parseInt(bar.count, 10);
-      if (!isNaN(n)) totalBars += n;
-    }
+  for (const bar of [...variant.rebar.mainBars, ...variant.rebar.additionBars]) {
+    const n = parseInt(bar.count, 10);
+    if (!isNaN(n)) totalBars += n;
   }
   return totalBars > 0 ? `${totalBars} bars` : "—";
 }
 
 // ─── Row ──────────────────────────────────────────────────────────────────────
 
-function TableRow({
-  element,
-  label,
-  measured,
-  volume,
-  rebar,
-  inProgress = false,
+function VariantRow({
+  variant,
+  distanceUnit,
+  inProgress,
+  selected,
+  onSelect,
 }: {
-  element: string;
-  label: string;
-  measured: string;
-  volume: string;
-  rebar: string;
-  inProgress?: boolean;
+  variant: WsConcreteMeasurement;
+  distanceUnit: string;
+  inProgress: boolean;
+  selected: boolean;
+  onSelect: () => void;
 }) {
+  const tool = variant.canvas.tool;
+  const countDisplay = tool === "count" ? `${variant.canvas.count}` : "—";
+  const lengthDisplay =
+    tool === "length" ? `${variant.canvas.length.toFixed(2)} ${unitLabel(distanceUnit, false)}` : "—";
+  const areaDisplay =
+    tool === "area" ? `${variant.canvas.area.toFixed(2)} ${unitLabel(distanceUnit, true)}` : "—";
+
   return (
     <tr
-      className={`border-b border-slate-100 last:border-0 ${
-        inProgress ? "bg-blue-50/60" : "hover:bg-slate-50/60"
+      onClick={onSelect}
+      className={`border-b border-slate-100 last:border-0 cursor-pointer transition-colors ${
+        selected
+          ? "bg-amber-50"
+          : inProgress
+            ? "bg-blue-50/60 hover:bg-blue-50"
+            : "hover:bg-slate-50/60"
       }`}
     >
       <td className="px-3 py-2.5">
-        <div className={`text-[12px] font-semibold ${inProgress ? "text-blue-600" : "text-slate-700"}`}>
-          {element}
+        <div className={`text-[12px] font-semibold ${selected ? "text-amber-700" : inProgress ? "text-blue-600" : "text-slate-700"}`}>
+          {variant.tag || variant.measureType}
         </div>
-        {inProgress && (
-          <div className="text-[10px] font-bold text-blue-400 uppercase tracking-wide">
-            In Progress
-          </div>
-        )}
+        <div className={`text-[10px] font-bold uppercase tracking-wide ${inProgress ? "text-blue-400" : "text-slate-400"}`}>
+          {inProgress ? "In Progress" : variant.measureType}
+        </div>
       </td>
-      <td className={`px-3 py-2.5 text-[12px] ${inProgress ? "text-blue-500" : "text-slate-600"}`}>
-        {label}
+      <td className={`px-3 py-2.5 text-[12px] ${selected ? "text-amber-700" : inProgress ? "text-blue-500" : "text-slate-600"}`}>
+        {countDisplay}
       </td>
-      <td className={`px-3 py-2.5 text-[12px] ${inProgress ? "text-blue-500" : "text-slate-600"}`}>
-        {measured}
+      <td className={`px-3 py-2.5 text-[12px] ${selected ? "text-amber-700" : inProgress ? "text-blue-500" : "text-slate-600"}`}>
+        {lengthDisplay}
       </td>
-      <td className={`px-3 py-2.5 text-[12px] ${inProgress ? "text-blue-500" : "text-slate-600"}`}>
-        {volume}
+      <td className={`px-3 py-2.5 text-[12px] ${selected ? "text-amber-700" : inProgress ? "text-blue-500" : "text-slate-600"}`}>
+        {areaDisplay}
       </td>
-      <td className={`px-3 py-2.5 text-[12px] ${inProgress ? "text-blue-500" : "text-slate-600"}`}>
-        {rebar}
+      <td className={`px-3 py-2.5 text-[12px] ${selected ? "text-amber-700" : inProgress ? "text-blue-500" : "text-slate-600"}`}>
+        {volumeDisplay(variant)}
+      </td>
+      <td className={`px-3 py-2.5 text-[12px] ${selected ? "text-amber-700" : inProgress ? "text-blue-500" : "text-slate-600"}`}>
+        {rebarDisplay(variant)}
       </td>
     </tr>
   );
@@ -103,21 +92,25 @@ function TableRow({
 function MeasurementTable({
   elements,
   pendingVariants,
-  scaleWhat,
   distanceUnit,
+  selectedVariantId,
+  onSelectVariant,
 }: {
   elements: CreatedElement[];
   pendingVariants: WsConcreteMeasurement[];
-  scaleWhat: string;
   distanceUnit: string;
+  selectedVariantId: string | null;
+  onSelectVariant: (variant: WsConcreteMeasurement) => void;
 }) {
-  const hasRows = elements.length > 0 || pendingVariants.length > 0;
+  // Every individual variant gets its own row — no summing across a category.
+  const assignedRows = elements.flatMap((el) => el.variants);
+  const hasRows = assignedRows.length > 0 || pendingVariants.length > 0;
 
   return (
     <table className="w-full">
       <thead>
         <tr className="border-b border-slate-200 bg-slate-50/80">
-          {["Element", "Variants", "Measured", "Volume", "Rebar"].map((h) => (
+          {["Element", "Count", "Length", "Area", "Volume", "Rebar"].map((h) => (
             <th
               key={h}
               className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400"
@@ -130,31 +123,31 @@ function MeasurementTable({
       <tbody>
         {!hasRows && (
           <tr>
-            <td colSpan={5} className="px-3 py-4 text-center text-[12px] text-slate-400 italic">
+            <td colSpan={6} className="px-3 py-4 text-center text-[12px] text-slate-400 italic">
               No measurements yet. Apply &amp; Continue to see rows here.
             </td>
           </tr>
         )}
-        {elements.map((el) => (
-          <TableRow
-            key={el.id}
-            element={el.name}
-            label={variantLabel(el)}
-            measured={measuredTotal(el.variants, distanceUnit)}
-            volume={volumeTotal(el.variants)}
-            rebar={rebarSummary(el.variants)}
+        {assignedRows.map((v) => (
+          <VariantRow
+            key={v.id}
+            variant={v}
+            distanceUnit={distanceUnit}
+            inProgress={false}
+            selected={selectedVariantId === v.id}
+            onSelect={() => onSelectVariant(v)}
           />
         ))}
-        {pendingVariants.length > 0 && (
-          <TableRow
-            element={scaleWhat}
-            label={`${pendingVariants.length} variant${pendingVariants.length !== 1 ? "s" : ""}`}
-            measured={measuredTotal(pendingVariants, distanceUnit)}
-            volume={volumeTotal(pendingVariants)}
-            rebar={rebarSummary(pendingVariants)}
+        {pendingVariants.map((v) => (
+          <VariantRow
+            key={v.id}
+            variant={v}
+            distanceUnit={distanceUnit}
             inProgress
+            selected={selectedVariantId === v.id}
+            onSelect={() => onSelectVariant(v)}
           />
-        )}
+        ))}
       </tbody>
     </table>
   );
@@ -165,18 +158,24 @@ function MeasurementTable({
 export function LiveMeasurementsPanel({
   elements,
   pendingVariants,
-  scaleWhat,
   distanceUnit,
+  selectedVariantId,
+  onSelectVariant,
 }: {
   elements: CreatedElement[];
   pendingVariants: WsConcreteMeasurement[];
-  scaleWhat: string;
+  /** Kept for backwards-compat callers; no longer used for display since every
+   *  row now shows its own measureType instead of one shared category name. */
+  scaleWhat?: string;
   distanceUnit: string;
+  selectedVariantId: string | null;
+  onSelectVariant: (variant: WsConcreteMeasurement) => void;
 }) {
   const [collapsed, setCollapsed] = useState(true);
   const [expanded, setExpanded] = useState(false);
 
-  const totalRows = elements.length + (pendingVariants.length > 0 ? 1 : 0);
+  const totalRows =
+    elements.reduce((s, el) => s + el.variants.length, 0) + pendingVariants.length;
 
   return (
     <>
@@ -222,8 +221,9 @@ export function LiveMeasurementsPanel({
             <MeasurementTable
               elements={elements}
               pendingVariants={pendingVariants}
-              scaleWhat={scaleWhat}
               distanceUnit={distanceUnit}
+              selectedVariantId={selectedVariantId}
+              onSelectVariant={onSelectVariant}
             />
           </div>
         )}
@@ -245,8 +245,9 @@ export function LiveMeasurementsPanel({
             <MeasurementTable
               elements={elements}
               pendingVariants={pendingVariants}
-              scaleWhat={scaleWhat}
               distanceUnit={distanceUnit}
+              selectedVariantId={selectedVariantId}
+              onSelectVariant={onSelectVariant}
             />
           </div>
           <div className="shrink-0 pt-3 border-t border-slate-100 flex items-center justify-between">

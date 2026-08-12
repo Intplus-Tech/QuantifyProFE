@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
@@ -38,12 +38,19 @@ export function DrawingCanvas({
   drawing,
   page,
   scale,
+  rotation = 0,
+  panEnabled = false,
   onPageCountResolved,
   measurementOverlay,
 }: {
   drawing: DrawingFile | null;
   page: number;
   scale: number;
+  /** Visual rotation in degrees — applied to the page and its measurement
+   *  overlay together, so drawn marks stay aligned with the rotated page. */
+  rotation?: 0 | 90 | 180 | 270;
+  /** Click-and-drag panning — only offered when no measurement tool is actively drawing. */
+  panEnabled?: boolean;
   onPageCountResolved: (id: string, numPages: number) => void;
   /** Konva measurement canvas — rendered only over PDF pages */
   measurementOverlay?: React.ReactNode;
@@ -52,6 +59,55 @@ export function DrawingCanvas({
     () => (drawing?.extension ? VIEWER_MAP[drawing.extension.toLowerCase()] ?? "unsupported" : null),
     [drawing?.extension]
   );
+
+  // ── Click-and-drag panning (PDF path scrolls its own overflow-auto container) ──
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [isPanning, setIsPanning] = useState(false);
+  const panState = useRef<{
+    startX: number;
+    startY: number;
+    startScrollLeft: number;
+    startScrollTop: number;
+    moved: boolean;
+  } | null>(null);
+
+  function handlePanPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    // Middle-mouse-button drag pans regardless of the active tool — browsers
+    // never fire a "click" event for the middle button, so this can never be
+    // mistaken for a tool placement (count/length/area clicks are left-button
+    // "click" events only). Plain left-button drag only pans when no tool is
+    // actively drawing (panEnabled), so it never steals a tool's clicks.
+    const isMiddleButton = e.button === 1;
+    if (!isMiddleButton && !panEnabled) return;
+    if (isMiddleButton) e.preventDefault();
+    const el = scrollRef.current;
+    if (!el) return;
+    panState.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startScrollLeft: el.scrollLeft,
+      startScrollTop: el.scrollTop,
+      moved: false,
+    };
+    setIsPanning(true);
+    el.setPointerCapture(e.pointerId);
+  }
+
+  function handlePanPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    const ps = panState.current;
+    const el = scrollRef.current;
+    if (!ps || !el) return;
+    const dx = e.clientX - ps.startX;
+    const dy = e.clientY - ps.startY;
+    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) ps.moved = true;
+    el.scrollLeft = ps.startScrollLeft - dx;
+    el.scrollTop = ps.startScrollTop - dy;
+  }
+
+  function handlePanPointerUp() {
+    panState.current = null;
+    setIsPanning(false);
+  }
 
   if (!drawing) {
     return (
@@ -65,10 +121,29 @@ export function DrawingCanvas({
   // ── PDF ──────────────────────────────────────────────────────────────────────
   if (viewerType === "pdf" && drawing.previewUrl) {
     return (
-      <div className="flex items-start justify-center h-full overflow-auto p-6">
+      <div
+        ref={scrollRef}
+        onPointerDown={handlePanPointerDown}
+        onPointerMove={handlePanPointerMove}
+        onPointerUp={handlePanPointerUp}
+        onPointerCancel={handlePanPointerUp}
+        style={panEnabled ? { touchAction: "none" } : undefined}
+        className={`flex items-start justify-center h-full overflow-auto p-6 ${
+          panEnabled ? (isPanning ? "cursor-grabbing" : "cursor-grab") : ""
+        }`}
+      >
         {/* Wrapper is inline so it sizes to the rendered page, not the scroll container.
-            The measurement overlay is absolute inset-0 over exactly this element. */}
-        <div className="relative inline-block">
+            The measurement overlay is absolute inset-0 over exactly this element —
+            rotating this wrapper (not the scroll container) keeps drawn marks
+            aligned with the page, since both rotate together as one unit. */}
+        <div
+          className="relative inline-block"
+          style={
+            rotation
+              ? { transform: `rotate(${rotation}deg)`, transformOrigin: "center center" }
+              : undefined
+          }
+        >
           <Document
             file={drawing.previewUrl}
             onLoadSuccess={({ numPages }) => onPageCountResolved(drawing.id, numPages)}
@@ -100,7 +175,7 @@ export function DrawingCanvas({
             src={src}
             alt={drawing.name}
             style={{
-              transform: `scale(${scale})`,
+              transform: `scale(${scale}) rotate(${rotation}deg)`,
               transformOrigin: "center",
               transition: "transform 0.15s ease",
             }}

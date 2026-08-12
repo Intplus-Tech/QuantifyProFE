@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ELEMENT_CONFIGS, BAR_SIZE_OPTIONS, PALETTE, PALETTE_LABELS } from "./constants";
 import type { RebarBar } from "./types";
-import type { VariantRebar } from "../workspaceSession";
+import type { VariantRebar, WsConcreteMeasurement } from "../workspaceSession";
 
 // ─── Prop types ───────────────────────────────────────────────────────────────
 
@@ -57,6 +57,9 @@ interface ElementDetailPanelProps {
   /** Only meaningful when the category's config has blockworkSides === true. */
   blockworkSide?: "external" | "internal";
   onBlockworkSideChange?: (side: "external" | "internal") => void;
+  /** Set when a Live Measurements row is clicked — overrides the Measured
+   *  display with that saved variant's own value instead of the live round. */
+  selectedVariant?: WsConcreteMeasurement | null;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -84,7 +87,12 @@ export function ElementDetailPanel({
   dragHandleProps,
   blockworkSide = "external",
   onBlockworkSideChange,
+  selectedVariant = null,
 }: ElementDetailPanelProps) {
+  const displayTool = selectedVariant ? selectedVariant.canvas.tool : activeMeasureTool;
+  const displayCount = selectedVariant ? selectedVariant.canvas.count : liveCount;
+  const displayLength = selectedVariant ? selectedVariant.canvas.length : liveLength;
+  const displayArea = selectedVariant ? selectedVariant.canvas.area : liveArea;
   const cfg = ELEMENT_CONFIGS[measure] ?? ELEMENT_CONFIGS["Piles"];
   const isBlockwork = cfg.blockworkSides === true;
   const rows =
@@ -359,18 +367,25 @@ export function ElementDetailPanel({
             </div>
 
             <div className="space-y-1">
-              <label className="text-[11px] text-slate-500">{cfg.measureLabel}</label>
-              {activeMeasureTool ? (
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-[11px] text-slate-500">{cfg.measureLabel}</label>
+                {selectedVariant && (
+                  <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded-full px-2 py-0.5 whitespace-nowrap">
+                    Viewing: {selectedVariant.tag || selectedVariant.measureType}
+                  </span>
+                )}
+              </div>
+              {displayTool ? (
                 <div className="flex items-baseline gap-1.5">
-                  <p className="text-2xl font-bold text-amber-600 tabular-nums">
-                    {activeMeasureTool === "count" && liveCount}
-                    {activeMeasureTool === "length" && liveLength.toFixed(2)}
-                    {activeMeasureTool === "area" && liveArea.toFixed(2)}
+                  <p className={`text-2xl font-bold tabular-nums ${selectedVariant ? "text-blue-600" : "text-amber-600"}`}>
+                    {displayTool === "count" && displayCount}
+                    {displayTool === "length" && displayLength.toFixed(2)}
+                    {displayTool === "area" && displayArea.toFixed(2)}
                   </p>
                   <span className="text-sm text-slate-500">
-                    {activeMeasureTool === "count" && "placed"}
-                    {activeMeasureTool === "length" && distanceUnit}
-                    {activeMeasureTool === "area" &&
+                    {displayTool === "count" && "placed"}
+                    {displayTool === "length" && distanceUnit}
+                    {displayTool === "area" &&
                       (distanceUnit === "Meters" ? "m²" : `${distanceUnit}²`)}
                   </span>
                 </div>
