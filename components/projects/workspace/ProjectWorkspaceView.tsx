@@ -111,7 +111,10 @@ import { DrawingCanvas } from "./components/DrawingCanvas";
 import { DrawingPreloader } from "./components/DrawingPreloader";
 import { FileRow } from "./components/FileRow";
 import { NewFolderDialog } from "./components/NewFolderDialog";
-import { useCanvasMeasurements } from "./hooks/useCanvasMeasurements";
+import {
+  useCanvasMeasurements,
+  removeMeasurementsFromStorage,
+} from "./hooks/useCanvasMeasurements";
 import type { MPoint } from "./components/types";
 
 const MeasurementCanvas = dynamic(
@@ -678,11 +681,33 @@ export function ProjectWorkspaceView({
     setSelectedVariantId((prev) => (prev === variant.id ? null : variant.id));
   }
 
+  // Erases the actual drawn marks (points/lines/polygons) a variant is made of,
+  // not just its table row. Resolves the variant's own drawing/page — which may
+  // not be the one currently on screen — and either updates the live canvas
+  // hook (active page) or patches that other page's localStorage entry directly.
+  function removeMarksForVariant(variant: WsConcreteMeasurement) {
+    const ids = variant.canvas.measurementIds;
+    if (ids.length === 0) return;
+    const drawing = drawings.find(
+      (d) => d.uploadedFileId === variant.drawingId || d.id === variant.drawingId,
+    );
+    const localDrawingId = drawing?.id ?? variant.drawingId;
+    if (!localDrawingId) return;
+    const isActivePage =
+      localDrawingId === selectedDrawingId && variant.pageNumber === selectedPage;
+    if (isActivePage) {
+      measurementHook.removeMeasurements(ids);
+    } else {
+      removeMeasurementsFromStorage(localDrawingId, variant.pageNumber, ids);
+    }
+  }
+
   // Live Measurements row delete — local storage only, matches the same
   // localStorage-first model the rest of the measurement data now uses.
   // Handles both pending (not yet assigned) and already-assigned variants.
   function handleDeleteVariant(variant: WsConcreteMeasurement) {
     setSelectedVariantId((prev) => (prev === variant.id ? null : prev));
+    removeMarksForVariant(variant);
 
     setConcreteMeasurements((prev) => {
       if (!prev.some((v) => v.id === variant.id)) return prev;
@@ -708,10 +733,11 @@ export function ProjectWorkspaceView({
   // every assigned element's variants — local storage only, per element record
   // metadata (name/category) is kept, only the measurement data is wiped.
   function handleClearAllVariants() {
-    const totalRows =
-      concreteMeasurements.length +
-      elements.reduce((s, el) => s + el.variants.length, 0);
-    if (totalRows === 0) return;
+    const allVariants = [
+      ...concreteMeasurements,
+      ...elements.flatMap((el) => el.variants),
+    ];
+    if (allVariants.length === 0) return;
     if (
       !window.confirm(
         "Clear all measurements from this table? This can't be undone.",
@@ -719,6 +745,8 @@ export function ProjectWorkspaceView({
     ) {
       return;
     }
+
+    for (const variant of allVariants) removeMarksForVariant(variant);
 
     setSelectedVariantId(null);
     setConcreteMeasurements([]);
@@ -983,113 +1011,113 @@ export function ProjectWorkspaceView({
   ]);
 
   // ── Global element loader: merge assigned elements from ALL project sessions ──
-  // Runs once after the project document loads. Fetches every session in parallel
-  // and aggregates their assigned elements so the Elements tab shows all work
-  // regardless of which page is currently active.
+  // Fetches every session in parallel and aggregates their assigned elements so
+  // the Elements tab shows all work regardless of which page is currently active.
+  // Exposed as a stable callback (not just an effect body) so anything that
+  // mutates elements server-side — e.g. deleting one — can re-invoke it to
+  // resync the sidebar list with the backend instead of trusting local state.
+  const loadProjectElements = useCallback(async () => {
+    const sessionsResult = await fetchProjectSessions(projectId);
+    if (!("data" in sessionsResult) || !sessionsResult.data?.data?.length)
+      return;
+
+    const sessionIds = sessionsResult.data.data.map((s) => s._id);
+    const sessionResults = await Promise.all(
+      sessionIds.map((id) => fetchSessionById(id)),
+    );
+
+    const assignedElementMap = new Map<
+      string,
+      { meta: CreatedElement; variantMap: Map<string, WsConcreteMeasurement> }
+    >();
+    const pendingVariantsMap = new Map<string, WsConcreteMeasurement>();
+
+    for (const result of sessionResults) {
+      if (!("data" in result) || !result.data?.data) continue;
+      const { elements, session: sessionData } = result.data.data;
+      const sid = sessionData._id;
+
+      for (const el of elements) {
+        const attrs = el.attributes ?? {};
+        const snapshotStr = attrs._snapshot as string | undefined;
+        if (!snapshotStr) continue;
+
+        let parsedVariant: WsConcreteMeasurement | null = null;
+        try {
+          parsedVariant = JSON.parse(snapshotStr) as WsConcreteMeasurement;
+        } catch {
+          continue;
+        }
+
+        if (attrs.pending === true) {
+          if (!pendingVariantsMap.has(parsedVariant.id)) {
+            pendingVariantsMap.set(parsedVariant.id, parsedVariant);
+          }
+        } else {
+          const eid = attrs.elementId as string | undefined;
+          const elementName = attrs.elementName as string | undefined;
+          if (!eid || !elementName) continue;
+
+          if (!assignedElementMap.has(eid)) {
+            assignedElementMap.set(eid, {
+              meta: {
+                id: eid,
+                name: elementName,
+                category: (attrs.elementCategory as string) ?? "Substructure",
+                categoryFolder:
+                  (attrs.categoryFolder as string) ?? elementName,
+                measurementUnit: (attrs.measurementUnit as string) ?? "items",
+                variants: [],
+                sessionId: sid,
+                drawingId: parsedVariant.drawingId,
+                pageNumber: parsedVariant.pageNumber,
+                createdAt: parsedVariant.savedAt,
+              },
+              variantMap: new Map(),
+            });
+          }
+
+          const entry = assignedElementMap.get(eid)!;
+          if (!entry.variantMap.has(parsedVariant.id)) {
+            entry.variantMap.set(parsedVariant.id, parsedVariant);
+          }
+        }
+      }
+    }
+
+    const reconstructedElements: CreatedElement[] = Array.from(
+      assignedElementMap.values(),
+    ).map(({ meta, variantMap }) => ({
+      ...meta,
+      variants: Array.from(variantMap.values()),
+    }));
+
+    const reconstructedPending = Array.from(pendingVariantsMap.values());
+
+    setElements(reconstructedElements);
+    if (reconstructedPending.length > 0) {
+      setConcreteMeasurements(reconstructedPending);
+    } else {
+      // Backend has no pending variants — fall back to localStorage for measurements
+      // saved in this session that weren't yet assigned to an element (e.g. after a
+      // hard refresh before assignment was completed).
+      const localPending = loadSession(projectId).concreteMeasurements;
+      if (localPending && localPending.length > 0) {
+        setConcreteMeasurements(localPending);
+      }
+    }
+    // fetchProjectSessions and fetchSessionById are stable references from RTK Query lazy hooks
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  // Runs once after the project document loads.
   const projectElementsLoaded = useRef(false);
   useEffect(() => {
     if (projectElementsLoaded.current) return;
     if (!backendProject?._id) return;
     projectElementsLoaded.current = true;
-
-    async function loadAllElements() {
-      const sessionsResult = await fetchProjectSessions(projectId);
-      if (!("data" in sessionsResult) || !sessionsResult.data?.data?.length)
-        return;
-
-      const sessionIds = sessionsResult.data.data.map((s) => s._id);
-      const sessionResults = await Promise.all(
-        sessionIds.map((id) => fetchSessionById(id)),
-      );
-
-      const assignedElementMap = new Map<
-        string,
-        { meta: CreatedElement; variantMap: Map<string, WsConcreteMeasurement> }
-      >();
-      const pendingVariantsMap = new Map<string, WsConcreteMeasurement>();
-
-      for (const result of sessionResults) {
-        if (!("data" in result) || !result.data?.data) continue;
-        const { elements, session: sessionData } = result.data.data;
-        const sid = sessionData._id;
-
-        for (const el of elements) {
-          const attrs = el.attributes ?? {};
-          const snapshotStr = attrs._snapshot as string | undefined;
-          if (!snapshotStr) continue;
-
-          let parsedVariant: WsConcreteMeasurement | null = null;
-          try {
-            parsedVariant = JSON.parse(snapshotStr) as WsConcreteMeasurement;
-          } catch {
-            continue;
-          }
-
-          if (attrs.pending === true) {
-            if (!pendingVariantsMap.has(parsedVariant.id)) {
-              pendingVariantsMap.set(parsedVariant.id, parsedVariant);
-            }
-          } else {
-            const eid = attrs.elementId as string | undefined;
-            const elementName = attrs.elementName as string | undefined;
-            if (!eid || !elementName) continue;
-
-            if (!assignedElementMap.has(eid)) {
-              assignedElementMap.set(eid, {
-                meta: {
-                  id: eid,
-                  name: elementName,
-                  category: (attrs.elementCategory as string) ?? "Substructure",
-                  categoryFolder:
-                    (attrs.categoryFolder as string) ?? elementName,
-                  measurementUnit: (attrs.measurementUnit as string) ?? "items",
-                  variants: [],
-                  sessionId: sid,
-                  drawingId: parsedVariant.drawingId,
-                  pageNumber: parsedVariant.pageNumber,
-                  createdAt: parsedVariant.savedAt,
-                },
-                variantMap: new Map(),
-              });
-            }
-
-            const entry = assignedElementMap.get(eid)!;
-            if (!entry.variantMap.has(parsedVariant.id)) {
-              entry.variantMap.set(parsedVariant.id, parsedVariant);
-            }
-          }
-        }
-      }
-
-      const reconstructedElements: CreatedElement[] = Array.from(
-        assignedElementMap.values(),
-      ).map(({ meta, variantMap }) => ({
-        ...meta,
-        variants: Array.from(variantMap.values()),
-      }));
-
-      const reconstructedPending = Array.from(pendingVariantsMap.values());
-
-      if (reconstructedElements.length > 0) {
-        setElements(reconstructedElements);
-      }
-      if (reconstructedPending.length > 0) {
-        setConcreteMeasurements(reconstructedPending);
-      } else {
-        // Backend has no pending variants — fall back to localStorage for measurements
-        // saved in this session that weren't yet assigned to an element (e.g. after a
-        // hard refresh before assignment was completed).
-        const localPending = loadSession(projectId).concreteMeasurements;
-        if (localPending && localPending.length > 0) {
-          setConcreteMeasurements(localPending);
-        }
-      }
-    }
-
-    loadAllElements();
-    // fetchProjectSessions and fetchSessionById are stable references from RTK Query lazy hooks
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [backendProject?._id, projectId]);
+    loadProjectElements();
+  }, [backendProject?._id, loadProjectElements]);
 
   // ── Auto-save: upsert the current variant to the backend ─────────────────────
   // Called both by canvas-mark completions and by form field changes (debounced).
@@ -1867,9 +1895,15 @@ export function ProjectWorkspaceView({
       }
     }
 
+    for (const variant of el.variants) removeMarksForVariant(variant);
+
+    // Optimistic local removal so the sidebar updates instantly, then
+    // invalidate by re-fetching the project's sessions so the list reconciles
+    // with the backend's actual state rather than trusting local bookkeeping.
     const updatedElements = elements.filter((e) => e.id !== el.id);
     setElements(updatedElements);
     saveSession(projectId, { createdElements: updatedElements });
+    loadProjectElements();
 
     toast.success(`"${el.name}" deleted`);
     setDeletingElementId(null);

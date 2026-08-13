@@ -30,6 +30,30 @@ function makeKey(drawingId: string | null, page: number) {
   return `${drawingId ?? "none"}-${page}`;
 }
 
+/**
+ * Removes marks by id directly from a page's localStorage entry, for a page
+ * that isn't the currently active one (so there's no live hook/state to
+ * update through). Used when deleting a measurement variant that lives on a
+ * different drawing/page than the one on screen right now.
+ */
+export function removeMeasurementsFromStorage(
+  drawingId: string,
+  page: number,
+  ids: string[],
+): void {
+  if (typeof window === "undefined" || ids.length === 0) return;
+  const idSet = new Set(ids);
+  const data = loadPage(drawingId, page);
+  if (!data.measurements.some((m) => idSet.has(m.id))) return;
+  const next: PageMeasurements = {
+    ...data,
+    measurements: data.measurements.filter((m) => !idSet.has(m.id)),
+  };
+  try {
+    localStorage.setItem(storageKey(drawingId, page), JSON.stringify(next));
+  } catch {}
+}
+
 export function useCanvasMeasurements(drawingId: string | null, page: number) {
   // Load from localStorage exactly once on mount (lazy initializer)
   const [initialData] = useState<PageMeasurements>(
@@ -83,6 +107,15 @@ export function useCanvasMeasurements(drawingId: string | null, page: number) {
     }));
   }
 
+  function removeMeasurements(ids: string[]) {
+    if (ids.length === 0) return;
+    const idSet = new Set(ids);
+    push((cur) => ({
+      ...cur,
+      measurements: cur.measurements.filter((m) => !idSet.has(m.id)),
+    }));
+  }
+
   function clearMeasurements() {
     push((cur) => ({ ...cur, measurements: [] }));
   }
@@ -99,6 +132,7 @@ export function useCanvasMeasurements(drawingId: string | null, page: number) {
     setCalibration,
     addMeasurement,
     removeMeasurement,
+    removeMeasurements,
     clearMeasurements,
     resetWithData,
     undo,

@@ -143,9 +143,11 @@ export function computeVolume(
 }
 
 /**
- * Derives an area value for a variant: the actual traced polygon area when
- * the Area tool was used, otherwise a Height × Width fallback computed from
- * whatever concrete fields were recorded for it (e.g. Window/Door openings).
+ * Derives an area value for a variant:
+ *  - Area tool           → the actual traced polygon area.
+ *  - Height + Width both recorded → opening area (e.g. Windows/Doors).
+ *  - Length tool + Height only recorded → wall-run area, traced length × height
+ *    (e.g. Blockwork, Wall Finishes — categories with a Height field but no Width).
  */
 export function computeArea(
   fields: Record<string, string>,
@@ -154,7 +156,9 @@ export function computeArea(
   if (canvas.tool === "area") return canvas.area;
   const height = parseFloat(fields.height ?? "0") || 0;
   const width = parseFloat(fields.width ?? "0") || 0;
-  return height > 0 && width > 0 ? height * width : 0;
+  if (height > 0 && width > 0) return height * width;
+  if (canvas.tool === "length" && height > 0) return canvas.length * height;
+  return 0;
 }
 
 /**
