@@ -26,6 +26,7 @@ import {
   CheckCircle2,
   Save,
   Box,
+  Trash2,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,16 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Tooltip,
   TooltipContent,
@@ -73,7 +84,7 @@ import {
 } from "@/store/api/measurementSessionApi";
 import type {
   MeasurementElement as BackendMeasurementElement,
-  UpsertElementBody,
+  MeasurementGeometry,
 } from "@/types/measurementSession";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
@@ -195,28 +206,6 @@ function backendElementToMeasurement(
   }
 
   return [];
-}
-
-function measurementToBackendBody(m: Measurement): UpsertElementBody {
-  if (m.type === "count") {
-    return {
-      clientId: m.id,
-      tool: "count",
-      geometry: { type: "point", points: [toXY(m.point)] },
-    };
-  }
-  if (m.type === "length") {
-    return {
-      clientId: m.id,
-      tool: "length",
-      geometry: { type: "polyline", points: m.points.map(toXY) },
-    };
-  }
-  return {
-    clientId: m.id,
-    tool: "area",
-    geometry: { type: "polygon", points: m.points.map(toXY) },
-  };
 }
 
 // Maps UI display names → backend takeoff element type strings (underscore_case).
@@ -603,6 +592,8 @@ export function ProjectWorkspaceView({
   const [expandedCategories, setExpandedCategories] = useState<string[]>([]);
   // Elements — populated by Phase 2 hydration from backend, never from localStorage
   const [elements, setElements] = useState<CreatedElement[]>([]);
+  const [deleteElementTarget, setDeleteElementTarget] = useState<CreatedElement | null>(null);
+  const [deletingElementId, setDeletingElementId] = useState<string | null>(null);
 
   // ── Calibration points (received from canvas during calibration) ─────────────
   const [calibPtCount, setCalibPtCount] = useState<0 | 1 | 2>(0);
@@ -685,6 +676,59 @@ export function ProjectWorkspaceView({
 
   function handleSelectVariant(variant: WsConcreteMeasurement) {
     setSelectedVariantId((prev) => (prev === variant.id ? null : variant.id));
+  }
+
+  // Live Measurements row delete — local storage only, matches the same
+  // localStorage-first model the rest of the measurement data now uses.
+  // Handles both pending (not yet assigned) and already-assigned variants.
+  function handleDeleteVariant(variant: WsConcreteMeasurement) {
+    setSelectedVariantId((prev) => (prev === variant.id ? null : prev));
+
+    setConcreteMeasurements((prev) => {
+      if (!prev.some((v) => v.id === variant.id)) return prev;
+      const next = prev.filter((v) => v.id !== variant.id);
+      saveSession(projectId, { concreteMeasurements: next });
+      return next;
+    });
+
+    setElements((prev) => {
+      let changed = false;
+      const next = prev.map((el) => {
+        if (!el.variants.some((v) => v.id === variant.id)) return el;
+        changed = true;
+        return { ...el, variants: el.variants.filter((v) => v.id !== variant.id) };
+      });
+      if (!changed) return prev;
+      saveSession(projectId, { createdElements: next });
+      return next;
+    });
+  }
+
+  // Clears every row from the Live Measurements table — pending variants and
+  // every assigned element's variants — local storage only, per element record
+  // metadata (name/category) is kept, only the measurement data is wiped.
+  function handleClearAllVariants() {
+    const totalRows =
+      concreteMeasurements.length +
+      elements.reduce((s, el) => s + el.variants.length, 0);
+    if (totalRows === 0) return;
+    if (
+      !window.confirm(
+        "Clear all measurements from this table? This can't be undone.",
+      )
+    ) {
+      return;
+    }
+
+    setSelectedVariantId(null);
+    setConcreteMeasurements([]);
+    saveSession(projectId, { concreteMeasurements: [] });
+
+    setElements((prev) => {
+      const next = prev.map((el) => ({ ...el, variants: [] }));
+      saveSession(projectId, { createdElements: next });
+      return next;
+    });
   }
 
   // ── On mount: wipe stale backend-owned keys from localStorage AND live state ──
@@ -1791,6 +1835,47 @@ export function ProjectWorkspaceView({
     setDrawingsOpen(false);
   }
 
+  function handleDeleteElement(el: CreatedElement) {
+    setDeleteElementTarget(el);
+  }
+
+  async function handleConfirmDeleteElement() {
+    const el = deleteElementTarget;
+    if (!el) return;
+    setDeletingElementId(el.id);
+
+    // Each distinct canvas tool used by this element's variants was persisted
+    // as its own backend record (clientId `${elementId}-${tool}`) — delete
+    // every one of them so nothing lingers server-side.
+    if (el.sessionId) {
+      const tools = Array.from(new Set(el.variants.map((v) => v.canvas.tool)));
+      for (const tool of tools) {
+        try {
+          await deleteMeasurementElement({
+            sessionId: el.sessionId,
+            clientId: `${el.id}-${tool}`,
+          }).unwrap();
+        } catch (err) {
+          // 404 just means it was never persisted (e.g. still-pending variant) — ignore.
+          const status = (err as { status?: number })?.status;
+          if (status !== 404) {
+            toast.error(`Failed to delete "${el.name}" from the server.`);
+            setDeletingElementId(null);
+            return;
+          }
+        }
+      }
+    }
+
+    const updatedElements = elements.filter((e) => e.id !== el.id);
+    setElements(updatedElements);
+    saveSession(projectId, { createdElements: updatedElements });
+
+    toast.success(`"${el.name}" deleted`);
+    setDeletingElementId(null);
+    setDeleteElementTarget(null);
+  }
+
   async function handleViewBoq() {
     if (!activeSessionId) {
       toast.warning(
@@ -1853,6 +1938,12 @@ export function ProjectWorkspaceView({
   // Called only at element creation / assignment, never during drawing.
   // Each canvas mark is sent with its parent variant's concrete + rebar attributes.
 
+  // Bundles every variant of the same category into as few backend requests as
+  // possible (one per canvas tool) instead of one request per variant — e.g.
+  // three separately-drawn Pile Caps (PC1, PC2, PC3) become ONE POST with
+  // `attributes` as a parallel array and geometry's plural field (rectangles/
+  // polylines/pointGroups) holding each one's own points, matching the
+  // backend's documented multi-attribute payload shape.
   function persistVariantsToBackend(
     variants: WsConcreteMeasurement[],
     sessionId: string,
@@ -1874,85 +1965,113 @@ export function ProjectWorkspaceView({
       });
     }
 
+    // Legacy cleanup — pending placeholders are no longer pushed while drawing,
+    // but delete any stale one from before that change so it can't linger.
     for (const variant of variants) {
-      const variantMarks = allMeasurements.filter((m) =>
-        variant.canvas.measurementIds.includes(m.id),
-      );
-      const backendType = toBackendElementType(variant.measureType);
+      deleteMeasurementElement({ sessionId, clientId: variant.id });
+    }
 
-      // Flatten concreteFields values to numbers where possible, then spread them
-      // directly into attributes so the server's BOQ materializer can read them.
-      const flatFields = Object.fromEntries(
-        Object.entries(variant.concreteFields).map(([k, v]) => {
-          const n = parseFloat(v);
-          return [k, Number.isFinite(n) ? n : v];
-        }),
-      );
+    // Group by canvas tool — geometry type (and therefore what's valid to send)
+    // depends on the tool, so each group becomes its own bundled request.
+    const groups = new Map<"count" | "length" | "area", WsConcreteMeasurement[]>();
+    for (const variant of variants) {
+      const list = groups.get(variant.canvas.tool) ?? [];
+      list.push(variant);
+      groups.set(variant.canvas.tool, list);
+    }
 
-      // Snapshot is stored on every backend element so the hydration pass can
-      // reconstruct WsConcreteMeasurement objects without touching localStorage.
-      // measurementIds are canvas-local and meaningless after a page reload, so exclude them.
-      const _snapshot = JSON.stringify({
-        ...variant,
-        canvas: { ...variant.canvas, measurementIds: [] },
-      });
+    for (const [tool, groupVariants] of groups) {
+      const pointGroups: [number, number][][] = [];
+      const attributesList: Record<string, unknown>[] = [];
+      let color = "#f59e0b";
+      let page = groupVariants[0].pageNumber;
+      let backendType = toBackendElementType(groupVariants[0].measureType);
 
-      const sharedAttrs: Record<string, unknown> = {
-        elementId,
-        elementName,
-        elementCategory,
-        categoryFolder,
-        measurementUnit,
-        measureType: variant.measureType,
-        pending: false,
-        _snapshot,
-        ...flatFields,
-        reinforcement: rebarToReinforcement(variant.rebar),
-      };
+      for (const variant of groupVariants) {
+        const variantMarks = allMeasurements.filter((m) =>
+          variant.canvas.measurementIds.includes(m.id),
+        );
+        if (variantMarks.length === 0) continue;
 
-      // Derive color from the first canvas mark belonging to this variant
-      const color = variantMarks[0]?.color ?? "#f59e0b";
-
-      if (variant.canvas.tool === "count") {
-        // All count dots → one multipoint element keyed by variant id.
-        // This naturally overwrites the pending element (same clientId).
-        const points: [number, number][] = variantMarks
-          .filter((m): m is CountMark => m.type === "count")
-          .map((m) => [m.point.x, m.point.y]);
-
+        // A variant can carry more than one mark (e.g. two wall segments
+        // applied together) — flatten them into this variant's one slot in
+        // the bundle so the 1 variant : 1 attributes-entry mapping holds.
+        const points: [number, number][] =
+          tool === "count"
+            ? variantMarks
+                .filter((m): m is CountMark => m.type === "count")
+                .map((m) => toXY(m.point))
+            : variantMarks.flatMap((m) =>
+                m.type === "count" ? [] : m.points.map(toXY),
+              );
         if (points.length === 0) continue;
 
-        upsertMeasurementElement({
-          sessionId,
-          body: {
-            clientId: variant.id,
-            tool: "count",
-            label: variant.tag || variant.measureType,
-            mapsToElementType: backendType,
-            geometry: { type: "multipoint", points, page: variant.pageNumber },
-            style: { color, strokeWidth: 2 },
-            attributes: sharedAttrs,
-          },
+        // Flatten concreteFields values to numbers where possible, then spread
+        // them directly into attributes so the server's BOQ materializer can read them.
+        const flatFields = Object.fromEntries(
+          Object.entries(variant.concreteFields).map(([k, v]) => {
+            const n = parseFloat(v);
+            return [k, Number.isFinite(n) ? n : v];
+          }),
+        );
+
+        // Snapshot is stored on every backend element so the hydration pass can
+        // reconstruct WsConcreteMeasurement objects without touching localStorage.
+        // measurementIds are canvas-local and meaningless after a page reload, so exclude them.
+        const _snapshot = JSON.stringify({
+          ...variant,
+          canvas: { ...variant.canvas, measurementIds: [] },
         });
-      } else {
-        // Length / area: remove the pending placeholder (keyed by variant.id) first,
-        // then upsert one real element per canvas mark under its own mark id.
-        deleteMeasurementElement({ sessionId, clientId: variant.id });
-        for (const mark of variantMarks) {
-          const baseBody = measurementToBackendBody(mark);
-          upsertMeasurementElement({
-            sessionId,
-            body: {
-              ...baseBody,
-              label: variant.tag || variant.measureType,
-              mapsToElementType: backendType,
-              geometry: { ...baseBody.geometry!, page: variant.pageNumber },
-              style: { color, strokeWidth: 2 },
-              attributes: { ...sharedAttrs, variantId: variant.id },
-            },
-          });
-        }
+
+        pointGroups.push(points);
+        attributesList.push({
+          elementId,
+          elementName,
+          elementCategory,
+          categoryFolder,
+          measurementUnit,
+          measureType: variant.measureType,
+          variantId: variant.id,
+          pending: false,
+          _snapshot,
+          points,
+          ...flatFields,
+          reinforcement: rebarToReinforcement(variant.rebar),
+        });
+
+        color = variantMarks[0]?.color ?? color;
+        page = variant.pageNumber;
+        backendType = toBackendElementType(variant.measureType);
       }
+
+      if (pointGroups.length === 0) continue;
+
+      const geometry: MeasurementGeometry = {
+        type: tool === "count" ? "multipoint" : tool === "length" ? "polyline" : "polygon",
+        points: pointGroups.flat(),
+        page,
+      };
+      if (tool === "count") geometry.pointGroups = pointGroups;
+      if (tool === "length") geometry.polylines = pointGroups;
+      if (tool === "area") geometry.polygons = pointGroups;
+
+      const label = groupVariants[0].tag || groupVariants[0].measureType;
+
+      upsertMeasurementElement({
+        sessionId,
+        body: {
+          // Stable per element+tool so re-assigning the same element updates
+          // this same backend record instead of creating duplicates.
+          clientId: `${elementId}-${tool}`,
+          tool,
+          label,
+          mapsToElementType: backendType,
+          geometry,
+          style: { color, strokeWidth: 2 },
+          attributes:
+            attributesList.length === 1 ? attributesList[0] : attributesList,
+        },
+      });
     }
   }
 
@@ -2525,26 +2644,41 @@ export function ProjectWorkspaceView({
                               {expandedCategories.includes(category) && (
                                 <div className="ml-[19px] border-l border-slate-200 pl-3">
                                   {els.map((el) => (
-                                    <button
+                                    <div
                                       key={el.id}
-                                      onClick={() => handleElementClick(el)}
-                                      className="w-full block py-2 hover:bg-amber-50/60 transition-colors text-left group"
+                                      className="w-full flex items-center gap-1 hover:bg-amber-50/60 transition-colors group rounded"
                                     >
-                                      <div className="flex items-center gap-2">
-                                        <Folder className="w-3.5 h-3.5 text-slate-400 group-hover:text-amber-500 shrink-0 transition-colors" />
-                                        <span className="flex-1 min-w-0 text-[13px] font-bold text-slate-800 truncate group-hover:text-amber-700 transition-colors">
-                                          {el.name}
-                                        </span>
-                                        <ChevronRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-amber-400 shrink-0 transition-colors" />
-                                      </div>
-                                      <div className="flex items-center gap-1.5 mt-1 pl-[22px]">
-                                        <div className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
-                                        <span className="text-[12px] text-slate-500">
-                                          {el.variants.length} variant
-                                          {el.variants.length !== 1 ? "s" : ""}
-                                        </span>
-                                      </div>
-                                    </button>
+                                      <button
+                                        onClick={() => handleElementClick(el)}
+                                        className="flex-1 min-w-0 py-2 text-left"
+                                      >
+                                        <div className="flex items-center gap-2">
+                                          <Folder className="w-3.5 h-3.5 text-slate-400 group-hover:text-amber-500 shrink-0 transition-colors" />
+                                          <span className="flex-1 min-w-0 text-[13px] font-bold text-slate-800 truncate group-hover:text-amber-700 transition-colors">
+                                            {el.name}
+                                          </span>
+                                          <ChevronRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-amber-400 shrink-0 transition-colors" />
+                                        </div>
+                                        <div className="flex items-center gap-1.5 mt-1 pl-[22px]">
+                                          <div className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+                                          <span className="text-[12px] text-slate-500">
+                                            {el.variants.length} variant
+                                            {el.variants.length !== 1 ? "s" : ""}
+                                          </span>
+                                        </div>
+                                      </button>
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleDeleteElement(el);
+                                        }}
+                                        disabled={deletingElementId === el.id}
+                                        title="Delete element"
+                                        className="w-6 h-6 shrink-0 mr-1.5 inline-flex items-center justify-center rounded text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
                                   ))}
                                 </div>
                               )}
@@ -3178,6 +3312,8 @@ export function ProjectWorkspaceView({
               distanceUnit={distanceUnit}
               selectedVariantId={selectedVariantId}
               onSelectVariant={handleSelectVariant}
+              onDeleteVariant={handleDeleteVariant}
+              onClearAll={handleClearAllVariants}
             />
           )}
         </div>
@@ -3262,6 +3398,36 @@ export function ProjectWorkspaceView({
           onClose={() => setAssignModalOpen(false)}
           onContinue={handleAssignContinue}
         />
+
+        <AlertDialog
+          open={!!deleteElementTarget}
+          onOpenChange={(v) => { if (!v) setDeleteElementTarget(null); }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete element?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete &quot;{deleteElementTarget?.name}&quot; and all{" "}
+                {deleteElementTarget?.variants.length ?? 0} of its measurement variant
+                {deleteElementTarget?.variants.length !== 1 ? "s" : ""} from the project. This
+                cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={!!deletingElementId}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleConfirmDeleteElement();
+                }}
+                disabled={!!deletingElementId}
+                className="bg-red-500 hover:bg-red-600 text-white"
+              >
+                {deletingElementId ? "Deleting..." : "Delete"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         <ConfirmAssignmentModal
           open={confirmAssignOpen}
