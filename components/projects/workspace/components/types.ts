@@ -94,49 +94,67 @@ export function computeVolume(
 ): string {
   const n = (key: string) => parseFloat(fields[key] ?? "0") || 0;
   const pi = Math.PI;
+  let vol = 0;
 
   switch (measureType) {
     case "Piles": {
       const depth = n("depth");
       const diameter = n("diameter");
       const radius = diameter / 2;
-      const vol = pi * radius * radius * depth;
-      return vol > 0 ? vol.toFixed(3) : "0";
+      vol = pi * radius * radius * depth;
+      break;
     }
     case "Stud Column / Column in Foundation":
     case "Columns": {
       // Choice categories: count → length × width × height, area → traced area × height.
       if (canvas.tool === "area") {
-        const height = n("height");
-        const vol = canvas.area * height;
-        return vol > 0 ? vol.toFixed(3) : "0";
+        vol = canvas.area * n("height");
+      } else {
+        vol = n("length") * n("width") * n("height");
       }
-      const length = n("length");
-      const width = n("width");
-      const height = n("height");
-      const vol = length * width * height;
-      return vol > 0 ? vol.toFixed(3) : "0";
+      break;
     }
     case "Ground Beam / Raft":
     case "Floor Beams": {
-      const width = n("width");
-      const depth = n("depth");
-      const length = canvas.length;
-      const vol = width * depth * length;
-      return vol > 0 ? vol.toFixed(3) : "0";
+      vol = n("width") * n("depth") * canvas.length;
+      break;
     }
     case "Pile Cap":
     case "Column Base / Pad":
     case "Ground Floor Slab":
     case "Upper Floor Slab": {
-      const thickness = n("thickness");
-      const area = canvas.area;
-      const vol = thickness * area;
-      return vol > 0 ? vol.toFixed(3) : "0";
+      vol = n("thickness") * canvas.area;
+      break;
     }
-    default:
-      return "0";
   }
+
+  // Generic fallback — any measurement with Height, Width and Depth all
+  // recorded gets a volume even if its category has no dedicated formula above.
+  if (vol <= 0) {
+    const height = n("height");
+    const width = n("width");
+    const depth = n("depth");
+    if (height > 0 && width > 0 && depth > 0) {
+      vol = height * width * depth;
+    }
+  }
+
+  return vol > 0 ? vol.toFixed(3) : "0";
+}
+
+/**
+ * Derives an area value for a variant: the actual traced polygon area when
+ * the Area tool was used, otherwise a Height × Width fallback computed from
+ * whatever concrete fields were recorded for it (e.g. Window/Door openings).
+ */
+export function computeArea(
+  fields: Record<string, string>,
+  canvas: VariantCanvasMeasurement,
+): number {
+  if (canvas.tool === "area") return canvas.area;
+  const height = parseFloat(fields.height ?? "0") || 0;
+  const width = parseFloat(fields.width ?? "0") || 0;
+  return height > 0 && width > 0 ? height * width : 0;
 }
 
 /**

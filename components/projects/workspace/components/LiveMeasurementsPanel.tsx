@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronUp, Maximize2, Minimize2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Maximize2, Minimize2, Trash2, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { computeVolume } from "./types";
+import { computeArea, computeVolume } from "./types";
 import type { CreatedElement } from "./types";
 import type { WsConcreteMeasurement } from "../workspaceSession";
 
@@ -37,19 +37,28 @@ function VariantRow({
   inProgress,
   selected,
   onSelect,
+  onDelete,
 }: {
   variant: WsConcreteMeasurement;
   distanceUnit: string;
   inProgress: boolean;
   selected: boolean;
   onSelect: () => void;
+  onDelete: () => void;
 }) {
   const tool = variant.canvas.tool;
   const countDisplay = tool === "count" ? `${variant.canvas.count}` : "—";
   const lengthDisplay =
     tool === "length" ? `${variant.canvas.length.toFixed(2)} ${unitLabel(distanceUnit, false)}` : "—";
+  // Area tool → the actual traced polygon area. Any other tool → a Height × Width
+  // fallback from whatever concrete fields were recorded (e.g. Window/Door openings).
+  const computedArea = computeArea(variant.concreteFields, variant.canvas);
   const areaDisplay =
-    tool === "area" ? `${variant.canvas.area.toFixed(2)} ${unitLabel(distanceUnit, true)}` : "—";
+    tool === "area"
+      ? `${computedArea.toFixed(2)} ${unitLabel(distanceUnit, true)}`
+      : computedArea > 0
+        ? `${computedArea.toFixed(2)} m²`
+        : "—";
 
   return (
     <tr
@@ -85,6 +94,18 @@ function VariantRow({
       <td className={`px-3 py-2.5 text-[12px] ${selected ? "text-amber-700" : inProgress ? "text-blue-500" : "text-slate-600"}`}>
         {rebarDisplay(variant)}
       </td>
+      <td className="px-3 py-2.5 text-right">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          title="Delete this measurement"
+          className="w-6 h-6 inline-flex items-center justify-center rounded text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </td>
     </tr>
   );
 }
@@ -95,12 +116,14 @@ function MeasurementTable({
   distanceUnit,
   selectedVariantId,
   onSelectVariant,
+  onDeleteVariant,
 }: {
   elements: CreatedElement[];
   pendingVariants: WsConcreteMeasurement[];
   distanceUnit: string;
   selectedVariantId: string | null;
   onSelectVariant: (variant: WsConcreteMeasurement) => void;
+  onDeleteVariant: (variant: WsConcreteMeasurement) => void;
 }) {
   // Every individual variant gets its own row — no summing across a category.
   const assignedRows = elements.flatMap((el) => el.variants);
@@ -110,7 +133,7 @@ function MeasurementTable({
     <table className="w-full">
       <thead>
         <tr className="border-b border-slate-200 bg-slate-50/80">
-          {["Element", "Count", "Length", "Area", "Volume", "Rebar"].map((h) => (
+          {["Element", "Count", "Length", "Area", "Volume", "Rebar", ""].map((h) => (
             <th
               key={h}
               className="px-3 py-2 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400"
@@ -123,7 +146,7 @@ function MeasurementTable({
       <tbody>
         {!hasRows && (
           <tr>
-            <td colSpan={6} className="px-3 py-4 text-center text-[12px] text-slate-400 italic">
+            <td colSpan={7} className="px-3 py-4 text-center text-[12px] text-slate-400 italic">
               No measurements yet. Apply &amp; Continue to see rows here.
             </td>
           </tr>
@@ -136,6 +159,7 @@ function MeasurementTable({
             inProgress={false}
             selected={selectedVariantId === v.id}
             onSelect={() => onSelectVariant(v)}
+            onDelete={() => onDeleteVariant(v)}
           />
         ))}
         {pendingVariants.map((v) => (
@@ -146,6 +170,7 @@ function MeasurementTable({
             inProgress
             selected={selectedVariantId === v.id}
             onSelect={() => onSelectVariant(v)}
+            onDelete={() => onDeleteVariant(v)}
           />
         ))}
       </tbody>
@@ -161,6 +186,8 @@ export function LiveMeasurementsPanel({
   distanceUnit,
   selectedVariantId,
   onSelectVariant,
+  onDeleteVariant,
+  onClearAll,
 }: {
   elements: CreatedElement[];
   pendingVariants: WsConcreteMeasurement[];
@@ -170,6 +197,8 @@ export function LiveMeasurementsPanel({
   distanceUnit: string;
   selectedVariantId: string | null;
   onSelectVariant: (variant: WsConcreteMeasurement) => void;
+  onDeleteVariant: (variant: WsConcreteMeasurement) => void;
+  onClearAll: () => void;
 }) {
   const [collapsed, setCollapsed] = useState(true);
   const [expanded, setExpanded] = useState(false);
@@ -206,13 +235,24 @@ export function LiveMeasurementsPanel({
               : <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
             }
           </button>
-          <button
-            onClick={() => setExpanded(true)}
-            className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
-            title="Expand"
-          >
-            <Maximize2 className="w-3.5 h-3.5" />
-          </button>
+          <div className="flex items-center gap-1">
+            {totalRows > 0 && (
+              <button
+                onClick={onClearAll}
+                className="w-6 h-6 flex items-center justify-center rounded hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors"
+                title="Clear all measurements"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <button
+              onClick={() => setExpanded(true)}
+              className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+              title="Expand"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
         {/* Inline table — collapsed by default to preserve canvas space */}
@@ -224,6 +264,7 @@ export function LiveMeasurementsPanel({
               distanceUnit={distanceUnit}
               selectedVariantId={selectedVariantId}
               onSelectVariant={onSelectVariant}
+              onDeleteVariant={onDeleteVariant}
             />
           </div>
         )}
@@ -248,6 +289,7 @@ export function LiveMeasurementsPanel({
               distanceUnit={distanceUnit}
               selectedVariantId={selectedVariantId}
               onSelectVariant={onSelectVariant}
+              onDeleteVariant={onDeleteVariant}
             />
           </div>
           <div className="shrink-0 pt-3 border-t border-slate-100 flex items-center justify-between">
@@ -255,6 +297,14 @@ export function LiveMeasurementsPanel({
               {elements.length} element{elements.length !== 1 ? "s" : ""} assigned
               {pendingVariants.length > 0 && ` · ${pendingVariants.length} pending variant${pendingVariants.length !== 1 ? "s" : ""}`}
             </span>
+            {totalRows > 0 && (
+              <button
+                onClick={onClearAll}
+                className="text-[11px] font-semibold text-red-500 hover:text-red-700 transition-colors flex items-center gap-1"
+              >
+                <Trash2 className="w-3 h-3" /> Clear All
+              </button>
+            )}
           </div>
         </DialogContent>
       </Dialog>

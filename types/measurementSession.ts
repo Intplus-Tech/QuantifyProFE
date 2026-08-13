@@ -40,6 +40,16 @@ export interface MeasurementGeometry {
   points: [number, number][];
   page?: number;
   radius?: number;
+  // Multi-variant bundling — one entry per variant in the same order as the
+  // parallel `attributes` array, so several variants of the same element
+  // (e.g. PC1 + PC2) can go in a single request instead of one call each.
+  // Only `rectangles` is confirmed by the backend's docs (pile_cap_multi_attribute
+  // example); `polylines`/`pointGroups` follow the same convention as a
+  // best-effort extension — extra fields aren't rejected by the schema.
+  rectangles?: [number, number][][];
+  polylines?: [number, number][][];
+  polygons?: [number, number][][];
+  pointGroups?: [number, number][][];
 }
 
 export interface MeasurementComputed {
@@ -102,7 +112,10 @@ export interface UpsertElementBody {
   floorLabel?: string;
   geometry?: MeasurementGeometry;
   style?: { color?: string; strokeWidth?: number };
-  attributes?: Record<string, unknown>;
+  // A single object for one variant, or an array — one entry per variant,
+  // parallel to geometry's rectangles/polylines/pointGroups — when several
+  // variants of the same element are bundled into one request.
+  attributes?: Record<string, unknown> | Record<string, unknown>[];
 }
 
 export interface UpdateSessionStatusBody {
