@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Pencil, Trash2 } from "lucide-react";
 
 function parseNumber(raw: string): number | null {
   const cleaned = raw.replace(/[,\s₦]/g, "");
@@ -10,48 +9,14 @@ function parseNumber(raw: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function CellActions({
-  ariaLabel,
-  onEdit,
-  onDelete,
-  editing,
-}: {
-  ariaLabel: string;
-  onEdit: () => void;
-  onDelete: () => void;
-  editing: boolean;
-}) {
-  return (
-    <span className="ml-1 inline-flex shrink-0 items-center gap-0.5">
-      <button
-        type="button"
-        aria-label={`Edit ${ariaLabel}`}
-        title="Edit"
-        onClick={onEdit}
-        className={`rounded p-0.5 transition-colors ${
-          editing
-            ? "text-amber-600"
-            : "text-slate-300 hover:bg-amber-50 hover:text-amber-600"
-        }`}
-      >
-        <Pencil className="h-3 w-3" />
-      </button>
-      <button
-        type="button"
-        aria-label={`Clear ${ariaLabel}`}
-        title="Clear value"
-        onClick={onDelete}
-        className="rounded p-0.5 text-slate-300 transition-colors hover:bg-red-50 hover:text-red-500"
-      >
-        <Trash2 className="h-3 w-3" />
-      </button>
-    </span>
-  );
-}
+const boxCls =
+  "inline-flex min-w-[68px] items-center gap-0.5 rounded border border-[#bfe3e8] bg-[#f2fbfc] px-1.5 py-0.5 transition-colors focus-within:border-amber-400 focus-within:bg-white focus-within:ring-2 focus-within:ring-amber-100";
 
 interface EditableCellProps {
   value: number | null;
   onCommit: (next: number | null) => void;
+  /** When false the cell is plain text — the row is not in edit mode. */
+  editable?: boolean;
   dp?: number;
   prefix?: string;
   suffix?: string;
@@ -60,14 +25,10 @@ interface EditableCellProps {
   className?: string;
 }
 
-/**
- * Read-only at rest. The pencil unlocks this one cell for editing; the bin
- * clears just this cell. Committing (blur / Enter) locks it again, so only one
- * field is ever live at a time.
- */
 export function EditableCell({
   value,
   onCommit,
+  editable = true,
   dp = 2,
   prefix,
   suffix,
@@ -76,83 +37,61 @@ export function EditableCell({
   className = "",
 }: EditableCellProps) {
   const format = (v: number | null) => (v === null ? "" : v.toFixed(dp));
-  const [editing, setEditing] = useState(false);
   const [text, setText] = useState(format(value));
+  const [focused, setFocused] = useState(false);
 
   const alignment =
     align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
 
-  const startEditing = () => {
-    setText(format(value));
-    setEditing(true);
-  };
+  if (!editable) {
+    return (
+      <span
+        className={`block tabular-nums ${alignment} ${
+          value === null ? "text-slate-300" : "text-slate-700"
+        }`}
+      >
+        {value === null ? "--" : `${prefix ?? ""}${format(value)}${suffix ?? ""}`}
+      </span>
+    );
+  }
 
   const commit = () => {
     const next = parseNumber(text);
     if (next !== value) onCommit(next);
-    setEditing(false);
   };
 
   return (
-    <span className="inline-flex items-center">
-      <span
-        className={`inline-flex min-w-[68px] items-center gap-0.5 rounded border px-1.5 py-0.5 transition-colors ${
-          editing
-            ? "border-amber-400 bg-white ring-2 ring-amber-100"
-            : "border-transparent bg-transparent"
-        } ${className}`}
-      >
-        {prefix && <span className="shrink-0 text-[10px] text-slate-400">{prefix}</span>}
-
-        {editing ? (
-          <input
-            autoFocus
-            inputMode="decimal"
-            aria-label={ariaLabel}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onBlur={commit}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                e.currentTarget.blur();
-              }
-              if (e.key === "Escape") {
-                e.preventDefault();
-                setText(format(value));
-                setEditing(false);
-              }
-            }}
-            placeholder="0"
-            className={`w-full min-w-0 bg-transparent text-[11px] tabular-nums outline-none placeholder:text-slate-300 ${alignment}`}
-          />
-        ) : (
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={startEditing}
-            onKeyDown={(e) => e.key === "Enter" && startEditing()}
-            className={`w-full cursor-text text-[11px] tabular-nums ${alignment} ${
-              value === null ? "text-slate-300" : "text-slate-700"
-            }`}
-          >
-            {value === null ? "—" : format(value)}
-          </span>
-        )}
-
-        {suffix && <span className="shrink-0 text-[10px] text-slate-400">{suffix}</span>}
-      </span>
-
-      <CellActions
-        ariaLabel={ariaLabel}
-        editing={editing}
-        onEdit={startEditing}
-        onDelete={() => {
-          setText("");
-          setEditing(false);
-          if (value !== null) onCommit(null);
+    <span className={`${boxCls} ${className}`}>
+      {prefix && <span className="shrink-0 text-[10px] text-slate-400">{prefix}</span>}
+      <input
+        inputMode="decimal"
+        aria-label={ariaLabel}
+        value={focused ? text : format(value)}
+        onFocus={(e) => {
+          setFocused(true);
+          setText(format(value));
+          e.currentTarget.select();
         }}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => {
+          commit();
+          setFocused(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            e.currentTarget.blur();
+          }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            setText(format(value));
+            e.currentTarget.blur();
+          }
+        }}
+        placeholder="0"
+        className={`w-full min-w-0 bg-transparent text-[11px] tabular-nums outline-none placeholder:text-slate-300 ${alignment}`}
       />
+      {suffix && <span className="shrink-0 text-[10px] text-slate-400">{suffix}</span>}
     </span>
   );
 }
@@ -160,6 +99,7 @@ export function EditableCell({
 interface EditableTextCellProps {
   value: string;
   onCommit: (next: string) => void;
+  editable?: boolean;
   ariaLabel: string;
   className?: string;
 }
@@ -167,71 +107,39 @@ interface EditableTextCellProps {
 export function EditableTextCell({
   value,
   onCommit,
+  editable = true,
   ariaLabel,
   className = "",
 }: EditableTextCellProps) {
-  const [editing, setEditing] = useState(false);
   const [text, setText] = useState(value);
+  const [synced, setSynced] = useState(value);
 
-  const startEditing = () => {
+  // Adjust state during render rather than in an effect — the committed value
+  // can change underneath us when the row is saved elsewhere.
+  if (synced !== value) {
+    setSynced(value);
     setText(value);
-    setEditing(true);
-  };
+  }
 
-  const commit = () => {
-    if (text !== value) onCommit(text);
-    setEditing(false);
-  };
+  if (!editable) {
+    return <span className={className}>{value || "--"}</span>;
+  }
 
   return (
-    <span className="inline-flex items-center">
-      <span
-        className={`inline-flex min-w-[70px] rounded border px-1.5 py-0.5 transition-colors ${
-          editing
-            ? "border-amber-400 bg-white ring-2 ring-amber-100"
-            : "border-transparent bg-transparent"
-        } ${className}`}
-      >
-        {editing ? (
-          <input
-            autoFocus
-            aria-label={ariaLabel}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onBlur={commit}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") e.currentTarget.blur();
-              if (e.key === "Escape") {
-                setText(value);
-                setEditing(false);
-              }
-            }}
-            className="w-full min-w-0 bg-transparent text-[11px] outline-none"
-          />
-        ) : (
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={startEditing}
-            onKeyDown={(e) => e.key === "Enter" && startEditing()}
-            className={`w-full cursor-text text-[11px] ${
-              value ? "text-slate-700" : "text-slate-300"
-            }`}
-          >
-            {value || "—"}
-          </span>
-        )}
-      </span>
-
-      <CellActions
-        ariaLabel={ariaLabel}
-        editing={editing}
-        onEdit={startEditing}
-        onDelete={() => {
-          setText("");
-          setEditing(false);
-          if (value !== "") onCommit("");
+    <span className={`${boxCls} ${className}`}>
+      <input
+        aria-label={ariaLabel}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => text !== value && onCommit(text)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            setText(value);
+            e.currentTarget.blur();
+          }
         }}
+        className="w-full min-w-0 bg-transparent text-[11px] outline-none"
       />
     </span>
   );

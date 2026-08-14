@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation";
 import { useSelector } from "react-redux";
 import {
   BarChart3,
-  Frame,
   Home,
   LayoutDashboard,
   ReceiptText,
@@ -22,7 +21,6 @@ const NAV = [
   { slug: "boq", label: "Bill of Quantity", icon: ReceiptText },
   { slug: "materials", label: "Material Schedule", icon: BarChart3 },
   { slug: "bbs", label: "Bar Bending Schedule", icon: Waypoints },
-  { slug: "formwork", label: "Formwork Schedule", icon: Frame },
 ];
 
 export function ReportShell({

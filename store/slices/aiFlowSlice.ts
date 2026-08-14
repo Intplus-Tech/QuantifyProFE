@@ -307,12 +307,22 @@ const aiFlowSlice = createSlice({
       action: PayloadAction<{
         sectionId: string;
         itemId: string;
-        changes: Partial<{ qty: number; rate: number | null; concrete: number; rebar: number; formwork: number; excavation: number | null }>;
+        changes: Partial<{ label: string; descriptor: string; qty: number; rate: number | null; concrete: number; rebar: number; formwork: number; excavation: number | null }>;
       }>,
     ) {
       const section = state.boqSections.find((s) => s.id === action.payload.sectionId);
       const item = section?.items.find((i) => i.id === action.payload.itemId);
       if (item) Object.assign(item, action.payload.changes);
+    },
+
+    removeBoqItem(
+      state,
+      action: PayloadAction<{ sectionId: string; itemId: string }>,
+    ) {
+      const section = state.boqSections.find((s) => s.id === action.payload.sectionId);
+      if (section) {
+        section.items = section.items.filter((i) => i.id !== action.payload.itemId);
+      }
     },
 
     updateConcreteRow(
@@ -362,6 +372,36 @@ const aiFlowSlice = createSlice({
       if (row) Object.assign(row, action.payload.changes);
     },
 
+    removeConcreteRow(state, action: PayloadAction<string>) {
+      state.concreteSchedule = state.concreteSchedule.filter(
+        (r) => r.id !== action.payload,
+      );
+    },
+
+    removeRebarRow(state, action: PayloadAction<string>) {
+      state.rebarSchedule = state.rebarSchedule.filter((r) => r.id !== action.payload);
+    },
+
+    removeFormworkMaterialRow(state, action: PayloadAction<string>) {
+      state.formworkMaterial = state.formworkMaterial.filter(
+        (r) => r.id !== action.payload,
+      );
+    },
+
+    removeBbsRow(
+      state,
+      action: PayloadAction<{ groupId: string; rowId: string }>,
+    ) {
+      const group = state.bbsGroups.find((g) => g.id === action.payload.groupId);
+      if (group) group.rows = group.rows.filter((r) => r.id !== action.payload.rowId);
+    },
+
+    removeFormworkBreakdownRow(state, action: PayloadAction<string>) {
+      state.formworkBreakdown = state.formworkBreakdown.filter(
+        (r) => r.id !== action.payload,
+      );
+    },
+
     resetAiFlow(state) {
       state.drawings.forEach(revoke);
       return { ...initialState, drawings: [] };
@@ -388,11 +428,17 @@ export const {
   updateElementDimensions,
   setElementStatus,
   updateBoqItem,
+  removeBoqItem,
   updateConcreteRow,
+  removeConcreteRow,
   updateRebarRow,
+  removeRebarRow,
   updateFormworkMaterialRow,
+  removeFormworkMaterialRow,
   updateBbsRow,
+  removeBbsRow,
   updateFormworkBreakdownRow,
+  removeFormworkBreakdownRow,
   resetAiFlow,
 } = aiFlowSlice.actions;
 

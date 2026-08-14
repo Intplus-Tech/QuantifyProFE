@@ -1,14 +1,19 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { updateFormworkBreakdownRow } from "@/store/slices/aiFlowSlice";
+import { toast } from "sonner";
+import {
+  removeFormworkBreakdownRow,
+  updateFormworkBreakdownRow,
+} from "@/store/slices/aiFlowSlice";
 import type { RootState } from "@/store";
 import { fmt, fmtInt } from "../calc";
 import { EditableCell, EditableTextCell } from "../shared/EditableCell";
 import { exportToExcel, exportToPdf } from "../shared/export";
 import {
   ExportButtons,
+  RowActions,
   SectionCard,
   SummaryTiles,
   td,
@@ -34,6 +39,9 @@ export function FormworkScheduleView() {
   const { formworkBreakdown, projectMeta } = useSelector(
     (state: RootState) => state.aiFlow,
   );
+
+  // Only one row is editable at a time.
+  const [editingRowId, setEditingRowId] = useState<string | null>(null);
 
   const totals = useMemo(
     () =>
@@ -112,86 +120,132 @@ export function FormworkScheduleView() {
               <th className={`${th} text-right`}>Timber (m³)</th>
               <th className={`${th} text-right`}>Steel Props (Nos.)</th>
               <th className={th}>Striking Time</th>
+              <th className={`${th} text-center`}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {formworkBreakdown.map((row) => (
-              <tr key={row.id} className={trCls}>
-                <td className={`${td} font-medium`}>{row.element}</td>
-                <td className={td}>{row.type}</td>
-                <td className={tdNum}>
-                  <EditableCell
-                    value={row.area}
-                    ariaLabel={`${row.element} area`}
-                    onCommit={(area) =>
-                      dispatch(
-                        updateFormworkBreakdownRow({ id: row.id, changes: { area: area ?? 0 } }),
-                      )
-                    }
-                  />
-                </td>
-                <td className={tdNum}>
-                  <EditableCell
-                    value={row.plywoodSheets}
-                    dp={0}
-                    ariaLabel={`${row.element} plywood sheets`}
-                    onCommit={(plywoodSheets) =>
-                      dispatch(
-                        updateFormworkBreakdownRow({
-                          id: row.id,
-                          changes: { plywoodSheets: plywoodSheets ?? 0 },
-                        }),
-                      )
-                    }
-                  />
-                </td>
-                <td className={tdNum}>
-                  <EditableCell
-                    value={row.timber}
-                    dp={1}
-                    ariaLabel={`${row.element} timber`}
-                    onCommit={(timber) =>
-                      dispatch(
-                        updateFormworkBreakdownRow({
-                          id: row.id,
-                          changes: { timber: timber ?? 0 },
-                        }),
-                      )
-                    }
-                  />
-                </td>
-                <td className={tdNum}>
-                  <EditableCell
-                    value={row.steelProps}
-                    dp={0}
-                    ariaLabel={`${row.element} steel props`}
-                    onCommit={(steelProps) =>
-                      dispatch(
-                        updateFormworkBreakdownRow({
-                          id: row.id,
-                          changes: { steelProps: steelProps ?? 0 },
-                        }),
-                      )
-                    }
-                  />
-                </td>
-                <td className={td}>
-                  <EditableTextCell
-                    value={row.strikingTime}
-                    ariaLabel={`${row.element} striking time`}
-                    onCommit={(strikingTime) =>
-                      dispatch(
-                        updateFormworkBreakdownRow({ id: row.id, changes: { strikingTime } }),
-                      )
-                    }
-                  />
-                </td>
-              </tr>
-            ))}
+            {formworkBreakdown.map((row) => {
+              const editing = editingRowId === row.id;
+              return (
+                <tr
+                  key={row.id}
+                  className={`${trCls} ${editing ? "bg-amber-50/40" : ""}`}
+                >
+                  <td className={`${td} font-medium`}>
+                    <EditableTextCell
+                      value={row.element}
+                      editable={editing}
+                      ariaLabel={`${row.element} element`}
+                      onCommit={(element) =>
+                        dispatch(
+                          updateFormworkBreakdownRow({ id: row.id, changes: { element } }),
+                        )
+                      }
+                    />
+                  </td>
+                  <td className={td}>
+                    <EditableTextCell
+                      value={row.type}
+                      editable={editing}
+                      ariaLabel={`${row.element} type`}
+                      onCommit={(type) =>
+                        dispatch(updateFormworkBreakdownRow({ id: row.id, changes: { type } }))
+                      }
+                    />
+                  </td>
+                  <td className={tdNum}>
+                    <EditableCell
+                      value={row.area}
+                      editable={editing}
+                      ariaLabel={`${row.element} area`}
+                      onCommit={(area) =>
+                        dispatch(
+                          updateFormworkBreakdownRow({ id: row.id, changes: { area: area ?? 0 } }),
+                        )
+                      }
+                    />
+                  </td>
+                  <td className={tdNum}>
+                    <EditableCell
+                      value={row.plywoodSheets}
+                      editable={editing}
+                      dp={0}
+                      ariaLabel={`${row.element} plywood sheets`}
+                      onCommit={(plywoodSheets) =>
+                        dispatch(
+                          updateFormworkBreakdownRow({
+                            id: row.id,
+                            changes: { plywoodSheets: plywoodSheets ?? 0 },
+                          }),
+                        )
+                      }
+                    />
+                  </td>
+                  <td className={tdNum}>
+                    <EditableCell
+                      value={row.timber}
+                      editable={editing}
+                      dp={1}
+                      ariaLabel={`${row.element} timber`}
+                      onCommit={(timber) =>
+                        dispatch(
+                          updateFormworkBreakdownRow({
+                            id: row.id,
+                            changes: { timber: timber ?? 0 },
+                          }),
+                        )
+                      }
+                    />
+                  </td>
+                  <td className={tdNum}>
+                    <EditableCell
+                      value={row.steelProps}
+                      editable={editing}
+                      dp={0}
+                      ariaLabel={`${row.element} steel props`}
+                      onCommit={(steelProps) =>
+                        dispatch(
+                          updateFormworkBreakdownRow({
+                            id: row.id,
+                            changes: { steelProps: steelProps ?? 0 },
+                          }),
+                        )
+                      }
+                    />
+                  </td>
+                  <td className={td}>
+                    <EditableTextCell
+                      value={row.strikingTime}
+                      editable={editing}
+                      ariaLabel={`${row.element} striking time`}
+                      onCommit={(strikingTime) =>
+                        dispatch(
+                          updateFormworkBreakdownRow({ id: row.id, changes: { strikingTime } }),
+                        )
+                      }
+                    />
+                  </td>
+                  <td className={`${td} text-center`}>
+                    <RowActions
+                      editing={editing}
+                      label={row.element}
+                      onToggleEdit={() =>
+                        setEditingRowId((current) => (current === row.id ? null : row.id))
+                      }
+                      onDelete={() => {
+                        if (editing) setEditingRowId(null);
+                        dispatch(removeFormworkBreakdownRow(row.id));
+                        toast.success(`${row.element} removed`);
+                      }}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
 
             <tr className={totalRowCls}>
               <td className={td}>Total</td>
-              <td className={td}>—</td>
+              <td className={td}>--</td>
               <td className={`${tdNum} text-amber-600`}>{fmt(totals.area)}</td>
               <td className={tdNum}>{fmtInt(totals.plywoodSheets)}</td>
               <td className={tdNum}>{fmt(totals.timber, 1)}</td>
@@ -199,6 +253,7 @@ export function FormworkScheduleView() {
               <td className={td}>
                 {averageStrikingTime(formworkBreakdown.map((r) => r.strikingTime))}
               </td>
+              <td className={`${td} text-center`}>--</td>
             </tr>
           </tbody>
         </table>

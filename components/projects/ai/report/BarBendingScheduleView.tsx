@@ -1,14 +1,16 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { updateBbsRow } from "@/store/slices/aiFlowSlice";
+import { toast } from "sonner";
+import { removeBbsRow, updateBbsRow } from "@/store/slices/aiFlowSlice";
 import type { RootState } from "@/store";
 import { BAR_MASS_PER_M, bbsRowTotals, fmt, fmtInt } from "../calc";
-import { EditableCell } from "../shared/EditableCell";
+import { EditableCell, EditableTextCell } from "../shared/EditableCell";
 import { exportToExcel, exportToPdf, type ExportSheet } from "../shared/export";
 import {
   ExportButtons,
+  RowActions,
   SectionCard,
   SummaryTiles,
   td,
@@ -24,6 +26,9 @@ import type { BbsGroup } from "../types";
 export function BarBendingScheduleView() {
   const dispatch = useDispatch();
   const { bbsGroups, projectMeta } = useSelector((state: RootState) => state.aiFlow);
+
+  // Only one row across the whole schedule is editable at a time.
+  const [editingRowId, setEditingRowId] = useState<string | null>(null);
 
   const totals = useMemo(
     () => bbsRowTotals(bbsGroups.flatMap((g) => g.rows)),
@@ -74,6 +79,15 @@ export function BarBendingScheduleView() {
           key={group.id}
           group={group}
           defaultOpen={index === 0}
+          editingRowId={editingRowId}
+          onToggleEdit={(rowId) =>
+            setEditingRowId((current) => (current === rowId ? null : rowId))
+          }
+          onDelete={(rowId, label) => {
+            if (editingRowId === rowId) setEditingRowId(null);
+            dispatch(removeBbsRow({ groupId: group.id, rowId }));
+            toast.success(`${label} removed`);
+          }}
           onChange={(rowId, changes) =>
             dispatch(updateBbsRow({ groupId: group.id, rowId, changes }))
           }
@@ -86,20 +100,31 @@ export function BarBendingScheduleView() {
 function BbsGroupTable({
   group,
   defaultOpen,
+  editingRowId,
+  onToggleEdit,
+  onDelete,
   onChange,
 }: {
   group: BbsGroup;
   defaultOpen: boolean;
+  editingRowId: string | null;
+  onToggleEdit: (rowId: string) => void;
+  onDelete: (rowId: string, label: string) => void;
   onChange: (
     rowId: string,
-    changes: Partial<{ size: number; noBars: number; cutLength: number }>,
+    changes: Partial<{
+      size: number;
+      noBars: number;
+      cutLength: number;
+      shapeCode: string;
+    }>,
   ) => void;
 }) {
   const subtotal = bbsRowTotals(group.rows);
 
   return (
     <SectionCard title={group.title} badges={group.tags} defaultOpen={defaultOpen}>
-      <table className="w-full min-w-[760px]">
+      <table className="w-full min-w-[840px]">
         <thead className={theadCls}>
           <tr>
             <th className={th}>Bar Marks</th>
@@ -109,46 +134,76 @@ function BbsGroupTable({
             <th className={`${th} text-right`}>Total Length (m)</th>
             <th className={`${th} text-right`}>Weight (kg)</th>
             <th className={`${th} text-right`}>Shape Code</th>
+            <th className={`${th} text-center`}>Actions</th>
           </tr>
         </thead>
         <tbody>
-          {group.rows.map((row) => (
-            <tr key={row.id} className={trCls}>
-              <td className={`${td} font-mono font-medium`}>{row.barMark}</td>
-              <td className={tdNum}>
-                <EditableCell
-                  value={row.size}
-                  dp={0}
-                  ariaLabel={`${row.barMark} bar size`}
-                  onCommit={(size) => {
-                    const next = size ?? 0;
-                    if (!BAR_MASS_PER_M[next]) return;
-                    onChange(row.id, { size: next });
-                  }}
-                />
-              </td>
-              <td className={tdNum}>
-                <EditableCell
-                  value={row.noBars}
-                  dp={0}
-                  ariaLabel={`${row.barMark} number of bars`}
-                  onCommit={(noBars) => onChange(row.id, { noBars: noBars ?? 0 })}
-                />
-              </td>
-              <td className={tdNum}>
-                <EditableCell
-                  value={row.cutLength}
-                  ariaLabel={`${row.barMark} cut length`}
-                  onCommit={(cutLength) => onChange(row.id, { cutLength: cutLength ?? 0 })}
-                />
-              </td>
-              <td className={`${tdNum} font-medium`}>
-                {fmt(row.noBars * row.cutLength)}
-              </td>
-              <td className={tdNum}>{fmt(row.weight)}</td>
-              <td className={tdNum}>{row.shapeCode}</td>
-            </tr>
-          ))}
+          {group.rows.map((row) => {
+            const editing = editingRowId === row.id;
+            return (
+              <tr
+                key={row.id}
+                className={`${trCls} ${editing ? "bg-amber-50/40" : ""}`}
+              >
+                <td className={`${td} font-mono font-medium`}>{row.barMark}</td>
+                <td className={tdNum}>
+                  <EditableCell
+                    value={row.size}
+                    editable={editing}
+                    dp={0}
+                    ariaLabel={`${row.barMark} bar size`}
+                    onCommit={(size) => {
+                      const next = size ?? 0;
+                      if (!BAR_MASS_PER_M[next]) {
+                        toast.error(`${next}mm is not a standard bar size`);
+                        return;
+                      }
+                      onChange(row.id, { size: next });
+                    }}
+                  />
+                </td>
+                <td className={tdNum}>
+                  <EditableCell
+                    value={row.noBars}
+                    editable={editing}
+                    dp={0}
+                    ariaLabel={`${row.barMark} number of bars`}
+                    onCommit={(noBars) => onChange(row.id, { noBars: noBars ?? 0 })}
+                  />
+                </td>
+                <td className={tdNum}>
+                  <EditableCell
+                    value={row.cutLength}
+                    editable={editing}
+                    ariaLabel={`${row.barMark} cut length`}
+                    onCommit={(cutLength) =>
+                      onChange(row.id, { cutLength: cutLength ?? 0 })
+                    }
+                  />
+                </td>
+                <td className={`${tdNum} font-medium`}>
+                  {fmt(row.noBars * row.cutLength)}
+                </td>
+                <td className={tdNum}>{fmt(row.weight)}</td>
+                <td className={tdNum}>
+                  <EditableTextCell
+                    value={row.shapeCode}
+                    editable={editing}
+                    ariaLabel={`${row.barMark} shape code`}
+                    onCommit={(shapeCode) => onChange(row.id, { shapeCode })}
+                  />
+                </td>
+                <td className={`${td} text-center`}>
+                  <RowActions
+                    editing={editing}
+                    label={row.barMark}
+                    onToggleEdit={() => onToggleEdit(row.id)}
+                    onDelete={() => onDelete(row.id, row.barMark)}
+                  />
+                </td>
+              </tr>
+            );
+          })}
 
           <tr className={totalRowCls}>
             <td className={td} colSpan={4}>
@@ -156,7 +211,8 @@ function BbsGroupTable({
             </td>
             <td className={tdNum}>{fmt(subtotal.totalLength)}</td>
             <td className={`${tdNum} text-amber-600`}>{fmt(subtotal.weight)}</td>
-            <td className={tdNum}>—</td>
+            <td className={tdNum}>--</td>
+            <td className={`${td} text-center`}>--</td>
           </tr>
         </tbody>
       </table>

@@ -132,7 +132,7 @@ export function ExtractWorkspaceView({
         dashboardHref={dashboardHref}
         reportHref={reportHref}
         continueLaterHref={basePath}
-        reportLabel={hasExtracted ? "View BOQ" : "View Reports"}
+        reportLabel={hasExtracted ? "View Reports" : "View Reports"}
       />
 
       <div className="flex min-h-0 flex-1">
