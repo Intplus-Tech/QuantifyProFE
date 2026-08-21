@@ -40,6 +40,7 @@ export function DrawingCanvas({
   scale,
   rotation = 0,
   panEnabled = false,
+  onPanningChange,
   onPageCountResolved,
   measurementOverlay,
 }: {
@@ -51,6 +52,10 @@ export function DrawingCanvas({
   rotation?: 0 | 90 | 180 | 270;
   /** Click-and-drag panning — only offered when no measurement tool is actively drawing. */
   panEnabled?: boolean;
+  /** Fires whenever an active pan drag starts/stops — including middle-mouse
+   *  panning while a tool is active, so the measurement overlay's cursor
+   *  (rendered by the parent, on top of this component) can reflect it too. */
+  onPanningChange?: (panning: boolean) => void;
   onPageCountResolved: (id: string, numPages: number) => void;
   /** Konva measurement canvas — rendered only over PDF pages */
   measurementOverlay?: React.ReactNode;
@@ -90,6 +95,7 @@ export function DrawingCanvas({
       moved: false,
     };
     setIsPanning(true);
+    onPanningChange?.(true);
     el.setPointerCapture(e.pointerId);
   }
 
@@ -107,6 +113,7 @@ export function DrawingCanvas({
   function handlePanPointerUp() {
     panState.current = null;
     setIsPanning(false);
+    onPanningChange?.(false);
   }
 
   if (!drawing) {
@@ -129,7 +136,7 @@ export function DrawingCanvas({
         onPointerCancel={handlePanPointerUp}
         style={panEnabled ? { touchAction: "none" } : undefined}
         className={`flex items-start justify-center h-full overflow-auto p-6 ${
-          panEnabled ? (isPanning ? "cursor-grabbing" : "cursor-grab") : ""
+          isPanning ? "cursor-grabbing" : panEnabled ? "cursor-grab" : ""
         }`}
       >
         {/* Wrapper is inline so it sizes to the rendered page, not the scroll container.

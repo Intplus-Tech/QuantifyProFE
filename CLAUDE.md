@@ -71,7 +71,9 @@ Currency, Project Type, Project Phase, Duration (months), Description.
 
 ### Step 2 — Drawing References (`StepDrawings.tsx`)
 - Drag-and-drop via `react-dropzone`
-- **Max 10 files, 20 MB each**
+- **Max 10 files, 200 MB each** (client-side cap — but PDFs/images still route through the
+  backend's `/uploads` endpoint, which hard-caps at 50 MB; only CAD/BIM formats routed through
+  `/bim/upload` support up to 200 MB. See "Known Issues" below.)
 - Accepted formats: `.pdf` `.jpg` `.jpeg` `.png` `.rvt` `.ifc` `.nwd` `.skp` `.fbx` `.obj` `.dwg` `.dxf` `.dgn`
 - Per-file state machine: `queued → uploading (%) → processing → complete | error`
 - Upload is **simulated** — see swap point below
@@ -616,6 +618,7 @@ export function MultiFormatViewer({ url }: { url: string }) {
 | `app/layout.tsx` has a modification | `app/` | Review before next push |
 | Drawing upload is simulated | `StepDrawings.tsx` | Swap point clearly marked with TODO comment |
 | View BOQ finalize — exact failure mode unknown | `ProjectWorkspaceView.tsx` | Button now shows specific error toasts (404/400/5xx); user needs to report which one appears |
+| Client-side upload cap (200 MB) exceeds what PDFs/images can actually clear | `StepDrawings.tsx` | All files (PDF, image, CAD/BIM) upload through the generic `/uploads` endpoint, which the backend hard-caps at 50 MB. A 50–200 MB PDF/image will pass the dropzone check and then fail at upload time. Only CAD/BIM formats get true 200 MB support, and only via the separate `/bim/upload` endpoint (APS translation flow), which `StepDrawings.tsx` doesn't call. |
 
 ---
 

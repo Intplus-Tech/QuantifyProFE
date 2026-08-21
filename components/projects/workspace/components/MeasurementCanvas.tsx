@@ -116,6 +116,9 @@ export interface MeasurementCanvasProps {
   nextCountIndex: number;
   /** Changes whenever the active file or page changes — resets any in-progress drawing */
   pageKey: string;
+  /** True while the drawing is being click-dragged to pan — overrides the tool
+   *  cursor with "grabbing" so the hand icon shows even mid-drag with a tool active. */
+  isPanning?: boolean;
   /** Fires when calibration points change. ptCount = 0|1|2 */
   onCalibrationUpdate: (
     basePxDist: number | null,
@@ -140,6 +143,7 @@ export function MeasurementCanvas({
   highlightedIds,
   nextCountIndex,
   pageKey,
+  isPanning = false,
   onCalibrationUpdate,
   onMeasurementAdd,
   onLiveLength,
@@ -396,7 +400,13 @@ export function MeasurementCanvas({
       ref={containerRef}
       className="absolute inset-0"
       style={{
-        cursor: snapToClose ? "pointer" : isInteractive ? "crosshair" : "default",
+        cursor: isPanning
+          ? "grabbing"
+          : snapToClose
+            ? "pointer"
+            : isInteractive
+              ? "crosshair"
+              : "default",
         pointerEvents: isInteractive ? "all" : "none",
       }}
     >
