@@ -12,6 +12,7 @@ export interface Step2Data {
   projectPhase: string;
   durationMonths: string;
   description: string;
+  source: string;
 }
 
 // ─── Step 3 ──────────────────────────────────────────────────────────────────

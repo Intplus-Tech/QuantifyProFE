@@ -9,21 +9,28 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { SCALE_MEASURE_OPTIONS } from "./constants";
+import { SCALE_MEASURE_OPTIONS, ELEMENT_CONFIGS } from "./constants";
 
 export function ScaleSetupModal({
   open,
   measure,
   onMeasureChange,
+  measureChoice,
+  onMeasureChoiceChange,
   onCancel,
   onYes,
 }: {
   open: boolean;
   measure: string;
   onMeasureChange: (v: string) => void;
+  measureChoice: "count" | "area" | null;
+  onMeasureChoiceChange: (v: "count" | "area") => void;
   onCancel: () => void;
   onYes: () => void;
 }) {
+  const isChoiceCategory = ELEMENT_CONFIGS[measure]?.tool === "choice";
+  const canProceed = !isChoiceCategory || measureChoice !== null;
+
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onCancel(); }}>
       <DialogContent className="max-w-sm">
@@ -58,8 +65,36 @@ export function ScaleSetupModal({
             </Select>
           </div>
 
+          {isChoiceCategory && (
+            <div className="w-full space-y-1.5">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                How do you want to measure this?
+              </p>
+              <div className="flex items-center gap-3 w-full">
+                {(["count", "area"] as const).map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => onMeasureChoiceChange(c)}
+                    className={`flex-1 py-2 rounded-lg border text-sm font-semibold capitalize transition-colors ${
+                      measureChoice === c
+                        ? "bg-amber-500 border-amber-500 text-white"
+                        : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"
+                    }`}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center gap-3 w-full">
-            <Button onClick={onYes} className="flex-1 bg-amber-500 hover:bg-amber-600 text-white">
+            <Button
+              onClick={onYes}
+              disabled={!canProceed}
+              className="flex-1 bg-amber-500 hover:bg-amber-600 text-white disabled:opacity-40"
+            >
               Yes, I want to Scale
             </Button>
             <Button variant="outline" onClick={onCancel} className="flex-1">

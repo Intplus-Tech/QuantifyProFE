@@ -6,10 +6,18 @@ import { Button } from "@/components/ui/button";
 
 export function AssignmentCompleteModal({
   open,
+  elementName,
+  addedCount,
+  addedUnit,
+  newTotal,
   onClose,
   onViewElement,
 }: {
   open: boolean;
+  elementName: string;
+  addedCount: number;
+  addedUnit: string;
+  newTotal: number;
   onClose: () => void;
   onViewElement: () => void;
 }) {
@@ -22,14 +30,22 @@ export function AssignmentCompleteModal({
           </DialogTitle>
         </DialogHeader>
 
-        <p className="text-[13px] text-slate-600">Successfully added 12 Piles to:</p>
+        <p className="text-[13px] text-slate-600">
+          Successfully added{" "}
+          <span className="font-semibold text-amber-600">
+            {addedCount} {addedUnit}
+          </span>{" "}
+          to:
+        </p>
 
         <div className="border border-slate-200 rounded-xl p-4 space-y-1.5">
           <div className="flex items-center gap-2">
             <div className="w-5 h-5 border-2 border-slate-300 rounded shrink-0" />
-            <span className="text-sm font-semibold text-slate-800">Piles</span>
+            <span className="text-sm font-semibold text-slate-800">{elementName}</span>
           </div>
-          <p className="text-[12px] text-slate-500 pl-7">Now contains: 15 Piles + 2 Piles = 17 items</p>
+          <p className="text-[12px] text-slate-500 pl-7">
+            Now contains: {newTotal} {addedUnit}
+          </p>
         </div>
 
         <div className="flex items-center justify-end gap-3 pt-2">

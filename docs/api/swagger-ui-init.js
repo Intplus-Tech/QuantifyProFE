@@ -1,0 +1,20978 @@
+
+window.onload = function() {
+  // Build a system
+  var url = window.location.search.match(/url=([^&]+)/);
+  if (url && url.length > 1) {
+    url = decodeURIComponent(url[1]);
+  } else {
+    url = window.location.origin;
+  }
+  var options = {
+  "swaggerDoc": {
+    "openapi": "3.0.0",
+    "info": {
+      "title": "QuantifyPro API",
+      "version": "1.0.0",
+      "description": "QuantifyPro Backend REST API. All responses follow a consistent envelope format with `success`, `message`, `data`, and `timestamp` fields. Protected endpoints require a Bearer JWT token in the Authorization header."
+    },
+    "servers": [
+      {
+        "url": "https://quantifyprobe.onrender.com/api/v1",
+        "description": "Live"
+      },
+      {
+        "url": "http://localhost:5000/api/v1",
+        "description": "Development"
+      }
+    ],
+    "tags": [
+      {
+        "name": "Health",
+        "description": "Server health and status"
+      },
+      {
+        "name": "Auth",
+        "description": "Authentication — register, login, token refresh"
+      },
+      {
+        "name": "Users",
+        "description": "User profile management (CRUD)"
+      },
+      {
+        "name": "Uploads",
+        "description": "File upload and retrieval"
+      },
+      {
+        "name": "Takeoff",
+        "description": "Manual QS takeoff — element entry, calculation, and BOQ generation"
+      },
+      {
+        "name": "Logs",
+        "description": "Read-only ops endpoints for searching application, error, audit, integration, and HTTP logs. Authenticate with `x-api-key` (set `LOGS_API_KEY` on the server). Click **Authorize** above and paste the key under \"ApiKeyAuth\" — it will persist across page reloads."
+      },
+      {
+        "name": "AI Credits",
+        "description": "AI credit balance, history, and management."
+      },
+      {
+        "name": "BIM / BOQ Pipeline",
+        "description": "Autodesk Platform Services (APS) + Claude AI pipeline for extracting a\nprofessional Bill of Quantities (BOQ) from CAD/BIM building files.\n\n---\n\n## Supported File Types\n\n| Extension | Type    | Format                        | Notes |\n|-----------|---------|-------------------------------|-------|\n| `.rvt`    | 3D BIM  | Autodesk Revit                | Best for BOQ — full element properties (Category, Family, Type, Volume, Area) |\n| `.ifc`    | 3D BIM  | Industry Foundation Classes   | Open BIM standard; rich geometry + classification |\n| `.nwd`    | 3D BIM  | Navisworks Document           | Aggregated 3D model with properties |\n| `.skp`    | 3D BIM  | SketchUp                      | 3D model with component data |\n| `.fbx`    | 3D BIM  | Autodesk FBX                  | 3D exchange format |\n| `.obj`    | 3D BIM  | Wavefront OBJ                 | Basic 3D geometry (limited properties) |\n| `.dwg`    | 2D CAD  | AutoCAD Drawing               | Layer-based 2D drawings; property richness depends on authoring |\n| `.dxf`    | 2D CAD  | Drawing Exchange Format       | AutoCAD interchange format |\n| `.dgn`    | 2D CAD  | MicroStation Design            | Bentley 2D/3D drawings |\n\n> **PDF files are NOT supported.** APS renders them as raster images with no property\n> database. Use the **AI PDF BOQ** pipeline (`/api/v1/pdf-boq/`) for PDF drawings instead.\n\n---\n\n## 2D / 3D Auto-Detection\n\nThe system **automatically detects** whether the uploaded file is a 2D CAD drawing or a\n3D BIM model and applies a format-specific extraction strategy:\n\n| Detection Method | Details |\n|------------------|---------|\n| **File extension** | `.rvt`, `.ifc`, `.nwd`, `.skp`, `.fbx`, `.obj` → always **3D BIM** |\n| **APS manifest**   | For ambiguous extensions (`.dwg`, `.dxf`, `.dgn`), checks if translation produced 3D derivatives |\n| **Fallback**       | Defaults to **2D CAD** if no 3D signal found |\n\n**3D BIM extraction:** Uses **Category** (e.g. Walls, Floors, Windows) as primary grouping,\nextracts Family/Type Name for richer specification, trusts APS-reported units directly.\n\n**2D CAD extraction:** Uses **Layer** as primary grouping, applies mm→m conversion heuristics\n(common for Nigerian-authored AutoCAD files), extracts hatch patterns as material indicators.\n\n> **Tip:** Pass the `originalFilename` (e.g. `\"Building.rvt\"`) in the BOQ submit request body\n> so the system can use extension-based detection. If omitted, it falls back to the APS\n> manifest analysis which is still reliable but slightly less deterministic for `.dwg` files.\n\n---\n\n## Frontend Integration Guide\n\n### Step-by-step flow:\n\n```\n┌─────────────────────────────────────────────────────────────┐\n│  1. POST /upload            Upload file → get URN          │\n│         ↓                                                  │\n│  2. GET /status/:urn        Poll every 5-10s               │\n│         ↓ (status === \"success\")                           │\n│  3. POST /boq/:urn          Submit BOQ job → get jobId     │\n│         ↓                                                  │\n│  4. GET /jobs/:jobId        Poll every 3-5s                │\n│         ↓ (status === \"completed\")                         │\n│  5. Display BOQ from data.result                           │\n│         ↓                                                  │\n│  6. (Optional) PATCH /jobs/:jobId     Edit BOQ result      │\n│  7. (Optional) GET /jobs/:jobId/pdf   Download as PDF      │\n│  8. (Optional) POST /jobs/:jobId/create-project            │\n└─────────────────────────────────────────────────────────────┘\n```\n\n### Frontend pseudo-code:\n\n```javascript\n// 1. Upload — store the returned URN and originalFilename\nconst upload = await POST('/bim/upload', formData);  // multipart\nconst urn = upload.data.urn;\nconst filename = file.name;  // e.g. \"Building.rvt\"\n\n// 2. Poll translation status\nlet status;\ndo {\n  await sleep(5000);\n  status = await GET(`/bim/status/${urn}`);\n} while (['pending', 'inprogress'].includes(status.data.status));\nif (status.data.status !== 'success') throw new Error('Translation failed');\n\n// 3. Submit BOQ job — pass originalFilename for 2D/3D detection\nconst job = await POST(`/bim/boq/${urn}`, {\n  documentHint: 'Residential tower, Lagos',\n  originalFilename: filename,\n});\nconst jobId = job.data.jobId;\n\n// 4. Poll job status\nlet result;\ndo {\n  await sleep(3000);\n  result = await GET(`/bim/jobs/${jobId}`);\n} while (['pending', 'processing'].includes(result.data.status));\nif (result.data.status !== 'completed') throw new Error(result.data.errorMessage);\n\n// 5. Display/edit the BOQ\ndisplayBoq(result.data.result);  // { projectTitle, sections, generalNotes }\n\n// 6. (Optional) Save user edits\nawait PATCH(`/bim/jobs/${jobId}`, editedBoqResult);\n\n// 7. (Optional) Download PDF\nconst pdf = await GET(`/bim/jobs/${jobId}/pdf`, { responseType: 'blob' });\n\n// 8. (Optional) Create project\nawait POST(`/bim/jobs/${jobId}/create-project`, { name: 'My Project' });\n```\n"
+      },
+      {
+        "name": "Clients",
+        "description": "Manage clients (contacts who receive BOQ / project deliverables).\nBoth solo and enterprise users can create clients. Clients do not have\nlogin credentials — they are passive records associated with projects.\n"
+      },
+      {
+        "name": "Dashboard",
+        "description": "Account-level dashboard summary (project value, counts, plan info)."
+      },
+      {
+        "name": "Document Processing",
+        "description": "AI-powered document analysis for quantity surveying."
+      },
+      {
+        "name": "Measurement Sessions",
+        "description": "Manual, canvas-based BOQ measurement — an additive flow that runs alongside\n(and independently of) the spreadsheet-style Takeoff flow.\n\n---\n\n## Overview\n\nA **measurement session** is opened against an uploaded drawing. Users draw\nmeasurement elements directly on a canvas (counting piles, measuring lengths,\nareas, rebar bends, etc.). Sessions are **resumable** — a user can close the\ntab and come back later to continue on the same drawing. Sessions may be\n**collaborative**: multiple project members can join the same session over\nSocket.IO and see each other's cursors and element changes in real time.\n\nWhen measuring is complete, the session is **finalized** — its elements are\nmaterialized into `TakeoffElement`s and (optionally) run through the existing\ntakeoff commit to produce a BOQ. The underlying takeoff / BOQ engine is reused\nunchanged.\n\n---\n\n## Access control\n\nEvery endpoint is scoped to a project. A caller may access a session when they\nare either the **project owner** or an **active project member**. Finalization\nmaterializes elements under the project owner's account so existing takeoff\nownership rules continue to apply.\n\n---\n\n## Calibration & measurement\n\nGeometry points are stored in **canvas pixels**. A `calibration` reference\n(a line of known real-world length + its pixel length) derives `scale`\n(real-world units per pixel). The server recomputes lengths/areas\nauthoritatively; if calibration changes, all existing elements are recomputed.\n\n---\n\n## Realtime (Socket.IO)\n\nConnect with a JWT (`auth.token`) and use these events (rooms are keyed\n`measurement:<sessionId>`):\n\n| Event (client → server)          | Payload                                   | Effect                                   |\n|----------------------------------|-------------------------------------------|------------------------------------------|\n| `measurement:join`               | `{ sessionId }`                           | Join room; returns session + elements    |\n| `measurement:leave`              | `{ sessionId }`                           | Leave room                               |\n| `measurement:cursor`             | `{ sessionId, x, y }`                     | Broadcast cursor (ephemeral, not saved)  |\n| `measurement:element:upsert`     | `{ sessionId, element }`                  | Persist + broadcast element              |\n| `measurement:element:delete`     | `{ sessionId, clientId }`                 | Delete + broadcast                       |\n| `measurement:canvas`             | `{ sessionId, canvas }`                   | Persist + broadcast canvas/calibration   |\n\nServer → client: `measurement:presence`, `measurement:cursor`,\n`measurement:element:upserted`, `measurement:element:deleted`,\n`measurement:canvas:updated`, `measurement:error`.\n\n---\n\n## Frontend flow\n\n```\n1. POST  /uploads                                     Upload the drawing\n2. POST  /projects/:projectId/measurement-sessions    Open (or resume) a session\n3. Socket measurement:join                            Join for realtime collab\n4. draw → measurement:element:upsert / REST elements  Persist measurements\n5. GET   /measurement-sessions/:id                    Re-hydrate on return\n6. POST  /measurement-sessions/:id/finalize           Prepare the BOQ\n```\n"
+      },
+      {
+        "name": "Multi-File BOQ (RAG)",
+        "description": "AI-powered Bill of Quantities generation from **multiple BIM and/or PDF files**\ncombined via RAG (Retrieval-Augmented Generation) using vector search.\n\nUnlike the single-file BIM and PDF BOQ pipelines, this endpoint accepts\n**a mix of BIM (RVT, IFC, DWG, etc.) and PDF files** in one request.\nAll files are processed in parallel, their data is embedded into a vector\nstore, and Claude generates a unified BOQ by semantically searching across\nall source data.\n\n---\n\n## When to Use Multi-File vs Single-File\n\n| Scenario | Use |\n|----------|-----|\n| Single BIM/CAD file with no PDFs | **BIM Pipeline** (`/api/v1/bim/`) |\n| Single PDF drawing | **PDF BOQ** (`/api/v1/pdf-boq/`) |\n| Multiple BIM files (e.g. Architectural + Structural + MEP) | **Multi-File BOQ** (`/api/v1/boq/`) |\n| Mix of BIM + PDF specification docs | **Multi-File BOQ** |\n| BIM model + PDF bill of materials | **Multi-File BOQ** |\n\n---\n\n## Supported File Types\n\n| Extension | Category | Format |\n|-----------|----------|--------|\n| `.rvt`    | BIM      | Autodesk Revit |\n| `.ifc`    | BIM      | Industry Foundation Classes |\n| `.dwg`    | BIM/CAD  | AutoCAD Drawing |\n| `.dxf`    | BIM/CAD  | Drawing Exchange Format |\n| `.nwd`    | BIM      | Navisworks Document |\n| `.dgn`    | BIM/CAD  | MicroStation Design |\n| `.skp`    | BIM      | SketchUp |\n| `.obj`    | BIM      | Wavefront OBJ |\n| `.fbx`    | BIM      | Autodesk FBX |\n| `.3dm`    | BIM      | Rhino 3D Model |\n| `.stp`/`.step` | BIM | STEP CAD Exchange |\n| `.sat`    | BIM      | ACIS SAT |\n| `.f3d`    | BIM      | Fusion 360 |\n| `.pdf`    | PDF      | PDF Drawing / Specification |\n\n---\n\n## Frontend Integration Guide\n\n```\n┌───────────────────────────────────────────────────────────────┐\n│  1. POST /multi-generate       Upload files → get jobId      │\n│         ↓                                                    │\n│  2. GET /multi-jobs/:jobId     Poll every 5-10s              │\n│         ↓ (status === \"completed\")                           │\n│  3. Display BOQ from data.result                             │\n│         ↓                                                    │\n│  4. (Optional) PATCH /multi-jobs/:jobId    Save user edits   │\n│  5. (Optional) GET /multi-jobs/:jobId/pdf  Download PDF      │\n│  6. (Optional) POST /multi-jobs/:jobId/create-project        │\n└───────────────────────────────────────────────────────────────┘\n```\n\n### Frontend pseudo-code:\n\n```javascript\n// 1. Upload multiple files\nconst formData = new FormData();\nfiles.forEach(f => formData.append('files', f));\nformData.append('documentHint', 'Mixed-use residential + commercial, 8 floors, Abuja');\nconst upload = await POST('/boq/multi-generate', formData);  // multipart\nconst jobId = upload.data.jobId;\n\n// 2. Poll job status\nlet result;\ndo {\n  await sleep(5000);\n  result = await GET(`/boq/multi-jobs/${jobId}`);\n} while (['pending', 'extracting', 'embedding', 'generating'].includes(result.data.status));\nif (result.data.status !== 'completed') throw new Error(result.data.errorMessage);\n\n// 3. Display the BOQ\ndisplayBoq(result.data.result);\n\n// 4-6. Same as single-file flows\n```\n\n---\n\n## Processing Stages\n\n| Status       | What's Happening |\n|-------------|------------------|\n| `pending`    | Job queued, files received |\n| `extracting` | BIM files translating via APS; PDFs being read by Claude Vision |\n| `embedding`  | Extracted data being vectorized via Voyage AI embeddings |\n| `generating` | Claude generating unified BOQ via RAG (vector search) |\n| `completed`  | ✅ BOQ ready |\n| `failed`     | ❌ Error — check `errorMessage` |\n\n---\n\n## Limits\n\n- **Max files:** 20 per request\n- **Max file size:** 200 MB per file (BIM) / 32 MB (PDF)\n- **Accepted formats:** BIM + PDF (see table above)\n- **Job expiry:** 7 days (create a project to persist permanently)\n"
+      },
+      {
+        "name": "AI PDF BOQ",
+        "description": "AI-powered Bill of Quantities extraction from **PDF construction drawings**.\n\nClaude reads every page of the PDF visually (no OCR — direct vision model)\nand returns a structured, professional BOQ. This works with scanned drawings,\narchitectural plans, structural details, and specification documents.\n\n---\n\n## When to Use This vs BIM Pipeline\n\n| Scenario | Use |\n|----------|-----|\n| You have the original BIM/CAD file (RVT, IFC, DWG, etc.) | Use **BIM Pipeline** (`/api/v1/bim/`) — property data yields more accurate quantities |\n| You only have a PDF drawing (scan, export, or print) | Use **PDF BOQ** (`/api/v1/pdf-boq/`) — Claude reads the drawing visually |\n| Client sent you a PDF specification document | Use **PDF BOQ** |\n\n---\n\n## Frontend Integration Guide\n\n### Step-by-step flow:\n\n```\n┌─────────────────────────────────────────────────────────────┐\n│  1. POST /generate            Upload PDF → get jobId       │\n│         ↓                                                  │\n│  2. GET /jobs/:jobId          Poll every 3-5s              │\n│         ↓ (status === \"completed\")                         │\n│  3. Display BOQ from data.result                           │\n│         ↓                                                  │\n│  4. (Optional) PATCH /jobs/:jobId     Save user edits      │\n│  5. (Optional) GET /jobs/:jobId/pdf   Download as PDF      │\n│  6. (Optional) POST /jobs/:jobId/create-project            │\n└─────────────────────────────────────────────────────────────┘\n```\n\n### Frontend pseudo-code:\n\n```javascript\n// 1. Upload PDF\nconst formData = new FormData();\nformData.append('file', pdfFile);\nformData.append('documentHint', 'Residential development, 4 floors, Lagos');\nconst upload = await POST('/pdf-boq/generate', formData);  // multipart\nconst jobId = upload.data.jobId;\n\n// 2. Poll job status\nlet result;\ndo {\n  await sleep(3000);\n  result = await GET(`/pdf-boq/jobs/${jobId}`);\n} while (['pending', 'processing'].includes(result.data.status));\nif (result.data.status !== 'completed') throw new Error(result.data.errorMessage);\n\n// 3. Display the BOQ\ndisplayBoq(result.data.result);  // { projectTitle, sections, generalNotes }\n\n// 4. (Optional) Save user edits\nawait PATCH(`/pdf-boq/jobs/${jobId}`, editedBoqResult);\n\n// 5. (Optional) Download PDF\nconst pdf = await GET(`/pdf-boq/jobs/${jobId}/pdf`, { responseType: 'blob' });\n\n// 6. (Optional) Create project\nawait POST(`/pdf-boq/jobs/${jobId}/create-project`, { name: 'My Project' });\n```\n\n---\n\n## Limits\n\n- **Max file size:** 32 MB\n- **Max pages:** ~100 pages (Claude vision API limit)\n- **Accepted format:** PDF only (`.pdf`)\n- **Job expiry:** 7 days (create a project to persist permanently)\n"
+      },
+      {
+        "name": "Plans",
+        "description": "Subscription plan management (CRUD for admins, read for all)."
+      },
+      {
+        "name": "Projects",
+        "description": "Project lifecycle — create, configure, and manage QS projects.\n\n---\n\n## Overview\n\nA **Project** is the top-level entity that groups all quantity surveying work.\nIt is created via `POST /projects` and then enriched through a multi-step\nsetup wizard before the user enters the takeoff workspace.\n\n---\n\n## Manual-Mode Project Setup Wizard\n\nFor `processingMode: manual` projects, the frontend walks the user through\nthese steps (each backed by a dedicated endpoint):\n\n```\n┌───────────────────────────────────────────────────────────────────────┐\n│  Step 1 — POST /projects                                            │\n│           Create the project (name, source, processingMode, etc.)    │\n│                          ↓                                          │\n│  Step 2 — PATCH /takeoff/{projectId}/qs-config                      │\n│           Select QS project type, foundation types, swimming pool,   │\n│           number of floors, lift option, global rebar/concrete       │\n│           defaults (see Takeoff tag for full docs)                   │\n│                          ↓                                          │\n│  Step 3 — PUT /takeoff/{projectId}/structural-scope/{foundationType}│\n│           Configure structural scope per foundation type             │\n│           (see Structural Scope tag for full docs)                   │\n│                          ↓                                          │\n│  Step 4 — PATCH /projects/{projectId}/finishing                      │\n│           Set finishing specs, floor & wall tile types               │\n│                          ↓                                          │\n│  Step 5 — PATCH /projects/{projectId}/metrics                       │\n│           Set financial metrics (markup, retention, contingency)     │\n│                          ↓                                          │\n│  Workspace — Takeoff element CRUD + calculation (Takeoff tag)        │\n└───────────────────────────────────────────────────────────────────────┘\n```\n\n### Other endpoints in this tag\n\n| Endpoint | Purpose |\n|---|---|\n| `PATCH /projects/{id}` | General-purpose update (metadata, status, client info, dashboard fields) |\n| `POST /projects/{id}/boq/save-to-library` | Promote a BOQ row to a library item |\n| `PATCH /projects/{id}/archive` | Soft-archive (reversible, blocks mutations) |\n| `DELETE /projects/{id}` | Permanent deletion (owner only, irreversible) |\n| `GET /projects/{id}/dashboard` | Computed project dashboard summary |\n| `GET /projects/{id}/activity` | Recent project activity feed |\n\n---\n\n## Statuses\n\n| Status | Meaning |\n|---|---|\n| `draft` | Default — project is being set up |\n| `active` | Project is in use |\n| `archived` | Soft-archived — read-only, no mutations allowed |\n\n---\n\n## Error Handling\n\n| HTTP | Condition |\n|---|---|\n| 400 | Validation error (bad enum, missing required field) |\n| 401 | Missing or expired JWT token |\n| 403 | Caller lacks access, or project is archived |\n| 404 | Project not found or not owned by the user |\n"
+      },
+      {
+        "name": "Structural Scope",
+        "description": "Per-foundation-type material and construction configuration for manual-mode projects.\n\n---\n\n## Overview\n\nThe Structural Scope module captures material specs, casting methods, and formwork\ndetails for each foundation type selected on the project. It is Step 3 of the\nmanual-mode project wizard and feeds into the takeoff calculation engine.\n\nEach foundation type gets its own scope document keyed by `{projectId, foundationType}`.\nThe visible tabs depend on the foundation type:\n\n| Foundation Type              | Available Tabs                                                        |\n|------------------------------|-----------------------------------------------------------------------|\n| `pile`                       | Pile System & Concrete Details, Superstructure                        |\n| `raft`                       | Superstructure                                                        |\n| `strip`                      | Superstructure                                                        |\n| `raft_pile_with_basement`    | Pile System & Concrete Details, Blinding, Substructure, Superstructure|\n\n---\n\n## Data Sections\n\n- **Pile Specification**: Concrete grade, casting method, pile dimensions, rebar details.\n  Only relevant for `pile` and `raft_pile_with_basement` foundation types.\n- **Blinding Elements**: Per-element blinding layer configuration (grade, thickness, waste).\n  Only relevant for `raft_pile_with_basement`.\n- **Substructure Filling**: Total filling, laterite, and hardcore thickness + waste.\n  Only relevant for `raft_pile_with_basement`.\n- **Substructure Elements**: Per-element concrete, formwork, waterproofing config.\n  Only relevant for `raft_pile_with_basement`.\n- **Superstructure Elements**: Per-element concrete, casting, waterproofing config.\n  Relevant for all foundation types except `piling_alone` projects.\n- **Finishing Elements**: Per-element concrete, casting, waterproofing config for finishing works.\n  Relevant for all foundation types.\n\n---\n\n## Frontend Integration\n\n```\n┌──────────────────────────────────────────────────────────────────────────┐\n│  1. User selects foundation type in Step 2 (QS Config)                  │\n│         ↓                                                               │\n│  2. GET /:projectId/structural-scope/:foundationType                    │\n│         → Load saved scope config (or start fresh if 404)               │\n│         ↓                                                               │\n│  3. User fills in tabs (Pile System, Blinding, Substructure, etc.)      │\n│         ↓                                                               │\n│  4. PUT /:projectId/structural-scope/:foundationType                    │\n│         → Save/update the entire scope config for that foundation type  │\n│         ↓ (repeat per foundation type)                                  │\n│                                                                         │\n│  5. GET /:projectId/structural-scope                                    │\n│         → List all saved scope configs (summary view)                   │\n│                                                                         │\n│  6. DELETE /:projectId/structural-scope/:foundationType                 │\n│         → Remove a scope config (e.g., user removes a foundation type)  │\n└──────────────────────────────────────────────────────────────────────────┘\n```\n\n---\n\n## Error Handling\n\n| HTTP | Condition                                                              |\n|------|------------------------------------------------------------------------|\n| 400  | Invalid foundation type, validation error                              |\n| 401  | Missing or expired JWT token                                           |\n| 403  | Project is archived — no mutations allowed                              |\n| 404  | Project not found, scope not found, or foundation type not on project  |\n"
+      },
+      {
+        "name": "Templates",
+        "description": "Manage BOQ templates — reusable Bill of Quantities blueprints.\n\n**System templates** are curated by administrators and visible to all users\n(e.g. \"Residential Building\", \"Commercial Office Fit-out\").\n\n**Organization templates** are company-scoped and only visible to the\ncompany owner and active team members of the owning company. They can be\ncreated from scratch or derived from an existing project.\n\nUse `POST /templates/:templateId/use` to create a new project pre-populated\nwith the template's BOQ data.\n"
+      }
+    ],
+    "components": {
+      "securitySchemes": {
+        "bearerAuth": {
+          "type": "http",
+          "scheme": "bearer",
+          "bearerFormat": "JWT",
+          "description": "Enter your JWT access token (without the \"Bearer \" prefix)."
+        },
+        "ApiKeyAuth": {
+          "type": "apiKey",
+          "in": "header",
+          "name": "x-api-key",
+          "description": "Static API key for the Logs endpoints. Configure via the `LOGS_API_KEY` environment variable. Use this for ops/observability access without going through the user signup flow."
+        }
+      },
+      "parameters": {
+        "LogsPage": {
+          "in": "query",
+          "name": "page",
+          "schema": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 1
+          },
+          "example": 1
+        },
+        "LogsLimit": {
+          "in": "query",
+          "name": "limit",
+          "schema": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "default": 20
+          },
+          "example": 20
+        },
+        "LogsFrom": {
+          "in": "query",
+          "name": "from",
+          "description": "ISO 8601 datetime or YYYY-MM-DD. Inclusive lower bound on `createdAt`.",
+          "schema": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "example": "2026-02-18T00:00:00.000Z"
+        },
+        "LogsTo": {
+          "in": "query",
+          "name": "to",
+          "description": "ISO 8601 datetime or YYYY-MM-DD. Inclusive upper bound on `createdAt`.",
+          "schema": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "example": "2026-02-19T23:59:59.999Z"
+        }
+      },
+      "responses": {
+        "LogsUnauthorized": {
+          "description": "Missing or invalid `x-api-key` header.",
+          "content": {
+            "application/json": {
+              "examples": {
+                "missing": {
+                  "summary": "Header not provided",
+                  "value": {
+                    "success": false,
+                    "message": "Missing x-api-key header",
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                },
+                "invalid": {
+                  "summary": "Wrong key",
+                  "value": {
+                    "success": false,
+                    "message": "Invalid API key",
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "LogsKeyNotConfigured": {
+          "description": "Server is missing the `LOGS_API_KEY` environment variable.",
+          "content": {
+            "application/json": {
+              "example": {
+                "success": false,
+                "message": "LOGS_API_KEY not configured on server",
+                "timestamp": "2026-02-19T10:30:00.000Z"
+              }
+            }
+          }
+        },
+        "LogsBadRequest": {
+          "description": "Validation failed on query/body/params.",
+          "content": {
+            "application/json": {
+              "example": {
+                "success": false,
+                "message": "Validation failed",
+                "errors": {
+                  "query": [
+                    {
+                      "field": "limit",
+                      "message": "Number must be less than or equal to 200"
+                    }
+                  ]
+                },
+                "timestamp": "2026-02-19T10:30:00.000Z"
+              }
+            }
+          }
+        },
+        "LogsPaginated": {
+          "description": "Paginated list of log entries.",
+          "content": {
+            "application/json": {
+              "example": {
+                "success": true,
+                "message": "Logs",
+                "data": [],
+                "pagination": {
+                  "total": 0,
+                  "page": 1,
+                  "limit": 20,
+                  "pages": 0
+                },
+                "timestamp": "2026-02-19T10:30:00.000Z"
+              }
+            }
+          }
+        }
+      },
+      "examples": {
+        "column_in_foundation": {
+          "summary": "Column in Foundation (Complete Payload)",
+          "value": {
+            "clientId": "elem-col-fdn-01",
+            "tool": "rectangle",
+            "label": "CF1",
+            "mapsToElementType": "column_in_foundation",
+            "floorLabel": "GROUND_FLOOR",
+            "geometry": {
+              "type": "rectangle",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  30,
+                  30
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#3b82f6",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "CF1",
+              "shape": "rectangular",
+              "state": "isolated",
+              "count": 4,
+              "length": 0.45,
+              "width": 0.45,
+              "height": 1.5,
+              "depth": 1.5,
+              "floorLabel": "GROUND_FLOOR",
+              "notes": "Foundation columns supporting ground floor beams",
+              "reinforcement": [
+                {
+                  "barMark": "Y16-01",
+                  "barCount": 4,
+                  "barType": "Y",
+                  "diameter": 16,
+                  "length": 2.2
+                },
+                {
+                  "barMark": "R10-02",
+                  "barCount": 10,
+                  "barType": "R",
+                  "diameter": 10,
+                  "length": 1.6
+                }
+              ]
+            }
+          }
+        },
+        "pile_cap": {
+          "summary": "Pile Cap (Complete Payload)",
+          "value": {
+            "clientId": "elem-pilecap-01",
+            "tool": "rectangle",
+            "label": "PC1",
+            "mapsToElementType": "pile_cap",
+            "floorLabel": "GROUND_FLOOR",
+            "geometry": {
+              "type": "rectangle",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  40,
+                  40
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#10b981",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "PC1",
+              "shape": "rectangular",
+              "state": "isolated",
+              "count": 2,
+              "length": 1.5,
+              "width": 1.5,
+              "depth": 0.9,
+              "numberOfPiles": 4,
+              "floorLabel": "GROUND_FLOOR",
+              "notes": "4-pile group RC pile cap",
+              "layeredReinforcement": [
+                {
+                  "name": "Bottom & Top Mesh",
+                  "centerToCenter": [
+                    150,
+                    150,
+                    150,
+                    150
+                  ],
+                  "sizeDia": [
+                    16,
+                    16,
+                    16,
+                    16
+                  ],
+                  "noThus": [
+                    1,
+                    1,
+                    1,
+                    1
+                  ],
+                  "noInEach": [
+                    10,
+                    10,
+                    10,
+                    10
+                  ],
+                  "cutLength": [
+                    1.8,
+                    1.8,
+                    1.8,
+                    1.8
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "pile_cap_multi_attribute": {
+          "summary": "Pile Cap (Multi-Attribute & Multi-Rectangle Payload)",
+          "value": {
+            "clientId": "elem-pilecap-multi-01",
+            "tool": "rectangle",
+            "label": "Pile Cap Group (PC1 & PC2)",
+            "mapsToElementType": "pile_cap",
+            "floorLabel": "GROUND_FLOOR",
+            "geometry": {
+              "type": "rectangle",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  40,
+                  40
+                ]
+              ],
+              "rectangles": [
+                [
+                  [
+                    10,
+                    10
+                  ],
+                  [
+                    40,
+                    40
+                  ]
+                ],
+                [
+                  [
+                    50,
+                    50
+                  ],
+                  [
+                    90,
+                    90
+                  ]
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#10b981",
+              "strokeWidth": 2
+            },
+            "attributes": [
+              {
+                "elementId": "PC1",
+                "shape": "rectangular",
+                "state": "isolated",
+                "count": 2,
+                "length": 1.5,
+                "width": 1.5,
+                "depth": 0.9,
+                "numberOfPiles": 4,
+                "floorLabel": "GROUND_FLOOR",
+                "notes": "4-pile group RC pile cap",
+                "points": [
+                  [
+                    10,
+                    10
+                  ],
+                  [
+                    40,
+                    40
+                  ]
+                ],
+                "layeredReinforcement": [
+                  {
+                    "name": "Bottom & Top Mesh",
+                    "centerToCenter": [
+                      150,
+                      150,
+                      150,
+                      150
+                    ],
+                    "sizeDia": [
+                      16,
+                      16,
+                      16,
+                      16
+                    ],
+                    "noThus": [
+                      1,
+                      1,
+                      1,
+                      1
+                    ],
+                    "noInEach": [
+                      10,
+                      10,
+                      10,
+                      10
+                    ],
+                    "cutLength": [
+                      1.8,
+                      1.8,
+                      1.8,
+                      1.8
+                    ]
+                  }
+                ]
+              },
+              {
+                "elementId": "PC2",
+                "shape": "rectangular",
+                "state": "isolated",
+                "count": 1,
+                "length": 2,
+                "width": 1.8,
+                "depth": 1.1,
+                "numberOfPiles": 6,
+                "floorLabel": "GROUND_FLOOR",
+                "notes": "6-pile group RC pile cap",
+                "points": [
+                  [
+                    50,
+                    50
+                  ],
+                  [
+                    90,
+                    90
+                  ]
+                ],
+                "layeredReinforcement": [
+                  {
+                    "name": "Heavy Bottom Mesh",
+                    "centerToCenter": [
+                      150,
+                      150,
+                      150,
+                      150
+                    ],
+                    "sizeDia": [
+                      20,
+                      20,
+                      20,
+                      20
+                    ],
+                    "noThus": [
+                      1,
+                      1,
+                      1,
+                      1
+                    ],
+                    "noInEach": [
+                      12,
+                      12,
+                      12,
+                      12
+                    ],
+                    "cutLength": [
+                      2.2,
+                      2.2,
+                      2.2,
+                      2.2
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "ground_beam": {
+          "summary": "Ground Beam (Complete Payload)",
+          "value": {
+            "clientId": "elem-groundbeam-01",
+            "tool": "polyline",
+            "label": "GB1",
+            "mapsToElementType": "ground_beam",
+            "floorLabel": "GROUND_FLOOR",
+            "geometry": {
+              "type": "polyline",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  100,
+                  10
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#f59e0b",
+              "strokeWidth": 3
+            },
+            "attributes": {
+              "elementId": "GB1",
+              "shape": "rectangular",
+              "state": "continuous",
+              "count": 1,
+              "length": 12.5,
+              "width": 0.225,
+              "depth": 0.6,
+              "floorThickness": 0.15,
+              "floorLabel": "GROUND_FLOOR",
+              "notes": "225x600mm RC Ground Beam",
+              "reinforcement": [
+                {
+                  "barMark": "Y20-01",
+                  "barCount": 4,
+                  "barType": "Y",
+                  "diameter": 20,
+                  "length": 13.2
+                },
+                {
+                  "barMark": "Y16-02",
+                  "barCount": 2,
+                  "barType": "Y",
+                  "diameter": 16,
+                  "length": 13.2
+                },
+                {
+                  "barMark": "R10-03",
+                  "barCount": 62,
+                  "barType": "R",
+                  "diameter": 10,
+                  "length": 1.45
+                }
+              ]
+            }
+          }
+        },
+        "raft_foundation": {
+          "summary": "Raft Foundation (Complete Payload)",
+          "value": {
+            "clientId": "elem-raft-01",
+            "tool": "area",
+            "label": "RF1",
+            "mapsToElementType": "raft_foundation",
+            "floorLabel": "GROUND_FLOOR",
+            "geometry": {
+              "type": "polygon",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  100,
+                  0
+                ],
+                [
+                  100,
+                  100
+                ],
+                [
+                  0,
+                  100
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#8b5cf6",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "RF1",
+              "shape": "rectangular",
+              "count": 1,
+              "thickness": 0.35,
+              "depth": 0.35,
+              "areaReference": "RAFT-SLAB-ZONE-A",
+              "floorLabel": "GROUND_FLOOR",
+              "notes": "350mm thick solid RC raft slab foundation",
+              "layeredReinforcement": [
+                {
+                  "name": "Double Layer Mesh Reinforcement",
+                  "centerToCenter": [
+                    150,
+                    150,
+                    150,
+                    150
+                  ],
+                  "sizeDia": [
+                    16,
+                    16,
+                    16,
+                    16
+                  ],
+                  "noThus": [
+                    1,
+                    1,
+                    1,
+                    1
+                  ],
+                  "noInEach": [
+                    66,
+                    66,
+                    66,
+                    66
+                  ],
+                  "cutLength": [
+                    10.5,
+                    10.5,
+                    10.5,
+                    10.5
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "strip_foundation": {
+          "summary": "Strip Foundation (Complete Payload)",
+          "value": {
+            "clientId": "elem-stripfdn-01",
+            "tool": "polyline",
+            "label": "SF1",
+            "mapsToElementType": "strip_foundation",
+            "floorLabel": "GROUND_FLOOR",
+            "geometry": {
+              "type": "polyline",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  100,
+                  10
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#ec4899",
+              "strokeWidth": 3
+            },
+            "attributes": {
+              "elementId": "SF1",
+              "shape": "rectangular",
+              "state": "continuous",
+              "count": 1,
+              "length": 45,
+              "width": 0.6,
+              "depth": 0.3,
+              "stripThickness": 0.225,
+              "numberOfBranches": 4,
+              "colBLength": 0.9,
+              "colBWidth": 0.9,
+              "pitDepth": 1.2,
+              "blockworkWidth": 0.225,
+              "blockworkHeight": 1.2,
+              "floorLabel": "GROUND_FLOOR",
+              "notes": "600x300mm strip concrete footing foundation with masonry wall footing",
+              "reinforcement": [
+                {
+                  "barMark": "Y12-01",
+                  "barCount": 4,
+                  "barType": "Y",
+                  "diameter": 12,
+                  "length": 45.8
+                }
+              ]
+            }
+          }
+        },
+        "pile": {
+          "summary": "Pile (Circular - Complete Payload)",
+          "value": {
+            "clientId": "elem-pile-01",
+            "tool": "circle",
+            "label": "P1",
+            "mapsToElementType": "pile",
+            "floorLabel": "GROUND_FLOOR",
+            "geometry": {
+              "type": "circle",
+              "points": [
+                [
+                  50,
+                  50
+                ]
+              ],
+              "radius": 15,
+              "page": 1
+            },
+            "style": {
+              "color": "#6366f1",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "P1",
+              "shape": "circular",
+              "state": "isolated",
+              "count": 12,
+              "diameter": 0.6,
+              "depth": 18,
+              "numberOfPiles": 12,
+              "floorLabel": "GROUND_FLOOR",
+              "notes": "600mm diameter bored cast-in-situ RC piles",
+              "reinforcement": [
+                {
+                  "barMark": "Y20-MAIN",
+                  "barCount": 8,
+                  "barType": "Y",
+                  "diameter": 20,
+                  "length": 18.8
+                },
+                {
+                  "barMark": "R10-SPIRAL",
+                  "barCount": 1,
+                  "barType": "R",
+                  "diameter": 10,
+                  "length": 95
+                }
+              ]
+            }
+          }
+        },
+        "column": {
+          "summary": "Column (Complete Payload)",
+          "value": {
+            "clientId": "elem-column-01",
+            "tool": "rectangle",
+            "label": "C1",
+            "mapsToElementType": "column",
+            "floorLabel": "FLOOR_1",
+            "geometry": {
+              "type": "rectangle",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  30,
+                  30
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#3b82f6",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "C1",
+              "shape": "rectangular",
+              "state": "isolated",
+              "count": 6,
+              "length": 0.45,
+              "width": 0.45,
+              "height": 3.2,
+              "depth": 3.2,
+              "floorLabel": "FLOOR_1",
+              "notes": "450x450mm First floor structural RC columns",
+              "reinforcement": [
+                {
+                  "barMark": "Y20-01",
+                  "barCount": 8,
+                  "barType": "Y",
+                  "diameter": 20,
+                  "length": 3.8
+                },
+                {
+                  "barMark": "R10-LINK",
+                  "barCount": 22,
+                  "barType": "R",
+                  "diameter": 10,
+                  "length": 1.6
+                }
+              ]
+            }
+          }
+        },
+        "beam": {
+          "summary": "Beam (Complete Payload)",
+          "value": {
+            "clientId": "elem-beam-01",
+            "tool": "polyline",
+            "label": "B1",
+            "mapsToElementType": "beam",
+            "floorLabel": "FLOOR_1",
+            "geometry": {
+              "type": "polyline",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  100,
+                  10
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#f59e0b",
+              "strokeWidth": 3
+            },
+            "attributes": {
+              "elementId": "B1",
+              "shape": "rectangular",
+              "state": "continuous",
+              "count": 2,
+              "length": 6.5,
+              "width": 0.225,
+              "depth": 0.5,
+              "floorThickness": 0.15,
+              "floorLabel": "FLOOR_1",
+              "notes": "225x500mm First floor suspended RC beam",
+              "layeredReinforcement": [
+                {
+                  "name": "Beam Main & Top Steel",
+                  "centerToCenter": [
+                    0,
+                    0,
+                    0,
+                    0
+                  ],
+                  "sizeDia": [
+                    20,
+                    20,
+                    16,
+                    16
+                  ],
+                  "noThus": [
+                    1,
+                    1,
+                    1,
+                    1
+                  ],
+                  "noInEach": [
+                    3,
+                    3,
+                    2,
+                    2
+                  ],
+                  "cutLength": [
+                    7.1,
+                    7.1,
+                    7.1,
+                    7.1
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "slab": {
+          "summary": "Slab (Complete Payload)",
+          "value": {
+            "clientId": "elem-slab-01",
+            "tool": "area",
+            "label": "S1",
+            "mapsToElementType": "slab",
+            "floorLabel": "FLOOR_1",
+            "geometry": {
+              "type": "polygon",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  100,
+                  0
+                ],
+                [
+                  100,
+                  100
+                ],
+                [
+                  0,
+                  100
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#10b981",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "S1",
+              "shape": "rectangular",
+              "count": 1,
+              "length": 12,
+              "width": 10,
+              "thickness": 0.15,
+              "depth": 0.15,
+              "areaReference": "FLOOR-1-SUSPENDED-SLAB",
+              "floorLabel": "FLOOR_1",
+              "notes": "150mm thick suspended floor RC slab",
+              "layeredReinforcement": [
+                {
+                  "name": "Top & Bottom BRC / Rebar Mesh",
+                  "centerToCenter": [
+                    175,
+                    175,
+                    175,
+                    175
+                  ],
+                  "sizeDia": [
+                    12,
+                    12,
+                    12,
+                    12
+                  ],
+                  "noThus": [
+                    1,
+                    1,
+                    1,
+                    1
+                  ],
+                  "noInEach": [
+                    58,
+                    69,
+                    58,
+                    69
+                  ],
+                  "cutLength": [
+                    12.4,
+                    10.4,
+                    12.4,
+                    10.4
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "staircase": {
+          "summary": "Staircase (Complete Payload)",
+          "value": {
+            "clientId": "elem-stairs-01",
+            "tool": "area",
+            "label": "ST1",
+            "mapsToElementType": "staircase",
+            "floorLabel": "FLOOR_1",
+            "geometry": {
+              "type": "polygon",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  50,
+                  0
+                ],
+                [
+                  50,
+                  50
+                ],
+                [
+                  0,
+                  50
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#6366f1",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "ST1",
+              "shape": "rectangular",
+              "count": 1,
+              "length": 3.5,
+              "width": 1.2,
+              "depth": 0.15,
+              "thickness": 0.15,
+              "height": 3,
+              "numberOfStairs": 18,
+              "stairFormworkType": "timber",
+              "floorLabel": "FLOOR_1",
+              "notes": "Waist-slab RC staircase flight ground to first floor",
+              "reinforcement": [
+                {
+                  "barMark": "Y12-01",
+                  "barCount": 12,
+                  "barType": "Y",
+                  "diameter": 12,
+                  "length": 4.2
+                }
+              ]
+            }
+          }
+        },
+        "staircase_landing": {
+          "summary": "Staircase Landing (Complete Payload)",
+          "value": {
+            "clientId": "elem-stairsldg-01",
+            "tool": "area",
+            "label": "STL1",
+            "mapsToElementType": "staircase_landing",
+            "floorLabel": "FLOOR_1",
+            "geometry": {
+              "type": "polygon",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  40,
+                  0
+                ],
+                [
+                  40,
+                  40
+                ],
+                [
+                  0,
+                  40
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#6366f1",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "STL1",
+              "shape": "rectangular",
+              "count": 1,
+              "length": 2.4,
+              "width": 1.2,
+              "thickness": 0.15,
+              "depth": 0.15,
+              "floorLabel": "FLOOR_1",
+              "notes": "Intermediate staircase landing slab"
+            }
+          }
+        },
+        "staircase_strings_steps": {
+          "summary": "Staircase Strings & Steps (Complete Payload)",
+          "value": {
+            "clientId": "elem-stairssteps-01",
+            "tool": "area",
+            "label": "STSS1",
+            "mapsToElementType": "staircase_strings_steps",
+            "floorLabel": "FLOOR_1",
+            "geometry": {
+              "type": "polygon",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  30,
+                  0
+                ],
+                [
+                  30,
+                  30
+                ],
+                [
+                  0,
+                  30
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#6366f1",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "STSS1",
+              "shape": "rectangular",
+              "count": 1,
+              "length": 3.2,
+              "width": 1.2,
+              "depth": 0.15,
+              "numberOfStairs": 18,
+              "floorLabel": "FLOOR_1",
+              "notes": "Staircase riser and tread concrete steps build-up"
+            }
+          }
+        },
+        "staircase_upper_floors": {
+          "summary": "Staircase Upper Floors (Complete Payload)",
+          "value": {
+            "clientId": "elem-stairsup-01",
+            "tool": "area",
+            "label": "STUF1",
+            "mapsToElementType": "staircase_upper_floors",
+            "floorLabel": "FLOOR_2",
+            "geometry": {
+              "type": "polygon",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  30,
+                  0
+                ],
+                [
+                  30,
+                  30
+                ],
+                [
+                  0,
+                  30
+                ]
+              ],
+              "page": 2
+            },
+            "style": {
+              "color": "#6366f1",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "STUF1",
+              "shape": "rectangular",
+              "count": 1,
+              "length": 3.5,
+              "width": 1.2,
+              "depth": 0.15,
+              "height": 3,
+              "floorLabel": "FLOOR_2",
+              "notes": "Upper floor flight staircase"
+            }
+          }
+        },
+        "wall": {
+          "summary": "Wall / Blockwork (Complete Payload)",
+          "value": {
+            "clientId": "elem-wall-01",
+            "tool": "polyline",
+            "label": "W1",
+            "mapsToElementType": "wall",
+            "floorLabel": "FLOOR_1",
+            "geometry": {
+              "type": "polyline",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  100,
+                  10
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#ef4444",
+              "strokeWidth": 4
+            },
+            "attributes": {
+              "elementId": "W1",
+              "shape": "rectangular",
+              "count": 1,
+              "length": 15.5,
+              "thickness": 0.225,
+              "width": 0.225,
+              "height": 3,
+              "depth": 3,
+              "wallRef": "EXTERNAL WALL 225MM",
+              "additionalWallLength": 1.2,
+              "floorLabel": "FLOOR_1",
+              "notes": "225mm thick external load-bearing hollow sandcrete blockwork wall"
+            }
+          }
+        },
+        "swimming_pool": {
+          "summary": "Swimming Pool (Complete Payload)",
+          "value": {
+            "clientId": "elem-pool-01",
+            "tool": "area",
+            "label": "SP1",
+            "mapsToElementType": "swimming_pool",
+            "floorLabel": "GROUND_FLOOR",
+            "geometry": {
+              "type": "polygon",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  80,
+                  0
+                ],
+                [
+                  80,
+                  80
+                ],
+                [
+                  0,
+                  80
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#06b6d4",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "SP1",
+              "shape": "rectangular",
+              "count": 1,
+              "length": 10,
+              "width": 5,
+              "depth": 1.8,
+              "thickness": 0.25,
+              "height": 1.8,
+              "covering": "Waterproof Membrane & Ceramic Tiles",
+              "tilesRequired": "Mosaic Blue Tiles",
+              "floorLabel": "GROUND_FLOOR",
+              "notes": "Reinforced concrete retaining swimming pool structure"
+            }
+          }
+        },
+        "oversite_slab": {
+          "summary": "Oversite Slab (Complete Payload)",
+          "value": {
+            "clientId": "elem-oversite-01",
+            "tool": "area",
+            "label": "OS1",
+            "mapsToElementType": "oversite_slab",
+            "floorLabel": "GROUND_FLOOR",
+            "geometry": {
+              "type": "polygon",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  100,
+                  0
+                ],
+                [
+                  100,
+                  100
+                ],
+                [
+                  0,
+                  100
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#10b981",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "OS1",
+              "shape": "rectangular",
+              "count": 1,
+              "thickness": 0.15,
+              "depth": 0.15,
+              "fillingThickness": 0.3,
+              "areaReference": "OVERSITE-ZONE-1",
+              "floorLabel": "GROUND_FLOOR",
+              "notes": "150mm concrete oversite bed on well-compacted hardcore filling"
+            }
+          }
+        },
+        "column_footing": {
+          "summary": "Column Footing (Complete Payload)",
+          "value": {
+            "clientId": "elem-colfooting-01",
+            "tool": "rectangle",
+            "label": "CF1",
+            "mapsToElementType": "column_footing",
+            "floorLabel": "GROUND_FLOOR",
+            "geometry": {
+              "type": "rectangle",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  40,
+                  40
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#3b82f6",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "CF1",
+              "shape": "rectangular",
+              "state": "isolated",
+              "count": 4,
+              "length": 1.2,
+              "width": 1.2,
+              "depth": 0.45,
+              "colBLength": 0.45,
+              "colBWidth": 0.45,
+              "pitDepth": 1.5,
+              "floorLabel": "GROUND_FLOOR",
+              "notes": "1200x1200x450mm isolated column pad footing"
+            }
+          }
+        },
+        "pile_cap_frames": {
+          "summary": "Pile Cap Frames (Complete Payload)",
+          "value": {
+            "clientId": "elem-pcframe-01",
+            "tool": "polyline",
+            "label": "PCF1",
+            "mapsToElementType": "pile_cap_frames",
+            "floorLabel": "GROUND_FLOOR",
+            "geometry": {
+              "type": "polyline",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  100,
+                  10
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#10b981",
+              "strokeWidth": 3
+            },
+            "attributes": {
+              "elementId": "PCF1",
+              "shape": "rectangular",
+              "count": 1,
+              "length": 8.5,
+              "width": 0.4,
+              "depth": 0.9,
+              "floorLabel": "GROUND_FLOOR",
+              "notes": "Connecting RC tie beam framework between pile caps"
+            }
+          }
+        },
+        "shear_wall": {
+          "summary": "Shear Wall (Complete Payload)",
+          "value": {
+            "clientId": "elem-sw-01",
+            "tool": "polyline",
+            "label": "SW1",
+            "mapsToElementType": "shear_wall",
+            "floorLabel": "FLOOR_1",
+            "geometry": {
+              "type": "polyline",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  80,
+                  10
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#dc2626",
+              "strokeWidth": 4
+            },
+            "attributes": {
+              "elementId": "SW1",
+              "shape": "rectangular",
+              "count": 1,
+              "length": 6,
+              "thickness": 0.25,
+              "width": 0.25,
+              "height": 3.2,
+              "depth": 3.2,
+              "wallRef": "SHEAR WALL SW-01",
+              "floorLabel": "FLOOR_1",
+              "notes": "250mm reinforced concrete structural shear core wall",
+              "reinforcement": [
+                {
+                  "barMark": "Y16-VERT",
+                  "barCount": 24,
+                  "barType": "Y",
+                  "diameter": 16,
+                  "length": 3.8
+                },
+                {
+                  "barMark": "Y12-HORIZ",
+                  "barCount": 32,
+                  "barType": "Y",
+                  "diameter": 12,
+                  "length": 6.5
+                }
+              ]
+            }
+          }
+        },
+        "lift_wall": {
+          "summary": "Lift Wall (Complete Payload)",
+          "value": {
+            "clientId": "elem-lw-01",
+            "tool": "polyline",
+            "label": "LW1",
+            "mapsToElementType": "lift_wall",
+            "floorLabel": "FLOOR_1",
+            "geometry": {
+              "type": "polyline",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  50,
+                  10
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#dc2626",
+              "strokeWidth": 4
+            },
+            "attributes": {
+              "elementId": "LW1",
+              "shape": "rectangular",
+              "count": 1,
+              "length": 4.5,
+              "thickness": 0.2,
+              "width": 0.2,
+              "height": 3.2,
+              "depth": 3.2,
+              "wallRef": "LIFT SHAFT ENCLOSURE WALL",
+              "floorLabel": "FLOOR_1",
+              "notes": "200mm RC lift shaft side wall"
+            }
+          }
+        },
+        "lift_shaft": {
+          "summary": "Lift Shaft (Complete Payload)",
+          "value": {
+            "clientId": "elem-liftshaft-01",
+            "tool": "area",
+            "label": "LS1",
+            "mapsToElementType": "lift_shaft",
+            "floorLabel": "GROUND_FLOOR",
+            "geometry": {
+              "type": "polygon",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  40,
+                  0
+                ],
+                [
+                  40,
+                  40
+                ],
+                [
+                  0,
+                  40
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#dc2626",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "LS1",
+              "shape": "rectangular",
+              "count": 1,
+              "length": 2.4,
+              "width": 2,
+              "height": 12,
+              "depth": 12,
+              "thickness": 0.2,
+              "floorLabel": "LIFT_SHAFT",
+              "notes": "Full vertical lift shaft enclosure wall structure"
+            }
+          }
+        },
+        "lintels": {
+          "summary": "Lintels (Complete Payload)",
+          "value": {
+            "clientId": "elem-lintel-01",
+            "tool": "polyline",
+            "label": "L1",
+            "mapsToElementType": "lintels",
+            "floorLabel": "FLOOR_1",
+            "geometry": {
+              "type": "polyline",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  40,
+                  10
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#f59e0b",
+              "strokeWidth": 3
+            },
+            "attributes": {
+              "elementId": "L1",
+              "shape": "rectangular",
+              "count": 4,
+              "length": 1.5,
+              "width": 0.225,
+              "depth": 0.225,
+              "floorLabel": "FLOOR_1",
+              "notes": "225x225mm RC lintels over door and window openings",
+              "reinforcement": [
+                {
+                  "barMark": "Y12-01",
+                  "barCount": 4,
+                  "barType": "Y",
+                  "diameter": 12,
+                  "length": 1.9
+                },
+                {
+                  "barMark": "R10-STIRRUP",
+                  "barCount": 8,
+                  "barType": "R",
+                  "diameter": 10,
+                  "length": 0.8
+                }
+              ]
+            }
+          }
+        },
+        "roof_column": {
+          "summary": "Roof Column (Complete Payload)",
+          "value": {
+            "clientId": "elem-roofcol-01",
+            "tool": "rectangle",
+            "label": "RC1",
+            "mapsToElementType": "roof_column",
+            "floorLabel": "ROOF",
+            "geometry": {
+              "type": "rectangle",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  30,
+                  30
+                ]
+              ],
+              "page": 3
+            },
+            "style": {
+              "color": "#3b82f6",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "RC1",
+              "shape": "rectangular",
+              "state": "isolated",
+              "count": 4,
+              "length": 0.3,
+              "width": 0.3,
+              "height": 2.8,
+              "depth": 2.8,
+              "floorLabel": "ROOF",
+              "notes": "Roof stub columns supporting parapet/roof beams"
+            }
+          }
+        },
+        "roof_beam": {
+          "summary": "Roof Beam (Complete Payload)",
+          "value": {
+            "clientId": "elem-roofbeam-01",
+            "tool": "polyline",
+            "label": "RB1",
+            "mapsToElementType": "roof_beam",
+            "floorLabel": "ROOF",
+            "geometry": {
+              "type": "polyline",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  100,
+                  10
+                ]
+              ],
+              "page": 3
+            },
+            "style": {
+              "color": "#f59e0b",
+              "strokeWidth": 3
+            },
+            "attributes": {
+              "elementId": "RB1",
+              "shape": "rectangular",
+              "state": "continuous",
+              "count": 1,
+              "length": 14,
+              "width": 0.225,
+              "depth": 0.45,
+              "floorLabel": "ROOF",
+              "notes": "225x450mm continuous perimeter roof ring beam"
+            }
+          }
+        },
+        "kitchen_countertop": {
+          "summary": "Kitchen Countertop (Complete Payload)",
+          "value": {
+            "clientId": "elem-countertop-01",
+            "tool": "polyline",
+            "label": "KC1",
+            "mapsToElementType": "kitchen_countertop",
+            "floorLabel": "FLOOR_1",
+            "geometry": {
+              "type": "polyline",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  50,
+                  10
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#10b981",
+              "strokeWidth": 3
+            },
+            "attributes": {
+              "elementId": "KC1",
+              "shape": "rectangular",
+              "count": 1,
+              "length": 3.2,
+              "width": 0.6,
+              "thickness": 0.075,
+              "depth": 0.075,
+              "covering": "Granite Slab Finish",
+              "floorLabel": "FLOOR_1",
+              "notes": "75mm thick concrete kitchen countertop slab"
+            }
+          }
+        },
+        "excavation_clearing": {
+          "summary": "Excavation Clearing (Complete Payload)",
+          "value": {
+            "clientId": "elem-excclear-01",
+            "tool": "area",
+            "label": "EC1",
+            "mapsToElementType": "excavation_clearing",
+            "floorLabel": "GROUND_FLOOR",
+            "geometry": {
+              "type": "polygon",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  100,
+                  0
+                ],
+                [
+                  100,
+                  100
+                ],
+                [
+                  0,
+                  100
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#64748b",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "EC1",
+              "shape": "rectangular",
+              "count": 1,
+              "length": 25,
+              "width": 18,
+              "depth": 0.15,
+              "areaReference": "SITE-OVERALL-FOOTPRINT",
+              "floorLabel": "GROUND_FLOOR",
+              "notes": "Topsoil site clearing and grubbing excavation (150mm depth)"
+            }
+          }
+        },
+        "excavation_strip": {
+          "summary": "Excavation Strip (Complete Payload)",
+          "value": {
+            "clientId": "elem-excstrip-01",
+            "tool": "polyline",
+            "label": "ES1",
+            "mapsToElementType": "excavation_strip",
+            "floorLabel": "GROUND_FLOOR",
+            "geometry": {
+              "type": "polyline",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  100,
+                  10
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#64748b",
+              "strokeWidth": 3
+            },
+            "attributes": {
+              "elementId": "ES1",
+              "shape": "rectangular",
+              "count": 1,
+              "length": 45,
+              "width": 0.6,
+              "depth": 1.2,
+              "stripThickness": 0.225,
+              "numberOfBranches": 4,
+              "blockworkWidth": 0.225,
+              "blockworkHeight": 1.2,
+              "floorLabel": "GROUND_FLOOR",
+              "notes": "Trench excavation for strip foundation"
+            }
+          }
+        },
+        "ddt_pad_pit_in_strip": {
+          "summary": "Deduction: Pad Pit in Strip (Complete Payload)",
+          "value": {
+            "clientId": "elem-ddtstrip-01",
+            "tool": "rectangle",
+            "label": "DDT1",
+            "mapsToElementType": "ddt_pad_pit_in_strip",
+            "floorLabel": "GROUND_FLOOR",
+            "geometry": {
+              "type": "rectangle",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  30,
+                  30
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#ef4444",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "DDT1",
+              "shape": "rectangular",
+              "count": 4,
+              "length": 1.2,
+              "width": 1.2,
+              "depth": 0.6,
+              "areaToBeDeducted": 1.44,
+              "floorLabel": "GROUND_FLOOR",
+              "notes": "Void deduction for column pad pit intersecting strip trench"
+            }
+          }
+        },
+        "strip_length_calculator": {
+          "summary": "Strip Length Calculator (Complete Payload)",
+          "value": {
+            "clientId": "elem-striplen-01",
+            "tool": "polyline",
+            "label": "SLC1",
+            "mapsToElementType": "strip_length_calculator",
+            "floorLabel": "GROUND_FLOOR",
+            "geometry": {
+              "type": "polyline",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  100,
+                  10
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#64748b",
+              "strokeWidth": 3
+            },
+            "attributes": {
+              "elementId": "SLC1",
+              "shape": "rectangular",
+              "count": 1,
+              "length": 52.4,
+              "width": 0.6,
+              "depth": 0.3,
+              "numberOfBranches": 6,
+              "colBLength": 0.9,
+              "colBWidth": 0.9,
+              "lin": 52.4,
+              "floorLabel": "GROUND_FLOOR",
+              "notes": "Derived strip foundation centerline length calculator"
+            }
+          }
+        },
+        "pad_footing": {
+          "summary": "Pad Footing (Complete Payload)",
+          "value": {
+            "clientId": "elem-padfooting-01",
+            "tool": "rectangle",
+            "label": "PF1",
+            "mapsToElementType": "pad_footing",
+            "floorLabel": "GROUND_FLOOR",
+            "geometry": {
+              "type": "rectangle",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  40,
+                  40
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#3b82f6",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "PF1",
+              "shape": "rectangular",
+              "state": "isolated",
+              "count": 6,
+              "length": 1.5,
+              "width": 1.5,
+              "depth": 0.45,
+              "pitDepth": 1.5,
+              "floorLabel": "GROUND_FLOOR",
+              "notes": "1500x1500x450mm reinforced concrete pad footing",
+              "layeredReinforcement": [
+                {
+                  "name": "Bottom Mat Reinforcement",
+                  "centerToCenter": [
+                    150,
+                    150,
+                    0,
+                    0
+                  ],
+                  "sizeDia": [
+                    12,
+                    12,
+                    0,
+                    0
+                  ],
+                  "noThus": [
+                    1,
+                    1,
+                    0,
+                    0
+                  ],
+                  "noInEach": [
+                    10,
+                    10,
+                    0,
+                    0
+                  ],
+                  "cutLength": [
+                    1.8,
+                    1.8,
+                    0,
+                    0
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "ground_floor_bed": {
+          "summary": "Ground Floor Bed (Complete Payload)",
+          "value": {
+            "clientId": "elem-gfbed-01",
+            "tool": "area",
+            "label": "GFB1",
+            "mapsToElementType": "ground_floor_bed",
+            "floorLabel": "GROUND_FLOOR",
+            "geometry": {
+              "type": "polygon",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  100,
+                  0
+                ],
+                [
+                  100,
+                  100
+                ],
+                [
+                  0,
+                  100
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#10b981",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "GFB1",
+              "shape": "rectangular",
+              "count": 1,
+              "length": 18,
+              "width": 12,
+              "thickness": 0.15,
+              "depth": 0.15,
+              "fillingThickness": 0.3,
+              "floorThickness": 0.15,
+              "floorLabel": "GROUND_FLOOR",
+              "notes": "150mm thick ground floor concrete slab bed on BRC mesh and DPM"
+            }
+          }
+        },
+        "excavation_ground_beam": {
+          "summary": "Excavation Ground Beam (Complete Payload)",
+          "value": {
+            "clientId": "elem-excgb-01",
+            "tool": "polyline",
+            "label": "EGB1",
+            "mapsToElementType": "excavation_ground_beam",
+            "floorLabel": "GROUND_FLOOR",
+            "geometry": {
+              "type": "polyline",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  100,
+                  10
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#64748b",
+              "strokeWidth": 3
+            },
+            "attributes": {
+              "elementId": "EGB1",
+              "shape": "rectangular",
+              "count": 1,
+              "length": 22,
+              "width": 0.3,
+              "depth": 0.75,
+              "floorLabel": "GROUND_FLOOR",
+              "notes": "Trench excavation for ground beams"
+            }
+          }
+        },
+        "ground_floor_bed_void": {
+          "summary": "Deduction: Ground Floor Bed Void (Complete Payload)",
+          "value": {
+            "clientId": "elem-gfbvoid-01",
+            "tool": "area",
+            "label": "V1",
+            "mapsToElementType": "ground_floor_bed_void",
+            "floorLabel": "GROUND_FLOOR",
+            "geometry": {
+              "type": "polygon",
+              "points": [
+                [
+                  20,
+                  20
+                ],
+                [
+                  40,
+                  20
+                ],
+                [
+                  40,
+                  40
+                ],
+                [
+                  20,
+                  40
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#ef4444",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "V1",
+              "shape": "rectangular",
+              "count": 1,
+              "length": 3,
+              "width": 2.5,
+              "thickness": 0.15,
+              "depth": 0.15,
+              "areaToBeDeducted": 7.5,
+              "floorLabel": "GROUND_FLOOR",
+              "notes": "Deduction void for ground floor ducting/lift pit opening"
+            }
+          }
+        },
+        "water_slab": {
+          "summary": "Water Slab (Complete Payload)",
+          "value": {
+            "clientId": "elem-waterslab-01",
+            "tool": "area",
+            "label": "WS1",
+            "mapsToElementType": "water_slab",
+            "floorLabel": "GROUND_FLOOR",
+            "geometry": {
+              "type": "polygon",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  50,
+                  0
+                ],
+                [
+                  50,
+                  50
+                ],
+                [
+                  0,
+                  50
+                ]
+              ],
+              "page": 1
+            },
+            "style": {
+              "color": "#06b6d4",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "WS1",
+              "shape": "rectangular",
+              "count": 1,
+              "length": 4,
+              "width": 3,
+              "thickness": 0.2,
+              "depth": 0.2,
+              "floorLabel": "GROUND_FLOOR",
+              "notes": "200mm thick waterproof RC base slab for underground water tank"
+            }
+          }
+        },
+        "roof_slab": {
+          "summary": "Roof Slab (Complete Payload)",
+          "value": {
+            "clientId": "elem-roofslab-01",
+            "tool": "area",
+            "label": "RS1",
+            "mapsToElementType": "roof_slab",
+            "floorLabel": "ROOF",
+            "geometry": {
+              "type": "polygon",
+              "points": [
+                [
+                  0,
+                  0
+                ],
+                [
+                  100,
+                  0
+                ],
+                [
+                  100,
+                  100
+                ],
+                [
+                  0,
+                  100
+                ]
+              ],
+              "page": 3
+            },
+            "style": {
+              "color": "#10b981",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "RS1",
+              "shape": "rectangular",
+              "count": 1,
+              "length": 15,
+              "width": 10,
+              "thickness": 0.15,
+              "depth": 0.15,
+              "floorLabel": "ROOF",
+              "notes": "150mm thick flat concrete roof slab"
+            }
+          }
+        },
+        "upper_floor_ddt_void": {
+          "summary": "Deduction: Upper Floor Void (Complete Payload)",
+          "value": {
+            "clientId": "elem-upperddt-01",
+            "tool": "area",
+            "label": "V2",
+            "mapsToElementType": "upper_floor_ddt_void",
+            "floorLabel": "FLOOR_1",
+            "geometry": {
+              "type": "polygon",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  30,
+                  10
+                ],
+                [
+                  30,
+                  30
+                ],
+                [
+                  10,
+                  30
+                ]
+              ],
+              "page": 2
+            },
+            "style": {
+              "color": "#ef4444",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "V2",
+              "shape": "rectangular",
+              "count": 1,
+              "length": 2,
+              "width": 1.5,
+              "thickness": 0.15,
+              "depth": 0.15,
+              "areaToBeDeducted": 3,
+              "floorLabel": "FLOOR_1",
+              "notes": "Upper floor stairwell slab void deduction"
+            }
+          }
+        },
+        "parapet_wall": {
+          "summary": "Parapet Wall (Complete Payload)",
+          "value": {
+            "clientId": "elem-parapet-01",
+            "tool": "polyline",
+            "label": "PW1",
+            "mapsToElementType": "parapet_wall",
+            "floorLabel": "ROOF",
+            "geometry": {
+              "type": "polyline",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  100,
+                  10
+                ]
+              ],
+              "page": 3
+            },
+            "style": {
+              "color": "#ef4444",
+              "strokeWidth": 3
+            },
+            "attributes": {
+              "elementId": "PW1",
+              "shape": "rectangular",
+              "count": 1,
+              "length": 50,
+              "thickness": 0.15,
+              "width": 0.15,
+              "height": 0.9,
+              "depth": 0.9,
+              "wallRef": "ROOF PARAPET WALL",
+              "floorLabel": "ROOF",
+              "notes": "150mm blockwork roof parapet safety wall (900mm height)"
+            }
+          }
+        },
+        "parapet_wall_copping": {
+          "summary": "Parapet Wall Coping (Complete Payload)",
+          "value": {
+            "clientId": "elem-coping-01",
+            "tool": "polyline",
+            "label": "PWC1",
+            "mapsToElementType": "parapet_wall_copping",
+            "floorLabel": "ROOF",
+            "geometry": {
+              "type": "polyline",
+              "points": [
+                [
+                  10,
+                  10
+                ],
+                [
+                  100,
+                  10
+                ]
+              ],
+              "page": 3
+            },
+            "style": {
+              "color": "#f59e0b",
+              "strokeWidth": 3
+            },
+            "attributes": {
+              "elementId": "PWC1",
+              "shape": "rectangular",
+              "count": 1,
+              "length": 50,
+              "width": 0.225,
+              "depth": 0.075,
+              "thickness": 0.075,
+              "floorLabel": "ROOF",
+              "notes": "Precast concrete coping capping on top of parapet wall"
+            }
+          }
+        },
+        "elementWithMultipleRebarRows": {
+          "summary": "Element with Multi-Row Bar Bending Schedule (Complete Payload)",
+          "value": {
+            "clientId": "elem-rebar-01",
+            "tool": "bending",
+            "label": "Column C1 Rebar",
+            "mapsToElementType": "column",
+            "floorLabel": "GROUND_FLOOR",
+            "geometry": {
+              "type": "polyline",
+              "points": [
+                [
+                  100,
+                  150
+                ],
+                [
+                  120,
+                  180
+                ]
+              ],
+              "page": 2
+            },
+            "style": {
+              "color": "#3b82f6",
+              "strokeWidth": 2
+            },
+            "attributes": {
+              "elementId": "C1",
+              "shape": "rectangular",
+              "length": 0.45,
+              "width": 0.45,
+              "height": 3,
+              "reinforcement": [
+                {
+                  "barMark": "B1",
+                  "barCount": 8,
+                  "barType": "Y",
+                  "diameter": 16,
+                  "length": 5.4
+                },
+                {
+                  "barMark": "B2",
+                  "barCount": 4,
+                  "barType": "Y",
+                  "diameter": 12,
+                  "length": 5.4
+                },
+                {
+                  "barMark": "B3",
+                  "barCount": 31,
+                  "barType": "R",
+                  "diameter": 10,
+                  "length": 1.96
+                }
+              ]
+            }
+          }
+        }
+      },
+      "schemas": {
+        "RegisterInput": {
+          "type": "object",
+          "properties": {
+            "firstName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 50
+            },
+            "lastName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 50
+            },
+            "email": {
+              "type": "string",
+              "format": "email"
+            },
+            "password": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            },
+            "phoneNumber": {
+              "type": "string",
+              "minLength": 7,
+              "maxLength": 20
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "admin",
+                "user",
+                "company"
+              ],
+              "default": "user"
+            },
+            "companyName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          },
+          "required": [
+            "firstName",
+            "lastName",
+            "email",
+            "password",
+            "phoneNumber"
+          ],
+          "additionalProperties": false
+        },
+        "LoginInput": {
+          "type": "object",
+          "properties": {
+            "email": {
+              "type": "string",
+              "format": "email"
+            },
+            "password": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "email",
+            "password"
+          ],
+          "additionalProperties": false
+        },
+        "RefreshTokenInput": {
+          "type": "object",
+          "properties": {
+            "refreshToken": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "refreshToken"
+          ],
+          "additionalProperties": false
+        },
+        "UpdateUserInput": {
+          "type": "object",
+          "properties": {
+            "firstName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 50
+            },
+            "lastName": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 50
+            },
+            "email": {
+              "type": "string",
+              "format": "email"
+            },
+            "phoneNumber": {
+              "type": "string",
+              "maxLength": 30
+            },
+            "professionalTitle": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          "additionalProperties": false
+        },
+        "UploadFileInput": {
+          "type": "object",
+          "properties": {
+            "folder": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "AuthSuccessResponse": {
+          "type": "object",
+          "properties": {
+            "success": {
+              "type": "boolean",
+              "example": true
+            },
+            "message": {
+              "type": "string",
+              "example": "Registration successful"
+            },
+            "data": {
+              "type": "object",
+              "properties": {
+                "user": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "example": "65a1b2c3d4e5f6a7b8c9d0e1"
+                    },
+                    "firstName": {
+                      "type": "string",
+                      "example": "John"
+                    },
+                    "lastName": {
+                      "type": "string",
+                      "example": "Doe"
+                    },
+                    "email": {
+                      "type": "string",
+                      "example": "john.doe@example.com"
+                    },
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "admin",
+                        "user",
+                        "company"
+                      ],
+                      "example": "user"
+                    }
+                  }
+                },
+                "tokens": {
+                  "type": "object",
+                  "properties": {
+                    "accessToken": {
+                      "type": "string",
+                      "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    },
+                    "refreshToken": {
+                      "type": "string",
+                      "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    }
+                  }
+                }
+              }
+            },
+            "timestamp": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        "ErrorResponse": {
+          "type": "object",
+          "properties": {
+            "success": {
+              "type": "boolean",
+              "example": false
+            },
+            "message": {
+              "type": "string",
+              "example": "An error occurred"
+            },
+            "errors": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "field": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                }
+              },
+              "nullable": true
+            },
+            "timestamp": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        "PaginatedResponse": {
+          "type": "object",
+          "properties": {
+            "success": {
+              "type": "boolean",
+              "example": true
+            },
+            "message": {
+              "type": "string"
+            },
+            "data": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "pagination": {
+              "type": "object",
+              "properties": {
+                "total": {
+                  "type": "integer",
+                  "example": 42
+                },
+                "page": {
+                  "type": "integer",
+                  "example": 1
+                },
+                "limit": {
+                  "type": "integer",
+                  "example": 20
+                },
+                "pages": {
+                  "type": "integer",
+                  "example": 3
+                }
+              }
+            },
+            "timestamp": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        "LibraryCategory": {
+          "type": "object",
+          "properties": {
+            "_id": {
+              "type": "string",
+              "example": "665f4a2b8e4d3c001f2a3b4c"
+            },
+            "name": {
+              "type": "string",
+              "example": "Earthworks"
+            },
+            "icon": {
+              "type": "string",
+              "example": "Layers",
+              "description": "Lucide icon name or Font Awesome class (e.g. \"Layers\", \"fa-hard-hat\")"
+            },
+            "description": {
+              "type": "string",
+              "example": "Rates for excavation, soil disposal, and specialised machinery."
+            },
+            "companyId": {
+              "type": "string",
+              "nullable": true,
+              "example": null,
+              "description": "null for global categories; ObjectId for company-scoped ones."
+            },
+            "isGlobal": {
+              "type": "boolean",
+              "example": true
+            },
+            "isActive": {
+              "type": "boolean",
+              "example": true
+            },
+            "categoryType": {
+              "type": "string",
+              "enum": [
+                "material",
+                "labour",
+                "composite",
+                "mep"
+              ],
+              "example": "material",
+              "description": "Hint for the UI to choose the correct column layout."
+            },
+            "sortOrder": {
+              "type": "integer",
+              "example": 3
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        "LibraryItemBreakdown": {
+          "type": "object",
+          "properties": {
+            "machinery": {
+              "type": "number",
+              "example": 7500.5
+            },
+            "labour": {
+              "type": "number",
+              "example": 2500.5
+            },
+            "material": {
+              "type": "number",
+              "example": 1000
+            }
+          }
+        },
+        "LibraryItem": {
+          "type": "object",
+          "properties": {
+            "_id": {
+              "type": "string",
+              "example": "665f4a2b8e4d3c001f2a3b4d"
+            },
+            "itemCode": {
+              "type": "string",
+              "example": "RES-00042",
+              "description": "Auto-generated human-readable identifier."
+            },
+            "companyId": {
+              "type": "string",
+              "example": "665f4a2b8e4d3c001f2a3b4e"
+            },
+            "categoryId": {
+              "$ref": "#/components/schemas/LibraryCategory"
+            },
+            "description": {
+              "type": "string",
+              "example": "Bulk Excavation"
+            },
+            "unit": {
+              "type": "string",
+              "example": "m³"
+            },
+            "baseRate": {
+              "type": "number",
+              "example": 4500.5
+            },
+            "markupPercentage": {
+              "type": "number",
+              "example": 15
+            },
+            "finalRate": {
+              "type": "number",
+              "example": 5175.58,
+              "description": "Auto-computed as baseRate × (1 + markupPercentage / 100)."
+            },
+            "state": {
+              "type": "string",
+              "example": "Lagos"
+            },
+            "country": {
+              "type": "string",
+              "example": "Nigeria"
+            },
+            "breakdown": {
+              "$ref": "#/components/schemas/LibraryItemBreakdown"
+            },
+            "createdBy": {
+              "type": "string",
+              "example": "665f4a2b8e4d3c001f2a3b4f"
+            },
+            "updatedBy": {
+              "type": "string",
+              "nullable": true
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        "PaginatedLibraryItems": {
+          "type": "object",
+          "properties": {
+            "success": {
+              "type": "boolean",
+              "example": true
+            },
+            "message": {
+              "type": "string",
+              "example": "Library items fetched successfully"
+            },
+            "data": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/LibraryItem"
+              }
+            },
+            "pagination": {
+              "type": "object",
+              "properties": {
+                "total": {
+                  "type": "integer",
+                  "example": 42
+                },
+                "page": {
+                  "type": "integer",
+                  "example": 1
+                },
+                "limit": {
+                  "type": "integer",
+                  "example": 20
+                },
+                "pages": {
+                  "type": "integer",
+                  "example": 3
+                }
+              }
+            }
+          }
+        },
+        "MeasurementCalibration": {
+          "type": "object",
+          "required": [
+            "knownDistance",
+            "pixelDistance",
+            "unit"
+          ],
+          "properties": {
+            "knownDistance": {
+              "type": "number",
+              "example": 5,
+              "description": "Known real-world length of the reference line"
+            },
+            "pixelDistance": {
+              "type": "number",
+              "example": 250,
+              "description": "Pixel length of the same reference line"
+            },
+            "unit": {
+              "type": "string",
+              "enum": [
+                "mm",
+                "cm",
+                "m",
+                "ft",
+                "in",
+                "px"
+              ],
+              "example": "m"
+            }
+          }
+        },
+        "MeasurementViewport": {
+          "type": "object",
+          "properties": {
+            "x": {
+              "type": "number",
+              "example": 120
+            },
+            "y": {
+              "type": "number",
+              "example": 80
+            },
+            "zoom": {
+              "type": "number",
+              "example": 1.5
+            }
+          }
+        },
+        "MeasurementCanvas": {
+          "type": "object",
+          "properties": {
+            "width": {
+              "type": "number",
+              "example": 1920
+            },
+            "height": {
+              "type": "number",
+              "example": 1080
+            },
+            "unit": {
+              "type": "string",
+              "enum": [
+                "mm",
+                "cm",
+                "m",
+                "ft",
+                "in",
+                "px"
+              ],
+              "example": "m"
+            },
+            "scale": {
+              "type": "number",
+              "example": 0.02,
+              "description": "Real-world units per pixel (derived from calibration)"
+            },
+            "rotation": {
+              "type": "number",
+              "example": 0
+            },
+            "calibration": {
+              "$ref": "#/components/schemas/MeasurementCalibration"
+            },
+            "viewport": {
+              "$ref": "#/components/schemas/MeasurementViewport"
+            }
+          }
+        },
+        "MeasurementGeometry": {
+          "type": "object",
+          "required": [
+            "type",
+            "points"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "point",
+                "multipoint",
+                "polyline",
+                "polygon",
+                "rectangle",
+                "circle",
+                "freehand"
+              ],
+              "example": "polygon"
+            },
+            "points": {
+              "type": "array",
+              "description": "Ordered [x, y] pixel coordinate pairs",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              "example": [
+                [
+                  100,
+                  100
+                ],
+                [
+                  300,
+                  100
+                ],
+                [
+                  300,
+                  250
+                ],
+                [
+                  100,
+                  250
+                ]
+              ]
+            },
+            "radius": {
+              "type": "number",
+              "example": 40,
+              "description": "Radius in pixels (circle only)"
+            },
+            "page": {
+              "type": "integer",
+              "minimum": 1,
+              "example": 1,
+              "description": "1-based page index of the drawing this geometry belongs to"
+            }
+          }
+        },
+        "MeasurementComputed": {
+          "type": "object",
+          "description": "Server-derived measurement values (authoritative)",
+          "properties": {
+            "count": {
+              "type": "number",
+              "example": 12
+            },
+            "lengthPx": {
+              "type": "number",
+              "example": 640
+            },
+            "length": {
+              "type": "number",
+              "example": 12.8
+            },
+            "areaPx": {
+              "type": "number",
+              "example": 30000
+            },
+            "area": {
+              "type": "number",
+              "example": 12
+            },
+            "perimeterPx": {
+              "type": "number",
+              "example": 740
+            },
+            "perimeter": {
+              "type": "number",
+              "example": 14.8
+            }
+          }
+        },
+        "MeasurementElement": {
+          "type": "object",
+          "properties": {
+            "_id": {
+              "type": "string",
+              "example": "665f0c1a2b3c4d5e6f7a8b9c"
+            },
+            "sessionId": {
+              "type": "string",
+              "example": "665f0b0a2b3c4d5e6f7a8b90"
+            },
+            "projectId": {
+              "type": "string",
+              "example": "664e0a0a2b3c4d5e6f7a8b01"
+            },
+            "clientId": {
+              "type": "string",
+              "example": "elem-9a7c-01"
+            },
+            "tool": {
+              "type": "string",
+              "enum": [
+                "count",
+                "length",
+                "area",
+                "polyline",
+                "rectangle",
+                "circle",
+                "bending",
+                "freehand"
+              ],
+              "example": "area"
+            },
+            "label": {
+              "type": "string",
+              "example": "Ground floor slab"
+            },
+            "mapsToElementType": {
+              "type": "string",
+              "example": "slab"
+            },
+            "floorLabel": {
+              "type": "string",
+              "example": "GROUND_FLOOR"
+            },
+            "geometry": {
+              "$ref": "#/components/schemas/MeasurementGeometry"
+            },
+            "style": {
+              "type": "object",
+              "properties": {
+                "color": {
+                  "type": "string",
+                  "example": "#e11d48"
+                },
+                "strokeWidth": {
+                  "type": "number",
+                  "example": 2
+                }
+              }
+            },
+            "computed": {
+              "$ref": "#/components/schemas/MeasurementComputed"
+            },
+            "attributes": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              ],
+              "description": "Single object or array of attribute objects (e.g. multi-pile-cap tags PC1, PC2). Each item can embed its own 'points' rectangle coordinates.",
+              "example": [
+                {
+                  "elementId": "PC1",
+                  "shape": "rectangular",
+                  "count": 2,
+                  "points": [
+                    [
+                      10,
+                      10
+                    ],
+                    [
+                      40,
+                      40
+                    ]
+                  ]
+                },
+                {
+                  "elementId": "PC2",
+                  "shape": "rectangular",
+                  "count": 1,
+                  "points": [
+                    [
+                      50,
+                      50
+                    ],
+                    [
+                      90,
+                      90
+                    ]
+                  ]
+                }
+              ]
+            },
+            "version": {
+              "type": "integer",
+              "example": 3
+            }
+          }
+        },
+        "MeasurementSession": {
+          "type": "object",
+          "properties": {
+            "_id": {
+              "type": "string",
+              "example": "665f0b0a2b3c4d5e6f7a8b90"
+            },
+            "projectId": {
+              "type": "string",
+              "example": "664e0a0a2b3c4d5e6f7a8b01"
+            },
+            "uploadedFileId": {
+              "type": "string",
+              "example": "664e0b0b2b3c4d5e6f7a8b02"
+            },
+            "pageNumber": {
+              "type": "integer",
+              "example": 1
+            },
+            "title": {
+              "type": "string",
+              "example": "Foundation layout"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "active",
+                "paused",
+                "finalized"
+              ],
+              "example": "active"
+            },
+            "canvas": {
+              "$ref": "#/components/schemas/MeasurementCanvas"
+            },
+            "lastActivityAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        "ProjectMember": {
+          "type": "object",
+          "properties": {
+            "_id": {
+              "type": "string",
+              "example": "665f4a2b8e4d3c001f2a3b4c"
+            },
+            "projectId": {
+              "type": "string",
+              "example": "665f4a2b8e4d3c001f2a3b4d"
+            },
+            "userId": {
+              "type": "string",
+              "description": "Populated with firstName, lastName, email when listing members.",
+              "example": "665f4a2b8e4d3c001f2a3b4e"
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "owner",
+                "editor",
+                "viewer"
+              ],
+              "example": "editor"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "active",
+                "removed"
+              ],
+              "example": "active"
+            },
+            "invitedBy": {
+              "type": "string",
+              "nullable": true,
+              "example": "665f4a2b8e4d3c001f2a3b4f"
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        "BoqWorkItem": {
+          "type": "object",
+          "required": [
+            "item",
+            "unit",
+            "quantity"
+          ],
+          "properties": {
+            "item": {
+              "type": "string",
+              "example": "Bulk Excavation"
+            },
+            "specification": {
+              "type": "string",
+              "example": "Standard excavation to formation level"
+            },
+            "unit": {
+              "type": "string",
+              "example": "m³"
+            },
+            "quantity": {
+              "type": "number",
+              "nullable": true,
+              "example": 120.5
+            },
+            "notes": {
+              "type": "string",
+              "example": "Allow for disposal off site"
+            }
+          }
+        },
+        "BoqSection": {
+          "type": "object",
+          "required": [
+            "sectionName",
+            "workItems"
+          ],
+          "properties": {
+            "sectionName": {
+              "type": "string",
+              "example": "Substructure"
+            },
+            "workItems": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/BoqWorkItem"
+              }
+            }
+          }
+        },
+        "BoqResult": {
+          "type": "object",
+          "required": [
+            "projectTitle",
+            "sections"
+          ],
+          "properties": {
+            "projectTitle": {
+              "type": "string",
+              "example": "Lagos Office Tower Phase 1"
+            },
+            "sections": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/BoqSection"
+              }
+            },
+            "generalNotes": {
+              "type": "string",
+              "nullable": true
+            }
+          }
+        },
+        "Project": {
+          "type": "object",
+          "properties": {
+            "_id": {
+              "type": "string",
+              "example": "665f4a2b8e4d3c001f2a3b4c"
+            },
+            "name": {
+              "type": "string",
+              "example": "Lagos Office Tower"
+            },
+            "description": {
+              "type": "string",
+              "nullable": true
+            },
+            "userId": {
+              "type": "string"
+            },
+            "companyId": {
+              "type": "string",
+              "nullable": true
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "draft",
+                "active",
+                "archived"
+              ]
+            },
+            "source": {
+              "type": "string",
+              "enum": [
+                "pdf_boq",
+                "bim",
+                "manual",
+                "template",
+                "manual-drawn"
+              ]
+            },
+            "sourceJobId": {
+              "type": "string",
+              "nullable": true
+            },
+            "processingMode": {
+              "type": "string",
+              "enum": [
+                "ai",
+                "manual"
+              ],
+              "description": "Whether the project uses AI processing or manual configuration",
+              "example": "manual"
+            },
+            "projectPhase": {
+              "type": "string",
+              "enum": [
+                "pre_contract",
+                "post_contract",
+                "design",
+                "construction"
+              ],
+              "nullable": true,
+              "example": "pre_contract"
+            },
+            "duration": {
+              "type": "integer",
+              "nullable": true,
+              "description": "Estimated project duration in months",
+              "example": 18
+            },
+            "currency": {
+              "type": "string",
+              "nullable": true,
+              "description": "Currency code for the project",
+              "example": "NGN"
+            },
+            "scopeCategories": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "substructure",
+                  "superstructure",
+                  "finishing",
+                  "external"
+                ]
+              },
+              "description": "Scope areas included in this project",
+              "example": [
+                "substructure",
+                "superstructure"
+              ]
+            },
+            "boqResult": {
+              "$ref": "#/components/schemas/BoqResult",
+              "nullable": true
+            },
+            "libraryItems": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "drawings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Collection of uploaded drawing file IDs linked to the project"
+            },
+            "clientName": {
+              "type": "string",
+              "nullable": true,
+              "example": "Dangote Industries"
+            },
+            "clientId": {
+              "type": "string",
+              "nullable": true
+            },
+            "projectCode": {
+              "type": "string",
+              "nullable": true,
+              "example": "LOT-2026-001"
+            },
+            "projectType": {
+              "type": "string",
+              "nullable": true,
+              "example": "Commercial"
+            },
+            "projectLocation": {
+              "type": "string",
+              "nullable": true,
+              "example": "Victoria Island, Lagos"
+            },
+            "drawingType": {
+              "type": "array",
+              "nullable": true,
+              "items": {
+                "type": "string",
+                "enum": [
+                  "structural",
+                  "architectural",
+                  "mep",
+                  "electrical",
+                  "mechanical",
+                  "plumbing",
+                  "civil",
+                  "landscape",
+                  "interior",
+                  "fire_protection",
+                  "general"
+                ]
+              },
+              "description": "Types of drawings submitted for the project",
+              "example": [
+                "structural",
+                "architectural"
+              ]
+            },
+            "qsProjectType": {
+              "type": "string",
+              "nullable": true,
+              "enum": [
+                "piling_alone",
+                "piling_and_substructure",
+                "foundation_and_carcass",
+                "carcass_with_finishes"
+              ],
+              "description": "Quantification project type that determines scope and foundation options",
+              "example": "foundation_and_carcass"
+            },
+            "foundationTypes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "pile",
+                  "raft",
+                  "strip",
+                  "raft_pile_with_basement"
+                ]
+              },
+              "description": "Foundation types selected for this project",
+              "example": [
+                "pile",
+                "raft"
+              ]
+            },
+            "hasSwimmingPool": {
+              "type": "boolean",
+              "description": "Whether the project includes a swimming pool",
+              "example": false
+            },
+            "poolLocations": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "substructure",
+                  "superstructure",
+                  "external"
+                ]
+              },
+              "description": "Pool locations when hasSwimmingPool is true",
+              "example": []
+            },
+            "numberOfFloors": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of floors in the building",
+              "example": 5
+            },
+            "liftOption": {
+              "type": "string",
+              "nullable": true,
+              "enum": [
+                "none",
+                "passenger",
+                "service",
+                "passenger_and_service"
+              ],
+              "description": "Type of lift provision",
+              "example": "passenger"
+            },
+            "globalConfiguration": {
+              "type": "object",
+              "nullable": true,
+              "description": "Default takeoff configuration shared across all elements",
+              "properties": {
+                "defaultConcreteGrade": {
+                  "type": "string",
+                  "example": "grade_25"
+                },
+                "reinforcementCover": {
+                  "type": "number",
+                  "example": 40
+                },
+                "defaultRebarSizes": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "example": [
+                    10,
+                    12,
+                    16,
+                    20,
+                    25
+                  ]
+                },
+                "defaultBarType": {
+                  "type": "string",
+                  "enum": [
+                    "Y",
+                    "R"
+                  ],
+                  "example": "Y"
+                }
+              }
+            },
+            "finishingConfig": {
+              "type": "object",
+              "nullable": true,
+              "description": "Finishing configuration (Step 4 of project setup wizard)",
+              "properties": {
+                "finishingSpecifications": {
+                  "type": "object",
+                  "properties": {
+                    "screedingOnDpm": {
+                      "type": "string"
+                    },
+                    "meshType": {
+                      "type": "string"
+                    },
+                    "ceilingType": {
+                      "type": "string"
+                    },
+                    "roofParapetWall": {
+                      "type": "string"
+                    },
+                    "paintTypeInternally": {
+                      "type": "string"
+                    },
+                    "paintTypeExternally": {
+                      "type": "string"
+                    },
+                    "riserHeightForStairs": {
+                      "type": "string"
+                    },
+                    "skirtingLandingThickness": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "floorTiles": {
+                  "type": "object",
+                  "properties": {
+                    "generalAreas": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "typeCode": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "wetAreas": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "typeCode": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "stairsArea": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "typeCode": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "swimmingPool": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "typeCode": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "liftWalls": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "typeCode": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "wallTiles": {
+                  "type": "object",
+                  "properties": {
+                    "internalWalls": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "typeCode": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "externalWalls": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "typeCode": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "metricsConfig": {
+              "type": "object",
+              "nullable": true,
+              "description": "Financial metrics configuration (Step 5 of project setup wizard)",
+              "properties": {
+                "advancePayment": {
+                  "type": "number",
+                  "nullable": true,
+                  "minimum": 0
+                },
+                "fxRate": {
+                  "type": "number",
+                  "nullable": true,
+                  "minimum": 0
+                },
+                "markup": {
+                  "type": "number",
+                  "nullable": true,
+                  "minimum": 0
+                },
+                "retention": {
+                  "type": "number",
+                  "nullable": true,
+                  "minimum": 0
+                },
+                "contingency": {
+                  "type": "number",
+                  "nullable": true,
+                  "minimum": 0
+                },
+                "preliminaries": {
+                  "type": "number",
+                  "nullable": true,
+                  "minimum": 0
+                }
+              }
+            },
+            "grossFloorArea": {
+              "type": "number",
+              "nullable": true,
+              "minimum": 0,
+              "description": "Total gross floor area in square metres",
+              "example": 2500
+            },
+            "buildingType": {
+              "type": "string",
+              "nullable": true,
+              "description": "Classification of the building (e.g. Commercial, Residential)",
+              "example": "Commercial"
+            },
+            "completionStatus": {
+              "type": "number",
+              "nullable": true,
+              "minimum": 0,
+              "maximum": 100,
+              "description": "Project completion percentage (0–100)",
+              "example": 45
+            },
+            "estimateTotal": {
+              "type": "number",
+              "description": "Auto-computed total estimate from BOQ sections",
+              "example": 125000000
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        "PileSpecification": {
+          "type": "object",
+          "description": "Pile system and concrete details configuration",
+          "properties": {
+            "concreteGrade": {
+              "type": "string",
+              "enum": [
+                "grade_15",
+                "grade_20",
+                "grade_25",
+                "grade_30"
+              ],
+              "example": "grade_25"
+            },
+            "castingMethod": {
+              "type": "string",
+              "enum": [
+                "rmc",
+                "rmc_with_pump",
+                "traditional"
+              ],
+              "example": "rmc_with_pump"
+            },
+            "castingLabourMethod": {
+              "type": "string",
+              "enum": [
+                "hydro_rig",
+                "traditional"
+              ],
+              "example": "hydro_rig"
+            },
+            "depth": {
+              "type": "number",
+              "description": "Pile depth in metres",
+              "example": 12.5
+            },
+            "diameter": {
+              "type": "number",
+              "description": "Pile diameter in metres",
+              "example": 0.45
+            },
+            "centerToCenter": {
+              "type": "number",
+              "description": "Centre-to-centre spacing in metres",
+              "example": 2
+            },
+            "plasticizers": {
+              "type": "boolean",
+              "description": "Whether plasticizers are used",
+              "example": true
+            },
+            "mainBarNo": {
+              "type": "integer",
+              "description": "Number of main reinforcement bars",
+              "example": 6
+            },
+            "mainBarSize": {
+              "type": "number",
+              "description": "Main bar diameter in mm",
+              "example": 16
+            },
+            "ringBarSize": {
+              "type": "number",
+              "description": "Ring/stirrup bar diameter in mm",
+              "example": 10
+            },
+            "rebarDepth": {
+              "type": "number",
+              "description": "Rebar depth in metres",
+              "example": 11.5
+            }
+          }
+        },
+        "BlindingElementConfig": {
+          "type": "object",
+          "description": "Blinding layer configuration for a specific element type",
+          "required": [
+            "elementType"
+          ],
+          "properties": {
+            "elementType": {
+              "type": "string",
+              "enum": [
+                "pile_cap",
+                "ground_beam",
+                "raft_foundation",
+                "column_in_foundation",
+                "pile_cap_frames"
+              ],
+              "example": "pile_cap"
+            },
+            "concreteGrade": {
+              "type": "string",
+              "enum": [
+                "grade_15",
+                "grade_20",
+                "grade_25",
+                "grade_30"
+              ],
+              "example": "grade_15"
+            },
+            "castingMethod": {
+              "type": "string",
+              "enum": [
+                "rmc",
+                "rmc_with_pump",
+                "traditional"
+              ],
+              "example": "traditional"
+            },
+            "wastePercentage": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100,
+              "description": "Waste percentage (0–100)",
+              "example": 5
+            },
+            "blindingThickness": {
+              "type": "number",
+              "description": "Blinding layer thickness in mm",
+              "example": 50
+            }
+          }
+        },
+        "FillingThickness": {
+          "type": "object",
+          "description": "Filling material thickness and waste",
+          "properties": {
+            "thickness": {
+              "type": "number",
+              "description": "Thickness in metres",
+              "example": 0.15
+            },
+            "wastePercentage": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100,
+              "example": 10
+            }
+          }
+        },
+        "SubstructureFilling": {
+          "type": "object",
+          "description": "Substructure filling configuration",
+          "properties": {
+            "totalFilling": {
+              "$ref": "#/components/schemas/FillingThickness"
+            },
+            "laterite": {
+              "$ref": "#/components/schemas/FillingThickness"
+            },
+            "hardcore": {
+              "$ref": "#/components/schemas/FillingThickness"
+            }
+          }
+        },
+        "SubstructureElementConfig": {
+          "type": "object",
+          "description": "Substructure element material and formwork configuration",
+          "required": [
+            "elementType"
+          ],
+          "properties": {
+            "elementType": {
+              "type": "string",
+              "example": "column_in_foundation"
+            },
+            "concreteGrade": {
+              "type": "string",
+              "enum": [
+                "grade_15",
+                "grade_20",
+                "grade_25",
+                "grade_30"
+              ],
+              "example": "grade_25"
+            },
+            "plasticizers": {
+              "type": "boolean",
+              "example": false
+            },
+            "waterproofing": {
+              "type": "string",
+              "enum": [
+                "none",
+                "membrane",
+                "sealant",
+                "crystalline",
+                "tanking"
+              ],
+              "example": "membrane"
+            },
+            "formworkType": {
+              "type": "string",
+              "enum": [
+                "block",
+                "timber",
+                "rock"
+              ],
+              "example": "timber"
+            },
+            "blockTypeOfFormwork": {
+              "type": "string",
+              "enum": [
+                "nil",
+                "100mm",
+                "150mm",
+                "225mm"
+              ],
+              "example": "nil"
+            },
+            "blockworkFilling": {
+              "type": "string",
+              "enum": [
+                "nil",
+                "hollow",
+                "solid",
+                "filled_solid_with_frames"
+              ],
+              "example": "nil"
+            },
+            "castingMethod": {
+              "type": "string",
+              "enum": [
+                "rmc",
+                "rmc_with_pump",
+                "traditional"
+              ],
+              "example": "rmc"
+            },
+            "castingLabourMethod": {
+              "type": "string",
+              "enum": [
+                "hydro_rig",
+                "traditional"
+              ],
+              "example": "traditional"
+            },
+            "wastePercentage": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100,
+              "example": 5
+            }
+          }
+        },
+        "SuperstructureElementConfig": {
+          "type": "object",
+          "description": "Superstructure element material configuration",
+          "required": [
+            "elementType"
+          ],
+          "properties": {
+            "elementType": {
+              "type": "string",
+              "example": "column"
+            },
+            "concreteGrade": {
+              "type": "string",
+              "enum": [
+                "grade_15",
+                "grade_20",
+                "grade_25",
+                "grade_30"
+              ],
+              "example": "grade_25"
+            },
+            "plasticizers": {
+              "type": "boolean",
+              "example": true
+            },
+            "waterproofing": {
+              "type": "string",
+              "enum": [
+                "none",
+                "membrane",
+                "sealant",
+                "crystalline",
+                "tanking"
+              ],
+              "example": "none"
+            },
+            "castingMethod": {
+              "type": "string",
+              "enum": [
+                "rmc",
+                "rmc_with_pump",
+                "traditional"
+              ],
+              "example": "rmc_with_pump"
+            },
+            "castingLabourMethod": {
+              "type": "string",
+              "enum": [
+                "hydro_rig",
+                "traditional"
+              ],
+              "example": "traditional"
+            },
+            "wastePercentage": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100,
+              "example": 3
+            }
+          }
+        },
+        "FinishingElementConfig": {
+          "type": "object",
+          "description": "Finishing element material configuration",
+          "required": [
+            "elementType"
+          ],
+          "properties": {
+            "elementType": {
+              "type": "string",
+              "example": "column"
+            },
+            "concreteGrade": {
+              "type": "string",
+              "enum": [
+                "grade_15",
+                "grade_20",
+                "grade_25",
+                "grade_30"
+              ],
+              "example": "grade_25"
+            },
+            "plasticizers": {
+              "type": "boolean",
+              "example": true
+            },
+            "waterproofing": {
+              "type": "string",
+              "enum": [
+                "none",
+                "membrane",
+                "sealant",
+                "crystalline",
+                "tanking"
+              ],
+              "example": "none"
+            },
+            "castingMethod": {
+              "type": "string",
+              "enum": [
+                "rmc",
+                "rmc_with_pump",
+                "traditional"
+              ],
+              "example": "rmc_with_pump"
+            },
+            "castingLabourMethod": {
+              "type": "string",
+              "enum": [
+                "hydro_rig",
+                "traditional"
+              ],
+              "example": "traditional"
+            },
+            "wastePercentage": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100,
+              "example": 3
+            }
+          }
+        },
+        "StructuralScope": {
+          "type": "object",
+          "description": "Full structural scope configuration for one foundation type",
+          "properties": {
+            "_id": {
+              "type": "string",
+              "example": "665f4a2b8e4d3c001f2a3b4c"
+            },
+            "projectId": {
+              "type": "string",
+              "example": "665f4a2b8e4d3c001f2a3b4d"
+            },
+            "foundationType": {
+              "type": "string",
+              "enum": [
+                "pile",
+                "raft",
+                "strip",
+                "raft_pile_with_basement"
+              ],
+              "example": "raft_pile_with_basement"
+            },
+            "pileSpecification": {
+              "$ref": "#/components/schemas/PileSpecification"
+            },
+            "blindingElements": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/BlindingElementConfig"
+              }
+            },
+            "substructureFilling": {
+              "$ref": "#/components/schemas/SubstructureFilling"
+            },
+            "substructureElements": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/SubstructureElementConfig"
+              }
+            },
+            "superstructureElements": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/SuperstructureElementConfig"
+              }
+            },
+            "finishingElements": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/FinishingElementConfig"
+              }
+            },
+            "createdBy": {
+              "type": "string",
+              "example": "665f4a2b8e4d3c001f2a3b4e"
+            },
+            "updatedBy": {
+              "type": "string",
+              "example": "665f4a2b8e4d3c001f2a3b4e"
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        "TakeoffReinforcement": {
+          "type": "object",
+          "description": "A single reinforcement bar entry in an element's bar schedule",
+          "required": [
+            "barMark",
+            "barCount",
+            "barType",
+            "diameter"
+          ],
+          "properties": {
+            "barMark": {
+              "type": "string",
+              "description": "User-defined bar mark label (e.g. T1, R1, L1)",
+              "example": "T1"
+            },
+            "barCount": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Number of bars of this specification",
+              "example": 4
+            },
+            "barType": {
+              "type": "string",
+              "enum": [
+                "Y",
+                "R"
+              ],
+              "description": "Bar type — Y = high-yield (deformed), R = mild-steel (round)",
+              "example": "Y"
+            },
+            "diameter": {
+              "type": "integer",
+              "enum": [
+                10,
+                12,
+                16,
+                20,
+                25,
+                32
+              ],
+              "description": "Bar diameter in millimetres",
+              "example": 16
+            },
+            "length": {
+              "type": "number",
+              "description": "Total bar length in metres (used for weight calculation)",
+              "example": 3.5
+            }
+          }
+        },
+        "TakeoffLayeredReinforcement": {
+          "type": "object",
+          "description": "A single bar-schedule row (e.g. one PD/PF row in the Pad Footing grid). The five arrays below are **parallel** — index `i`\nin every array refers to the same bar group. In the UI, each grid cell renders **N small inputs** (commonly 4 boxes per cell\nfor pad footings: Bottom-X, Bottom-Y, Top-X, Top-Y). All arrays MUST have equal length; use `0` for empty boxes — do not\nshorten the array, otherwise indices will no longer align across columns.\n",
+          "required": [
+            "name"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Group label for this reinforcement layer (e.g. \"GROUND BEAM 1\")",
+              "example": "GROUND BEAM 1"
+            },
+            "centerToCenter": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "description": "Centre-to-centre spacing values (mm)",
+              "example": [
+                150,
+                200
+              ]
+            },
+            "sizeDia": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "description": "Bar diameters for each entry (mm)",
+              "example": [
+                12,
+                16
+              ]
+            },
+            "noThus": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "description": "Number of sets / groups",
+              "example": [
+                2,
+                3
+              ]
+            },
+            "noInEach": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "description": "Number of bars in each set",
+              "example": [
+                4,
+                4
+              ]
+            },
+            "cutLength": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "description": "Cut length for each entry (m)",
+              "example": [
+                3.5,
+                4
+              ]
+            }
+          }
+        },
+        "BendingSummaryRow": {
+          "type": "object",
+          "description": "Weight total for a single bar diameter",
+          "properties": {
+            "barSize": {
+              "type": "string",
+              "description": "Bar size label (e.g. Y10, Y12)",
+              "example": "Y16"
+            },
+            "weightKg": {
+              "type": "number",
+              "description": "Total weight for this bar size in kg",
+              "example": 125.4
+            }
+          }
+        },
+        "BendingSummary": {
+          "type": "object",
+          "description": "Aggregated reinforcement weight grouped by bar diameter",
+          "properties": {
+            "rows": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/BendingSummaryRow"
+              }
+            },
+            "totalKg": {
+              "type": "number",
+              "description": "Grand total reinforcement weight in kg",
+              "example": 1250.8
+            },
+            "totalTonnes": {
+              "type": "number",
+              "description": "Grand total reinforcement weight in tonnes",
+              "example": 1.2508
+            }
+          }
+        },
+        "TakeoffElementInput": {
+          "type": "object",
+          "description": "A single structural element as entered in the spreadsheet",
+          "required": [
+            "elementId",
+            "shape"
+          ],
+          "properties": {
+            "elementId": {
+              "type": "string",
+              "description": "User-defined identifier for the element (e.g. C1, GB2, S1). Must be unique within the same elementType for this project.",
+              "example": "C1"
+            },
+            "shape": {
+              "type": "string",
+              "enum": [
+                "rectangular",
+                "circular"
+              ],
+              "description": "Cross-section shape — determines which dimensions are required",
+              "example": "rectangular"
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "isolated",
+                "continuous"
+              ],
+              "description": "Whether the element stands alone or is continuous with others"
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "description": "Number of identical elements (e.g. 4 identical columns)",
+              "example": 4
+            },
+            "length": {
+              "type": "number",
+              "description": "Length in metres (required for rectangular shapes)",
+              "example": 3
+            },
+            "width": {
+              "type": "number",
+              "description": "Width in metres (required for rectangular shapes)",
+              "example": 0.3
+            },
+            "depth": {
+              "type": "number",
+              "description": "Depth/height in metres",
+              "example": 0.3
+            },
+            "diameter": {
+              "type": "number",
+              "description": "Diameter in metres (required for circular shapes)",
+              "example": 0.45
+            },
+            "reinforcement": {
+              "type": "array",
+              "description": "Bar schedule for the element — one entry per bar mark",
+              "items": {
+                "$ref": "#/components/schemas/TakeoffReinforcement"
+              }
+            },
+            "layeredReinforcement": {
+              "type": "array",
+              "description": "Layered reinforcement entries (used for slabs, rafts, beds, etc.)",
+              "items": {
+                "$ref": "#/components/schemas/TakeoffLayeredReinforcement"
+              }
+            },
+            "areaReference": {
+              "type": "string",
+              "description": "Area or zone label for the element",
+              "example": "Zone A"
+            },
+            "thickness": {
+              "type": "number",
+              "description": "Thickness in metres",
+              "example": 0.15
+            },
+            "fillingThickness": {
+              "type": "number",
+              "description": "Filling / hardcore thickness in metres",
+              "example": 0.15
+            },
+            "floorThickness": {
+              "type": "number",
+              "description": "Floor slab thickness in metres",
+              "example": 0.15
+            },
+            "stripThickness": {
+              "type": "number",
+              "description": "Strip foundation thickness in metres",
+              "example": 0.225
+            },
+            "numberOfBranches": {
+              "type": "integer",
+              "description": "Number of branches (for strip layouts)",
+              "example": 4
+            },
+            "colBLength": {
+              "type": "number",
+              "description": "Column base length in metres (for pad/column footings)",
+              "example": 0.9
+            },
+            "colBWidth": {
+              "type": "number",
+              "description": "Column base width in metres",
+              "example": 0.9
+            },
+            "pitDepth": {
+              "type": "number",
+              "description": "Pit depth in metres",
+              "example": 1.2
+            },
+            "numberOfPiles": {
+              "type": "integer",
+              "description": "Number of piles (for excavation pad pit)",
+              "example": 4
+            },
+            "areaToBeDeducted": {
+              "type": "number",
+              "description": "Area to be deducted in m² (for pad concrete)",
+              "example": 0.5
+            },
+            "blockworkWidth": {
+              "type": "number",
+              "description": "Blockwork width in metres",
+              "example": 0.225
+            },
+            "blockworkHeight": {
+              "type": "number",
+              "description": "Blockwork height in metres",
+              "example": 0.45
+            },
+            "nr": {
+              "type": "number",
+              "description": "Number (general-purpose count field)",
+              "example": 2
+            },
+            "lin": {
+              "type": "number",
+              "description": "Linear measurement in metres",
+              "example": 6.5
+            },
+            "notes": {
+              "type": "string",
+              "description": "Optional notes for this element",
+              "example": "Ground floor columns"
+            }
+          }
+        },
+        "TakeoffElement": {
+          "type": "object",
+          "description": "A saved takeoff element as returned from the database",
+          "properties": {
+            "_id": {
+              "type": "string",
+              "example": "665f4a2b8e4d3c001f2a3b4c"
+            },
+            "projectId": {
+              "type": "string",
+              "example": "665f4a2b8e4d3c001f2a3b4d"
+            },
+            "elementType": {
+              "type": "string",
+              "enum": [
+                "column_in_foundation",
+                "pile_cap",
+                "ground_beam",
+                "raft_foundation",
+                "strip_foundation",
+                "pile",
+                "column",
+                "beam",
+                "slab",
+                "staircase",
+                "staircase_landing",
+                "staircase_strings_steps",
+                "staircase_upper_floors",
+                "wall",
+                "swimming_pool",
+                "oversite_slab",
+                "column_footing",
+                "pile_cap_frames",
+                "shear_wall",
+                "lift_wall",
+                "lintels",
+                "roof_column",
+                "roof_beam",
+                "kitchen_countertop",
+                "excavation_clearing",
+                "excavation_strip",
+                "ddt_pad_pit_in_strip",
+                "strip_length_calculator",
+                "pad_footing",
+                "ground_floor_bed",
+                "excavation_ground_beam",
+                "ground_floor_bed_void",
+                "water_slab",
+                "roof_slab",
+                "upper_floor_ddt_void",
+                "parapet_wall",
+                "parapet_wall_copping"
+              ],
+              "example": "column"
+            },
+            "elementCategory": {
+              "type": "string",
+              "enum": [
+                "substructure",
+                "superstructure",
+                "finishing",
+                "external"
+              ],
+              "description": "Auto-derived from elementType",
+              "example": "superstructure"
+            },
+            "elementId": {
+              "type": "string",
+              "description": "User-defined identifier",
+              "example": "C1"
+            },
+            "shape": {
+              "type": "string",
+              "enum": [
+                "rectangular",
+                "circular"
+              ],
+              "example": "rectangular"
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "isolated",
+                "continuous"
+              ]
+            },
+            "count": {
+              "type": "integer",
+              "example": 4
+            },
+            "length": {
+              "type": "number",
+              "example": 3
+            },
+            "width": {
+              "type": "number",
+              "example": 0.3
+            },
+            "depth": {
+              "type": "number",
+              "example": 0.3
+            },
+            "diameter": {
+              "type": "number"
+            },
+            "reinforcement": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/TakeoffReinforcement"
+              }
+            },
+            "layeredReinforcement": {
+              "type": "array",
+              "description": "Layered reinforcement entries",
+              "items": {
+                "$ref": "#/components/schemas/TakeoffLayeredReinforcement"
+              }
+            },
+            "areaReference": {
+              "type": "string"
+            },
+            "thickness": {
+              "type": "number"
+            },
+            "fillingThickness": {
+              "type": "number"
+            },
+            "floorThickness": {
+              "type": "number"
+            },
+            "stripThickness": {
+              "type": "number"
+            },
+            "numberOfBranches": {
+              "type": "integer"
+            },
+            "colBLength": {
+              "type": "number"
+            },
+            "colBWidth": {
+              "type": "number"
+            },
+            "pitDepth": {
+              "type": "number"
+            },
+            "numberOfPiles": {
+              "type": "integer"
+            },
+            "areaToBeDeducted": {
+              "type": "number"
+            },
+            "blockworkWidth": {
+              "type": "number"
+            },
+            "blockworkHeight": {
+              "type": "number"
+            },
+            "nr": {
+              "type": "number"
+            },
+            "lin": {
+              "type": "number"
+            },
+            "notes": {
+              "type": "string"
+            },
+            "createdBy": {
+              "type": "string",
+              "example": "665f4a2b8e4d3c001f2a0001"
+            },
+            "updatedBy": {
+              "type": "string",
+              "example": "665f4a2b8e4d3c001f2a0001"
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time",
+              "example": "2025-06-01T12:00:00.000Z"
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time",
+              "example": "2025-06-01T12:05:00.000Z"
+            }
+          }
+        },
+        "GlobalConfiguration": {
+          "type": "object",
+          "description": "Project-level defaults for QS calculations",
+          "properties": {
+            "defaultConcreteGrade": {
+              "type": "string",
+              "description": "Concrete grade specification (e.g. C30/37, Grade 25)",
+              "example": "C30/37"
+            },
+            "reinforcementCover": {
+              "type": "number",
+              "description": "Reinforcement cover in millimetres",
+              "example": 50
+            },
+            "defaultRebarSizes": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "description": "Default rebar diameters available in this project (mm)",
+              "example": [
+                12,
+                16,
+                20
+              ]
+            },
+            "defaultBarType": {
+              "type": "string",
+              "enum": [
+                "Y",
+                "R"
+              ],
+              "description": "Default bar type — Y = high-yield, R = mild-steel",
+              "example": "Y"
+            }
+          }
+        },
+        "ElementCalculation": {
+          "type": "object",
+          "description": "Calculated quantities for a single element",
+          "properties": {
+            "elementId": {
+              "type": "string",
+              "example": "C1"
+            },
+            "elementType": {
+              "type": "string",
+              "example": "column"
+            },
+            "elementCategory": {
+              "type": "string",
+              "example": "superstructure"
+            },
+            "concreteVolume": {
+              "type": "number",
+              "description": "Concrete volume in m³",
+              "example": 1.08
+            },
+            "formworkArea": {
+              "type": "number",
+              "description": "Formwork surface area in m²",
+              "example": 7.2
+            },
+            "rebarWeight": {
+              "type": "number",
+              "description": "Reinforcement weight in kg",
+              "example": 45.6
+            }
+          }
+        },
+        "CalculationSummary": {
+          "type": "object",
+          "description": "Aggregated calculation across all elements, with per-element breakdown",
+          "properties": {
+            "totalConcreteVolume": {
+              "type": "number",
+              "description": "Total concrete volume in m³",
+              "example": 85.3
+            },
+            "totalFormworkArea": {
+              "type": "number",
+              "description": "Total formwork area in m²",
+              "example": 320.5
+            },
+            "totalRebarWeight": {
+              "type": "number",
+              "description": "Total reinforcement weight in kg",
+              "example": 1250.8
+            },
+            "totalRebarWeightTonnes": {
+              "type": "number",
+              "description": "Total reinforcement weight in tonnes",
+              "example": 1.2508
+            },
+            "elements": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/ElementCalculation"
+              }
+            },
+            "bendingSummary": {
+              "$ref": "#/components/schemas/BendingSummary"
+            }
+          }
+        },
+        "BendingScheduleManualRow": {
+          "type": "object",
+          "required": [
+            "barSize",
+            "weightKg"
+          ],
+          "properties": {
+            "barSize": {
+              "type": "string",
+              "example": "Y10",
+              "description": "Reinforcement bar size code (e.g. Y8, Y10, Y12, R8)."
+            },
+            "weightKg": {
+              "type": "number",
+              "format": "float",
+              "example": 150,
+              "minimum": 0,
+              "description": "Total weight in kilograms for this bar size."
+            }
+          }
+        },
+        "BendingScheduleManualInput": {
+          "type": "object",
+          "required": [
+            "rows"
+          ],
+          "properties": {
+            "rows": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 50,
+              "items": {
+                "$ref": "#/components/schemas/BendingScheduleManualRow"
+              }
+            }
+          }
+        },
+        "BendingScheduleManualResponse": {
+          "type": "object",
+          "nullable": true,
+          "properties": {
+            "rows": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/BendingScheduleManualRow"
+              }
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "updatedBy": {
+              "type": "string",
+              "description": "User ID that last updated the manual summary."
+            }
+          }
+        }
+      }
+    },
+    "security": [
+      {
+        "bearerAuth": []
+      }
+    ],
+    "paths": {
+      "/credits/pricing": {
+        "get": {
+          "summary": "Get credit pricing table",
+          "description": "Returns the credit cost per AI operation type and size multipliers. Public endpoint.",
+          "tags": [
+            "AI Credits"
+          ],
+          "security": [],
+          "responses": {
+            "200": {
+              "description": "Credit pricing fetched successfully."
+            }
+          }
+        }
+      },
+      "/credits/balance": {
+        "get": {
+          "summary": "Get credit balance",
+          "description": "Returns the authenticated user's current credit balance (total, used, reserved, available).",
+          "tags": [
+            "AI Credits"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Credit balance fetched successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Credit balance fetched successfully",
+                    "data": {
+                      "totalCredits": 500,
+                      "usedCredits": 120,
+                      "reservedCredits": 30,
+                      "availableCredits": 350
+                    },
+                    "timestamp": "2026-02-22T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized."
+            }
+          }
+        }
+      },
+      "/credits/history": {
+        "get": {
+          "summary": "Get credit transaction history",
+          "description": "Returns paginated transaction history for the authenticated user.",
+          "tags": [
+            "AI Credits"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "query",
+              "name": "page",
+              "schema": {
+                "type": "integer",
+                "default": 1
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "schema": {
+                "type": "integer",
+                "default": 20
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Transaction history fetched."
+            }
+          }
+        }
+      },
+      "/credits/usage": {
+        "get": {
+          "summary": "Get usage summary by operation type",
+          "description": "Aggregated credit usage grouped by AI operation type.",
+          "tags": [
+            "AI Credits"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "query",
+              "name": "startDate",
+              "schema": {
+                "type": "string",
+                "format": "date"
+              }
+            },
+            {
+              "in": "query",
+              "name": "endDate",
+              "schema": {
+                "type": "string",
+                "format": "date"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Usage summary fetched."
+            }
+          }
+        }
+      },
+      "/credits/usage/providers": {
+        "get": {
+          "summary": "Get usage summary by AI provider",
+          "description": "Aggregated credit usage grouped by AI provider (OpenAI, Anthropic, etc.).",
+          "tags": [
+            "AI Credits"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Provider usage summary fetched."
+            }
+          }
+        }
+      },
+      "/credits/add": {
+        "post": {
+          "summary": "Add credits to a user (admin)",
+          "description": "Admin endpoint to allocate, refund, or bonus credits to a user's account.",
+          "tags": [
+            "AI Credits"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "userId",
+                    "amount"
+                  ],
+                  "properties": {
+                    "userId": {
+                      "type": "string",
+                      "description": "Target user's ID."
+                    },
+                    "amount": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "Number of credits to add."
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "allocation",
+                        "bonus",
+                        "adjustment"
+                      ],
+                      "default": "allocation"
+                    },
+                    "description": {
+                      "type": "string",
+                      "default": "Admin credit allocation"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Credits added successfully."
+            },
+            "400": {
+              "description": "Validation failed."
+            },
+            "401": {
+              "description": "Unauthorized."
+            },
+            "403": {
+              "description": "Forbidden — admin role required."
+            }
+          }
+        }
+      },
+      "/auth/register": {
+        "post": {
+          "summary": "Register a new user",
+          "description": "Creates a new user account with the provided details. Passwords are hashed using bcrypt\nbefore storage. On success, a 6-digit OTP is sent to the user's email address for\nverification. **No auth tokens are returned** — the user must verify their email first\nvia the `/verify-email` endpoint. If the role is `company`, the `companyName` field is required.\n",
+          "tags": [
+            "Auth"
+          ],
+          "security": [],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterInput"
+                },
+                "examples": {
+                  "userRegistration": {
+                    "summary": "Register as a regular user",
+                    "value": {
+                      "firstName": "John",
+                      "lastName": "Doe",
+                      "email": "john.doe@mailinator.com",
+                      "password": "SecureP@ss123",
+                      "phoneNumber": "+2348012345678"
+                    }
+                  },
+                  "companyRegistration": {
+                    "summary": "Register as a company",
+                    "value": {
+                      "firstName": "Jane",
+                      "lastName": "Smith",
+                      "email": "jane@mailinator.com",
+                      "password": "SecureP@ss123",
+                      "phoneNumber": "+2348098765432",
+                      "role": "company",
+                      "companyName": "Acme Inc"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "Registration successful — OTP sent to the provided email for verification.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Registration successful",
+                    "data": {
+                      "user": {
+                        "id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                        "firstName": "John",
+                        "lastName": "Doe",
+                        "email": "john.doe@mailinator.com",
+                        "role": "user"
+                      },
+                      "message": "OTP sent to your email address"
+                    },
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation failed — one or more fields are invalid.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Validation failed",
+                    "errors": [
+                      {
+                        "field": "email",
+                        "message": "Invalid email address"
+                      }
+                    ],
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "409": {
+              "description": "Conflict — email already exists.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Email already exists",
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/auth/verify-email": {
+        "post": {
+          "summary": "Verify email address with OTP",
+          "description": "Verifies a user's email address using the 6-digit OTP sent during registration.\nOn success, the user's `emailVerified` flag is set to `true`, all existing OTPs\nare invalidated, and JWT access and refresh tokens are returned so the user is\nimmediately logged in.\n\nThe OTP expires after **15 minutes**. If it has expired, use the\n`/resend-otp` endpoint to request a new one.\n",
+          "tags": [
+            "Auth"
+          ],
+          "security": [],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "email",
+                    "otp"
+                  ],
+                  "properties": {
+                    "email": {
+                      "type": "string",
+                      "format": "email",
+                      "description": "The registered email address."
+                    },
+                    "otp": {
+                      "type": "string",
+                      "pattern": "^\\d{6}$",
+                      "description": "The 6-digit verification code sent to the email."
+                    }
+                  }
+                },
+                "example": {
+                  "email": "john.doe@mailinator.com",
+                  "otp": "482916"
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Email verified — returns user profile and JWT tokens.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/AuthSuccessResponse"
+                  },
+                  "example": {
+                    "success": true,
+                    "message": "Email verified successfully",
+                    "data": {
+                      "user": {
+                        "id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                        "firstName": "John",
+                        "lastName": "Doe",
+                        "email": "john.doe@mailinator.com",
+                        "role": "user"
+                      },
+                      "tokens": {
+                        "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                        "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                      }
+                    },
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation failed — invalid email or OTP format.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Validation failed",
+                    "errors": [
+                      {
+                        "field": "otp",
+                        "message": "OTP must be exactly 6 digits"
+                      }
+                    ],
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — OTP is invalid or expired.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Invalid or expired OTP",
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "404": {
+              "description": "Not found — no user with the given email.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "User not found",
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "409": {
+              "description": "Conflict — email is already verified.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Email is already verified",
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/auth/resend-otp": {
+        "post": {
+          "summary": "Resend email verification OTP",
+          "description": "Invalidates any previously issued OTP for the given email and sends a fresh\n6-digit verification code. Use this if the original OTP has expired or was not\nreceived.\n\nReturns 409 if the email is already verified. Returns 404 if the email is not\nregistered.\n",
+          "tags": [
+            "Auth"
+          ],
+          "security": [],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "email"
+                  ],
+                  "properties": {
+                    "email": {
+                      "type": "string",
+                      "format": "email",
+                      "description": "The registered email address to resend the OTP to."
+                    }
+                  }
+                },
+                "example": {
+                  "email": "john.doe@mailinator.com"
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "A new OTP has been sent to the email address.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "A new OTP has been sent to your email address",
+                    "data": {
+                      "message": "A new OTP has been sent to your email address"
+                    },
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "404": {
+              "description": "Not found — no user with the given email.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "User not found",
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "409": {
+              "description": "Conflict — email is already verified.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Email is already verified",
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/auth/login": {
+        "post": {
+          "summary": "Login with email and password",
+          "description": "Authenticates a user with their email and password. On success, returns the user\nprofile along with new JWT access and refresh tokens. The user's `lastLoginAt`\ntimestamp is updated and any cached user data is invalidated.\n\n**Important:** The user's email must be verified before they can log in.\nIf the email is unverified, a `403` error is returned. Use the `/resend-otp`\nendpoint to request a new verification code if needed.\n",
+          "tags": [
+            "Auth"
+          ],
+          "security": [],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginInput"
+                },
+                "example": {
+                  "email": "john.doe@mailinator.com",
+                  "password": "SecureP@ss123"
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Login successful — returns user profile and JWT tokens.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/AuthSuccessResponse"
+                  },
+                  "example": {
+                    "success": true,
+                    "message": "Login successful",
+                    "data": {
+                      "user": {
+                        "id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                        "firstName": "John",
+                        "lastName": "Doe",
+                        "email": "john.doe@mailinator.com",
+                        "role": "user"
+                      },
+                      "tokens": {
+                        "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                        "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                      }
+                    },
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — invalid email or password.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Invalid email or password",
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "403": {
+              "description": "Forbidden — email is not verified.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Please verify your email address before logging in",
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/auth/refresh-token": {
+        "post": {
+          "summary": "Refresh access token",
+          "description": "Exchanges a valid refresh token for a new pair of access and refresh tokens.\nThe previous refresh token is invalidated (rotated). If the provided refresh\ntoken is expired, tampered with, or does not match the stored token, the\nrequest is rejected with a 401.\n",
+          "tags": [
+            "Auth"
+          ],
+          "security": [],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RefreshTokenInput"
+                },
+                "example": {
+                  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Token refreshed successfully — returns new access and refresh tokens.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Token refreshed successfully",
+                    "data": {
+                      "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                      "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    },
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — refresh token is invalid or expired.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Invalid refresh token",
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/auth/change-password": {
+        "post": {
+          "summary": "Change password (authenticated)",
+          "description": "Changes the password for the currently authenticated user. Requires the\ncurrent password for verification. On success, a \"password changed\"\nnotification email is sent to the user.\n\n**Requires:** Bearer token in the `Authorization` header.\n",
+          "tags": [
+            "Auth"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "currentPassword",
+                    "newPassword"
+                  ],
+                  "properties": {
+                    "currentPassword": {
+                      "type": "string",
+                      "description": "The user's current password."
+                    },
+                    "newPassword": {
+                      "type": "string",
+                      "minLength": 8,
+                      "maxLength": 128,
+                      "description": "The desired new password (min 8 chars)."
+                    }
+                  }
+                },
+                "example": {
+                  "currentPassword": "OldP@ssword123",
+                  "newPassword": "NewSecureP@ss456"
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Password changed successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Password changed successfully",
+                    "data": {
+                      "message": "Password changed successfully"
+                    },
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — invalid token or current password is incorrect.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Current password is incorrect",
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "404": {
+              "description": "Not found — user not found.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "User not found",
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/auth/forgot-password": {
+        "post": {
+          "summary": "Request password reset OTP",
+          "description": "Sends a 6-digit OTP to the provided email address for password reset.\nA generic success message is always returned regardless of whether the\nemail exists — this prevents email enumeration attacks.\n\nThe OTP expires after **15 minutes**. Use the `/reset-password` endpoint\nto verify the OTP and set a new password.\n",
+          "tags": [
+            "Auth"
+          ],
+          "security": [],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "email"
+                  ],
+                  "properties": {
+                    "email": {
+                      "type": "string",
+                      "format": "email",
+                      "description": "The registered email address."
+                    }
+                  }
+                },
+                "example": {
+                  "email": "john.doe@mailinator.com"
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Password reset OTP sent (or generic success for non-existent emails).",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Password reset OTP sent to your email address",
+                    "data": {
+                      "message": "Password reset OTP sent to your email address"
+                    },
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/auth/reset-password": {
+        "post": {
+          "summary": "Reset password with OTP",
+          "description": "Resets the user's password using the 6-digit OTP received via the\n`/forgot-password` endpoint. On success the password is updated,\nall OTPs are invalidated, the refresh token is revoked, and a\n\"password changed\" notification email is sent.\n\nThe user will need to log in again after a successful reset.\n",
+          "tags": [
+            "Auth"
+          ],
+          "security": [],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "email",
+                    "otp",
+                    "newPassword"
+                  ],
+                  "properties": {
+                    "email": {
+                      "type": "string",
+                      "format": "email",
+                      "description": "The registered email address."
+                    },
+                    "otp": {
+                      "type": "string",
+                      "pattern": "^\\d{6}$",
+                      "description": "The 6-digit OTP code from the reset email."
+                    },
+                    "newPassword": {
+                      "type": "string",
+                      "minLength": 8,
+                      "maxLength": 128,
+                      "description": "The desired new password (min 8 chars)."
+                    }
+                  }
+                },
+                "example": {
+                  "email": "john.doe@mailinator.com",
+                  "otp": "482916",
+                  "newPassword": "NewSecureP@ss456"
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Password reset successful.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Password has been reset successfully",
+                    "data": {
+                      "message": "Password has been reset successfully"
+                    },
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — OTP is invalid or expired.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Invalid or expired OTP",
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "404": {
+              "description": "Not found — no user with the given email.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "User not found",
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/billing/webhook": {
+        "post": {
+          "summary": "Payment gateway webhook",
+          "description": "Receives webhook events from the payment gateway (Paystack, Stripe, etc.).\nValidates the request signature using `x-paystack-signature` header and the\nconfigured `PAYMENT_WEBHOOK_SECRET`. **No authentication required.**\n\nSupported events:\n- `charge.success` — marks the invoice as paid and activates the subscription.\n- `charge.failed` — marks the invoice as failed.\n- `subscription.disable` — cancels the company's subscription.\n",
+          "tags": [
+            "Billing - Webhook"
+          ],
+          "parameters": [
+            {
+              "in": "header",
+              "name": "x-paystack-signature",
+              "required": true,
+              "description": "HMAC SHA-512 signature of the raw request body, provided by the payment gateway.",
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "event": {
+                      "type": "string",
+                      "description": "The webhook event type.",
+                      "example": "charge.success"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "reference": {
+                          "type": "string",
+                          "example": "ref_abc123xyz"
+                        },
+                        "metadata": {
+                          "type": "object",
+                          "properties": {
+                            "companyId": {
+                              "type": "string"
+                            },
+                            "planId": {
+                              "type": "string"
+                            },
+                            "billingInterval": {
+                              "type": "string",
+                              "enum": [
+                                "monthly",
+                                "annually"
+                              ]
+                            },
+                            "invoiceId": {
+                              "type": "string"
+                            },
+                            "type": {
+                              "type": "string",
+                              "example": "subscription"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Webhook event processed successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Webhook event processed",
+                    "data": null,
+                    "timestamp": "2026-03-21T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Invalid webhook signature.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Invalid webhook signature",
+                    "timestamp": "2026-03-21T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/bim/upload": {
+        "post": {
+          "summary": "Step 1 — Upload a CAD/BIM file and start APS translation",
+          "description": "Accepts a multipart file upload and kicks off Autodesk Platform Services (APS) translation.\n\n**What happens:**\n1. File is uploaded to the APS Object Storage Service (OSS) transient bucket.\n2. An SVF2 translation job is started (both 2D and 3D views are requested).\n3. The Base64 URL-safe **URN** is returned — **store this value**, you need it for all subsequent calls.\n\n**File size limit:** 200 MB  \n**Supported formats:** RVT, DWG, DXF, IFC, NWD, DGN, SKP, OBJ, FBX  \n**Rejected formats:** PDF (use `/api/v1/pdf-boq/generate` instead)\n\n> **Frontend note:** Also save `req.file.originalname` (the uploaded filename).\n> You'll pass it as `originalFilename` in step 3 (`POST /boq/:urn`) to enable\n> accurate 2D/3D auto-detection.\n\n**Next step:** Poll `GET /status/:urn` every 5–10 seconds until `status === \"success\"`.\n",
+          "tags": [
+            "BIM / BOQ Pipeline"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "multipart/form-data": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "file"
+                  ],
+                  "properties": {
+                    "file": {
+                      "type": "string",
+                      "format": "binary",
+                      "description": "CAD/BIM file (max 200 MB). Supported — RVT, DWG, DXF, IFC, NWD, DGN, SKP, OBJ, FBX."
+                    },
+                    "documentHint": {
+                      "type": "string",
+                      "maxLength": 300,
+                      "description": "Optional free-text context about the project. Stored with the upload and passed to Claude at BOQ generation time.",
+                      "example": "10-storey commercial office block, Lagos, Nigeria"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "File uploaded and translation started. Store the `urn` for subsequent calls.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "File uploaded to APS and translation job started"
+                      },
+                      "data": {
+                        "type": "object",
+                        "properties": {
+                          "urn": {
+                            "type": "string",
+                            "description": "Base64 URL-safe encoded APS URN. **Store this for all subsequent calls.**",
+                            "example": "dXJuOmFkc2sub2JqZWN0czpvcy5vYmplY3Q6cXVhbnRpZnlwcm8tYm9xLXRyYW5zaWVudC8xNzEwMzYyNDAwMDAwLUJ1aWxkaW5nLnJ2dA"
+                          },
+                          "objectKey": {
+                            "type": "string",
+                            "example": "1710362400000-Building.rvt"
+                          },
+                          "bucketKey": {
+                            "type": "string",
+                            "example": "quantifypro-boq-transient"
+                          },
+                          "translationStatus": {
+                            "type": "string",
+                            "enum": [
+                              "created",
+                              "success"
+                            ],
+                            "example": "created"
+                          }
+                        }
+                      },
+                      "timestamp": {
+                        "type": "string",
+                        "example": "2026-03-17T12:00:00.000Z"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "No file provided, unsupported format, or file too large.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Unsupported file extension \".pdf\". Supported formats: rvt, dwg, dxf, ifc, nwd, dgn, skp, obj, fbx",
+                    "timestamp": "2026-03-17T12:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            },
+            "502": {
+              "description": "APS authentication or OSS upload failed.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Failed to upload file to Autodesk OSS.",
+                    "timestamp": "2026-03-17T12:00:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/bim/status/{urn}": {
+        "get": {
+          "summary": "Step 2 — Poll APS translation status",
+          "description": "Polls the APS Model Derivative manifest and returns the current translation status.\n**Call this after uploading a file** (step 1) and repeat every 5–10 seconds.\n\n| Status       | Action                                                |\n|--------------|-------------------------------------------------------|\n| `pending`    | Keep polling — job is queued.                          |\n| `inprogress` | Keep polling — translation is running (shows progress).|\n| `success`    | ✅ Ready — proceed to step 3 (`POST /boq/:urn`).       |\n| `failed`     | ❌ Re-upload the file.                                  |\n| `timeout`    | ❌ Re-upload the file.                                  |\n\n**Typical durations:** Simple DWG ~30s; Large RVT/IFC ~2–5 min.\n\n**Next step:** When `status === \"success\"`, call `POST /boq/:urn` to submit the BOQ job.\n",
+          "tags": [
+            "BIM / BOQ Pipeline"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "urn",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "Base64 URL-safe encoded APS URN from the upload response.",
+              "example": "dXJuOmFkc2sub2JqZWN0czpvcy5vYmplY3Q6cXVhbnRpZnlwcm8tYm9xLXRyYW5zaWVudC8xNzEwMzYyNDAwMDAwLUJ1aWxkaW5nLnJ2dA"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Translation status retrieved.",
+              "content": {
+                "application/json": {
+                  "examples": {
+                    "inprogress": {
+                      "summary": "Translation in progress",
+                      "value": {
+                        "success": true,
+                        "message": "Translation status fetched successfully",
+                        "data": {
+                          "urn": "dXJuOmFkc2sub2JqZWN0czpvcy5vYmplY3Q6...",
+                          "status": "inprogress",
+                          "progress": "71% complete",
+                          "derivatives": []
+                        },
+                        "timestamp": "2026-03-17T12:01:00.000Z"
+                      }
+                    },
+                    "success": {
+                      "summary": "Translation complete — ready for BOQ",
+                      "value": {
+                        "success": true,
+                        "message": "Translation status fetched successfully",
+                        "data": {
+                          "urn": "dXJuOmFkc2sub2JqZWN0czpvcy5vYmplY3Q6...",
+                          "status": "success",
+                          "progress": "complete",
+                          "derivatives": [
+                            {
+                              "name": "Building.rvt",
+                              "role": "3d",
+                              "status": "success"
+                            }
+                          ]
+                        },
+                        "timestamp": "2026-03-17T12:03:00.000Z"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            },
+            "404": {
+              "description": "No manifest found for this URN (file may not have been uploaded or has expired).",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "No manifest found for this URN. Ensure the file was translated.",
+                    "timestamp": "2026-03-17T12:01:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/bim/jobs": {
+        "get": {
+          "summary": "List BIM BOQ jobs for the current user",
+          "description": "Returns a paginated list of all BIM BOQ jobs belonging to the authenticated user,\nsorted by most recent first. Useful for displaying job history in a dashboard.\n\nEach job includes its current `status` — use this to show progress indicators.\nJobs expire automatically after 7 days.\n",
+          "tags": [
+            "BIM / BOQ Pipeline"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "query",
+              "name": "page",
+              "schema": {
+                "type": "integer",
+                "default": 1
+              },
+              "description": "Page number (1-indexed)."
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "schema": {
+                "type": "integer",
+                "default": 20
+              },
+              "description": "Number of jobs per page."
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Paginated list of jobs.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "BIM BOQ jobs fetched successfully.",
+                    "data": [
+                      {
+                        "_id": "66f1a2b3c4d5e6f7a8b9c0d1",
+                        "urn": "dXJuOmFkc2sub2JqZWN0czpvcy5vYmplY3Q6...",
+                        "originalFilename": "Building.rvt",
+                        "fileType": "3d_bim",
+                        "status": "completed",
+                        "viewName": "{3D}",
+                        "rawItemCount": 4200,
+                        "filteredItemCount": 85,
+                        "thumbnailUrl": "https://res.cloudinary.com/...",
+                        "createdAt": "2026-03-17T12:00:00.000Z"
+                      },
+                      {
+                        "_id": "66f1a2b3c4d5e6f7a8b9c0d2",
+                        "urn": "dXJuOmFkc2sub2JqZWN0czpvcy5vYmplY3Q6...",
+                        "originalFilename": "FloorPlan.dwg",
+                        "fileType": "2d_cad",
+                        "status": "processing",
+                        "createdAt": "2026-03-17T12:05:00.000Z"
+                      }
+                    ],
+                    "pagination": {
+                      "page": 1,
+                      "limit": 20,
+                      "total": 2,
+                      "totalPages": 1
+                    },
+                    "timestamp": "2026-03-17T12:10:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            }
+          }
+        }
+      },
+      "/bim/jobs/{jobId}": {
+        "get": {
+          "summary": "Step 4 — Poll job status and retrieve BOQ result",
+          "description": "Returns the full job record. **Poll this endpoint every 3–5 seconds** after\nsubmitting a BOQ job (step 3) until `status === \"completed\"`.\n\n| Status        | Meaning                                           |\n|---------------|---------------------------------------------------|\n| `pending`     | Job queued, not started yet.                       |\n| `processing`  | Background pipeline running (view selection, property extraction, Claude). |\n| `completed`   | ✅ BOQ ready — `data.result` contains the structured BOQ. |\n| `failed`      | ❌ Error — check `data.errorMessage` for details.    |\n\nWhen `status === \"completed\"`, the response includes:\n- `result` — Structured BOQ JSON with `projectTitle`, `sections[]`, and `generalNotes`.\n- `fileType` — Detected file type (`\"2d_cad\"` or `\"3d_bim\"`).\n- `thumbnailUrl` — Cloudinary thumbnail of the model.\n- `rawItemCount` / `filteredItemCount` — Element counts before/after filtering.\n\n**Next steps (all optional):**\n- Display/edit the BOQ in your UI using `data.result`.\n- `PATCH /jobs/:jobId` to save user edits.\n- `GET /jobs/:jobId/pdf` to download as PDF.\n- `POST /jobs/:jobId/create-project` to convert to a project.\n",
+          "tags": [
+            "BIM / BOQ Pipeline"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "jobId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "MongoDB ObjectId of the BIM BOQ job (returned by step 3).",
+              "example": "66f1a2b3c4d5e6f7a8b9c0d1"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Job retrieved successfully.",
+              "content": {
+                "application/json": {
+                  "examples": {
+                    "processing": {
+                      "summary": "Job still processing",
+                      "value": {
+                        "success": true,
+                        "message": "BIM BOQ job fetched successfully.",
+                        "data": {
+                          "_id": "66f1a2b3c4d5e6f7a8b9c0d1",
+                          "urn": "dXJuOmFkc2sub2JqZWN0czpvcy5vYmplY3Q6...",
+                          "originalFilename": "Building.rvt",
+                          "fileType": "3d_bim",
+                          "status": "processing",
+                          "viewIndex": 0,
+                          "createdAt": "2026-03-17T12:00:00.000Z"
+                        },
+                        "timestamp": "2026-03-17T12:00:30.000Z"
+                      }
+                    },
+                    "completed_3d": {
+                      "summary": "Completed job (3D BIM — Revit)",
+                      "value": {
+                        "success": true,
+                        "message": "BIM BOQ job fetched successfully.",
+                        "data": {
+                          "_id": "66f1a2b3c4d5e6f7a8b9c0d1",
+                          "urn": "dXJuOmFkc2sub2JqZWN0czpvcy5vYmplY3Q6...",
+                          "originalFilename": "Building.rvt",
+                          "fileType": "3d_bim",
+                          "status": "completed",
+                          "viewName": "{3D}",
+                          "modelGuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                          "rawItemCount": 4200,
+                          "filteredItemCount": 85,
+                          "thumbnailUrl": "https://res.cloudinary.com/demo/image/upload/bim-abc123.jpg",
+                          "result": {
+                            "projectTitle": "Commercial Office Tower — BOQ",
+                            "sections": [
+                              {
+                                "sectionName": "Walls",
+                                "workItems": [
+                                  {
+                                    "item": "Basic Wall: Generic - 200mm",
+                                    "specification": "C35/45 Concrete",
+                                    "unit": "m²",
+                                    "quantity": 1250.5,
+                                    "notes": null
+                                  },
+                                  {
+                                    "item": "Basic Wall: Curtain Wall",
+                                    "specification": "Aluminium frame, double glazed",
+                                    "unit": "m²",
+                                    "quantity": 680
+                                  }
+                                ]
+                              },
+                              {
+                                "sectionName": "Floors",
+                                "workItems": [
+                                  {
+                                    "item": "Floor: 150mm Concrete Slab",
+                                    "specification": "C30/37 Concrete, A393 mesh",
+                                    "unit": "m³",
+                                    "quantity": 450.2
+                                  }
+                                ]
+                              },
+                              {
+                                "sectionName": "Windows",
+                                "workItems": [
+                                  {
+                                    "item": "Fixed Window: 1200x1500mm",
+                                    "specification": "Aluminium, double glazed",
+                                    "unit": "nr",
+                                    "quantity": 48
+                                  }
+                                ]
+                              }
+                            ],
+                            "generalNotes": "BOQ extracted from Revit 3D BIM model. 4200 elements analysed, 85 unique items identified. Quantities derived from model geometry."
+                          },
+                          "startedAt": "2026-03-17T12:00:00.000Z",
+                          "completedAt": "2026-03-17T12:02:15.000Z",
+                          "createdAt": "2026-03-17T12:00:00.000Z"
+                        },
+                        "timestamp": "2026-03-17T12:02:15.000Z"
+                      }
+                    },
+                    "completed_2d": {
+                      "summary": "Completed job (2D CAD — AutoCAD DWG)",
+                      "value": {
+                        "success": true,
+                        "message": "BIM BOQ job fetched successfully.",
+                        "data": {
+                          "_id": "66f1a2b3c4d5e6f7a8b9c0d2",
+                          "urn": "dXJuOmFkc2sub2JqZWN0czpvcy5vYmplY3Q6...",
+                          "originalFilename": "GroundFloorPlan.dwg",
+                          "fileType": "2d_cad",
+                          "status": "completed",
+                          "viewName": "Layout1",
+                          "rawItemCount": 1850,
+                          "filteredItemCount": 42,
+                          "thumbnailUrl": "https://res.cloudinary.com/demo/image/upload/bim-def456.jpg",
+                          "result": {
+                            "projectTitle": "Ground Floor Plan — BOQ",
+                            "sections": [
+                              {
+                                "sectionName": "COLUMN",
+                                "workItems": [
+                                  {
+                                    "item": "AcDbPolyline - ANSI31",
+                                    "specification": "ANSI31",
+                                    "unit": "m²",
+                                    "quantity": 12.4
+                                  }
+                                ]
+                              },
+                              {
+                                "sectionName": "WALL",
+                                "workItems": [
+                                  {
+                                    "item": "AcDbLine",
+                                    "specification": null,
+                                    "unit": "m",
+                                    "quantity": 245.6
+                                  }
+                                ]
+                              },
+                              {
+                                "sectionName": "HATCH-CONCRETE [ANSI37]",
+                                "workItems": [
+                                  {
+                                    "item": "AcDbHatch - ANSI37",
+                                    "specification": "ANSI37",
+                                    "unit": "m²",
+                                    "quantity": 89.3
+                                  }
+                                ]
+                              }
+                            ],
+                            "generalNotes": "BOQ extracted from 2D AutoCAD DWG. Layer-based grouping with mm→m conversion applied. 1850 entities analysed, 42 unique items."
+                          },
+                          "startedAt": "2026-03-17T12:05:00.000Z",
+                          "completedAt": "2026-03-17T12:06:30.000Z"
+                        },
+                        "timestamp": "2026-03-17T12:06:30.000Z"
+                      }
+                    },
+                    "failed": {
+                      "summary": "Failed job",
+                      "value": {
+                        "success": true,
+                        "message": "BIM BOQ job fetched successfully.",
+                        "data": {
+                          "_id": "66f1a2b3c4d5e6f7a8b9c0d3",
+                          "status": "failed",
+                          "errorMessage": "No 3D or 2D model view was found in this derivative."
+                        },
+                        "timestamp": "2026-03-17T12:10:00.000Z"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            },
+            "404": {
+              "description": "Job not found or not owned by the current user."
+            }
+          }
+        },
+        "patch": {
+          "summary": "Step 6 (optional) — Save user edits to the BOQ result",
+          "description": "Replace the stored BOQ result with a client-edited version. The updated result\nis persisted and will be used when downloading the PDF or creating a project.\n\n**Typical use case:** The frontend renders the BOQ from `GET /jobs/:jobId`\nin an editable table. When the user modifies quantities, adds items, or\ncorrects descriptions, send the full updated BOQ structure here.\n\nThe payload must match the `PdfBoqResult` shape — same as what was returned\nin `data.result` when the job completed.\n",
+          "tags": [
+            "BIM / BOQ Pipeline"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "jobId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "example": "66f1a2b3c4d5e6f7a8b9c0d1"
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "projectTitle",
+                    "sections"
+                  ],
+                  "properties": {
+                    "projectTitle": {
+                      "type": "string",
+                      "example": "Commercial Office Tower — BOQ (Revised)"
+                    },
+                    "sections": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "sectionName",
+                          "workItems"
+                        ],
+                        "properties": {
+                          "sectionName": {
+                            "type": "string",
+                            "example": "Substructure"
+                          },
+                          "workItems": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "required": [
+                                "item",
+                                "unit"
+                              ],
+                              "properties": {
+                                "item": {
+                                  "type": "string",
+                                  "example": "Excavation to reduced level"
+                                },
+                                "specification": {
+                                  "type": "string",
+                                  "example": "Maximum depth 1.5m"
+                                },
+                                "unit": {
+                                  "type": "string",
+                                  "example": "m³"
+                                },
+                                "quantity": {
+                                  "type": "number",
+                                  "nullable": true,
+                                  "example": 450
+                                },
+                                "rate": {
+                                  "type": "number",
+                                  "example": 2500
+                                },
+                                "total": {
+                                  "type": "number",
+                                  "example": 1125000
+                                },
+                                "notes": {
+                                  "type": "string",
+                                  "example": "Measured from BIM model"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "generalNotes": {
+                      "type": "string",
+                      "example": "Revised by QS on 17/03/2026. Quantities verified against site measurements."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "BOQ result updated successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "BIM BOQ result updated successfully.",
+                    "data": {
+                      "_id": "66f1a2b3c4d5e6f7a8b9c0d1",
+                      "status": "completed",
+                      "result": {
+                        "projectTitle": "Commercial Office Tower — BOQ (Revised)",
+                        "sections": [
+                          {
+                            "sectionName": "Substructure",
+                            "workItems": [
+                              {
+                                "item": "Excavation to reduced level",
+                                "specification": "Maximum depth 1.5m",
+                                "unit": "m³",
+                                "quantity": 450,
+                                "rate": 2500,
+                                "total": 1125000
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    "timestamp": "2026-03-17T14:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            },
+            "404": {
+              "description": "Job not found or not owned by the current user."
+            }
+          }
+        }
+      },
+      "/bim/jobs/{jobId}/pdf": {
+        "get": {
+          "summary": "Step 7 (optional) — Download BOQ as a PDF document",
+          "description": "Renders the stored BOQ result as a professional A4 PDF and streams it as a\nfile download. The PDF includes a formatted table with sections, work items,\nquantities, units, rates, and totals.\n\n**Prerequisites:**\n- Job must be in `\"completed\"` status.\n- If you've saved user edits via `PATCH /jobs/:jobId`, the PDF will reflect\n  the updated data.\n\n**Frontend implementation:**\n```javascript\nconst response = await fetch(`/api/v1/bim/jobs/${jobId}/pdf`, {\n  headers: { Authorization: `Bearer ${token}` },\n});\nconst blob = await response.blob();\nconst url = URL.createObjectURL(blob);\nwindow.open(url);  // or trigger download\n```\n",
+          "tags": [
+            "BIM / BOQ Pipeline"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "jobId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "MongoDB ObjectId of the completed BIM BOQ job.",
+              "example": "66f1a2b3c4d5e6f7a8b9c0d1"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "PDF file streamed as download.",
+              "headers": {
+                "Content-Disposition": {
+                  "description": "Suggested filename, e.g. `attachment; filename=\"BOQ-Commercial_Office_Tower.pdf\"`",
+                  "schema": {
+                    "type": "string"
+                  }
+                }
+              },
+              "content": {
+                "application/pdf": {
+                  "schema": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            },
+            "404": {
+              "description": "Job not found or not owned by the current user."
+            },
+            "409": {
+              "description": "Job is not completed yet. Wait for `status === \"completed\"`.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "BOQ is not ready yet. The job has not completed.",
+                    "timestamp": "2026-03-17T12:00:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/bim/jobs/{jobId}/create-project": {
+        "post": {
+          "summary": "Step 8 (optional) — Create a project from a completed job",
+          "description": "Converts a completed BIM BOQ job into a permanent **Project** record.\nThe full BOQ result is copied automatically — no need to send the BOQ in the request body.\n\n**What happens:**\n1. Creates a new Project with `source: \"bim\"` and `sourceJobId` referencing this job.\n2. Copies the BOQ result and thumbnail to the project.\n3. Links the job back to the project via `projectId`.\n\n**When to use:** After the user reviews the BOQ and decides to keep it. Projects\nare permanent (no TTL), while jobs expire after 7 days.\n",
+          "tags": [
+            "BIM / BOQ Pipeline"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "jobId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "MongoDB ObjectId of the completed BIM BOQ job.",
+              "example": "66f1a2b3c4d5e6f7a8b9c0d1"
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "name"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "maxLength": 255,
+                      "description": "Project name.",
+                      "example": "Lekki Phase 1 — Office Block"
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 1000,
+                      "example": "10-storey commercial office tower with underground parking"
+                    },
+                    "companyId": {
+                      "type": "string",
+                      "description": "Company ID (for enterprise users with teams)."
+                    },
+                    "clientId": {
+                      "type": "string",
+                      "description": "Client ID to associate this project with."
+                    },
+                    "clientName": {
+                      "type": "string",
+                      "maxLength": 255,
+                      "example": "Dangote Industries"
+                    },
+                    "projectCode": {
+                      "type": "string",
+                      "maxLength": 100,
+                      "example": "PRJ-2026-042"
+                    },
+                    "projectType": {
+                      "type": "string",
+                      "maxLength": 100,
+                      "example": "Commercial"
+                    },
+                    "projectLocation": {
+                      "type": "string",
+                      "maxLength": 255,
+                      "example": "Lekki Phase 1, Lagos, Nigeria"
+                    },
+                    "drawingType": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "structural",
+                          "architectural",
+                          "mep",
+                          "electrical",
+                          "mechanical",
+                          "plumbing",
+                          "civil",
+                          "landscape",
+                          "interior",
+                          "fire_protection",
+                          "general"
+                        ]
+                      },
+                      "description": "Types of drawings included in the project",
+                      "example": [
+                        "structural",
+                        "architectural"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "Project created successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Project created from BIM BOQ job successfully.",
+                    "data": {
+                      "_id": "66f2b3c4d5e6f7a8b9c0d123",
+                      "name": "Lekki Phase 1 — Office Block",
+                      "description": "10-storey commercial office tower with underground parking",
+                      "source": "bim",
+                      "sourceJobId": "66f1a2b3c4d5e6f7a8b9c0d1",
+                      "status": "active",
+                      "clientName": "Dangote Industries",
+                      "projectCode": "PRJ-2026-042",
+                      "projectType": "Commercial",
+                      "projectLocation": "Lekki Phase 1, Lagos, Nigeria",
+                      "boqResult": {
+                        "projectTitle": "Commercial Office Tower — BOQ",
+                        "sections": [
+                          "...sections array..."
+                        ]
+                      },
+                      "thumbnailUrl": "https://res.cloudinary.com/...",
+                      "createdAt": "2026-03-17T14:00:00.000Z"
+                    },
+                    "timestamp": "2026-03-17T14:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation error (e.g. missing `name`)."
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            },
+            "404": {
+              "description": "Job not found or not owned by the current user."
+            },
+            "409": {
+              "description": "Job is not completed yet.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "BOQ is not ready yet. The job has not completed.",
+                    "timestamp": "2026-03-17T12:00:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/bim/boq/{urn}": {
+        "post": {
+          "summary": "Step 3 — Submit BIM BOQ generation job (async)",
+          "description": "Kicks off the property-extraction + Claude AI reasoning pipeline in the background\nand returns a `jobId` immediately (**HTTP 202**).\n\n**Prerequisites:** Only call this endpoint after `GET /status/:urn` returns `status === \"success\"`.\n\n**Background pipeline (runs automatically):**\n1. **2D/3D Detection** — Determines if the file is a 2D CAD drawing or 3D BIM model,\n   using the `originalFilename` extension and APS manifest derivatives.\n2. **View selection** — For 3D BIM: prefers `{3D}` views. For 2D CAD: prefers layout/plan views.\n3. **Property extraction** — Fetches all element properties from the selected view (with auto-retry).\n4. **Format-specific filtering:**\n   - **3D BIM (RVT/IFC/NWD):** Groups by Category, extracts Family/Type Name, trusts native units.\n   - **2D CAD (DWG/DXF/DGN):** Groups by Layer, applies mm→m conversion, extracts hatch patterns.\n5. **Claude AI reasoning** — Claude (quantity surveyor prompt) generates a structured BOQ.\n6. **Thumbnail** — Fetches the APS model thumbnail and uploads to Cloudinary.\n\n**Next step:** Poll `GET /jobs/:jobId` every 3–5 seconds until `status === \"completed\"`.\n\n> **Tip:** Pass `originalFilename` (e.g. `\"Building.rvt\"`) from your upload step for best\n> 2D/3D detection accuracy. Without it, the system still detects via APS manifest analysis.\n",
+          "tags": [
+            "BIM / BOQ Pipeline"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "urn",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "Base64 URL-safe encoded APS URN from the upload response.",
+              "example": "dXJuOmFkc2sub2JqZWN0czpvcy5vYmplY3Q6cXVhbnRpZnlwcm8tYm9xLXRyYW5zaWVudC8xNzEwMzYyNDAwMDAwLUJ1aWxkaW5nLnJ2dA"
+            }
+          ],
+          "requestBody": {
+            "required": false,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "originalFilename": {
+                      "type": "string",
+                      "maxLength": 500,
+                      "description": "Original filename from the upload step (e.g. `\"Building.rvt\"`, `\"FloorPlan.dwg\"`).\nUsed for automatic 2D CAD vs 3D BIM detection via file extension.\nIf omitted, the system falls back to APS manifest analysis.\n",
+                      "example": "Building.rvt"
+                    },
+                    "documentHint": {
+                      "type": "string",
+                      "maxLength": 300,
+                      "description": "Free-text project context passed to Claude for better BOQ quality.",
+                      "example": "10-storey commercial tower, Lagos, Nigeria. Concrete frame with curtain wall facade."
+                    },
+                    "viewIndex": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "default": 0,
+                      "description": "Index of the model view to use. Default `0` selects the first available view\n(after smart view selection applies). Only change this if you know the model\nhas multiple views and want a specific one.\n"
+                    },
+                    "projectId": {
+                      "type": "string",
+                      "description": "Optional pre-created project ID. When provided, the project will be\nauto-updated with the BOQ result and thumbnail once processing completes.\nUse this if you create the project before generating the BOQ.\n"
+                    }
+                  }
+                },
+                "examples": {
+                  "revit_file": {
+                    "summary": "3D BIM — Revit file",
+                    "value": {
+                      "originalFilename": "CommercialTower.rvt",
+                      "documentHint": "10-storey commercial tower, Lagos. Concrete frame."
+                    }
+                  },
+                  "dwg_file": {
+                    "summary": "2D CAD — AutoCAD DWG",
+                    "value": {
+                      "originalFilename": "GroundFloorPlan.dwg",
+                      "documentHint": "Residential bungalow, Abuja. Ground floor plan."
+                    }
+                  },
+                  "minimal": {
+                    "summary": "Minimal (auto-detect from manifest)",
+                    "value": {}
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "202": {
+              "description": "Job accepted and processing started in the background.\nPoll `GET /jobs/:jobId` for status.\n",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "BIM BOQ job submitted successfully. Poll /jobs/:jobId for status.",
+                    "data": {
+                      "jobId": "66f1a2b3c4d5e6f7a8b9c0d1",
+                      "status": "pending"
+                    },
+                    "timestamp": "2026-03-17T12:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            },
+            "404": {
+              "description": "No manifest found for this URN.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "No manifest found for this URN. Ensure the file was translated.",
+                    "timestamp": "2026-03-17T12:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "422": {
+              "description": "Translation failed or no views found.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "APS translation job failed. Please re-upload the file.",
+                    "timestamp": "2026-03-17T12:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "202 (translation pending)": {
+              "description": "Translation is still in progress. Keep polling `GET /status/:urn` first."
+            }
+          }
+        }
+      },
+      "/bim/formats": {
+        "get": {
+          "summary": "Get supported CAD/BIM file formats",
+          "description": "Returns the list of CAD and BIM file extensions accepted by the upload endpoint.\nEach entry includes the extension, format name, detected file type (`2d_cad` or `3d_bim`),\nand a description of its BOQ property coverage.\n\n**Use this to:**\n- Populate a file picker's `accept` attribute.\n- Show users which formats are supported and their quality expectations.\n",
+          "tags": [
+            "BIM / BOQ Pipeline"
+          ],
+          "responses": {
+            "200": {
+              "description": "Supported formats retrieved.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Supported CAD/BIM file formats retrieved successfully",
+                    "data": {
+                      "formats": [
+                        {
+                          "extension": "rvt",
+                          "name": "Autodesk Revit",
+                          "fileType": "3d_bim",
+                          "description": "Full BIM model — best for BOQ (Category, Family, Type, Volume, Area)"
+                        },
+                        {
+                          "extension": "ifc",
+                          "name": "Industry Foundation Classes",
+                          "fileType": "3d_bim",
+                          "description": "Open BIM standard; rich geometry + IFC classification"
+                        },
+                        {
+                          "extension": "nwd",
+                          "name": "Navisworks Document",
+                          "fileType": "3d_bim",
+                          "description": "Aggregated 3D model with element properties"
+                        },
+                        {
+                          "extension": "dwg",
+                          "name": "AutoCAD Drawing",
+                          "fileType": "2d_cad",
+                          "description": "2D/3D CAD — layer-based extraction with hatch pattern detection"
+                        },
+                        {
+                          "extension": "dxf",
+                          "name": "Drawing Exchange Format",
+                          "fileType": "2d_cad",
+                          "description": "AutoCAD interchange format"
+                        },
+                        {
+                          "extension": "dgn",
+                          "name": "MicroStation Design",
+                          "fileType": "2d_cad",
+                          "description": "Bentley 2D/3D drawings"
+                        },
+                        {
+                          "extension": "skp",
+                          "name": "SketchUp",
+                          "fileType": "3d_bim",
+                          "description": "3D model with component data"
+                        },
+                        {
+                          "extension": "obj",
+                          "name": "Wavefront OBJ",
+                          "fileType": "3d_bim",
+                          "description": "Basic 3D geometry (limited properties)"
+                        },
+                        {
+                          "extension": "fbx",
+                          "name": "Autodesk FBX",
+                          "fileType": "3d_bim",
+                          "description": "3D exchange format"
+                        }
+                      ]
+                    },
+                    "timestamp": "2026-03-17T10:00:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/clients/stats": {
+        "get": {
+          "summary": "Get client dashboard statistics",
+          "description": "Returns total managed clients and aggregate BOQ value across all client projects.",
+          "tags": [
+            "Clients"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Stats retrieved successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Client statistics fetched successfully",
+                    "data": {
+                      "totalClients": 128,
+                      "totalBoqValue": 142800000
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            }
+          }
+        }
+      },
+      "/clients": {
+        "get": {
+          "summary": "List clients for the authenticated user",
+          "description": "Returns a paginated list of clients. Enterprise users see clients belonging\nto their company; solo users see their own clients.\nSupports search by name/company and filtering by industry and status.\n",
+          "tags": [
+            "Clients"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "query",
+              "name": "page",
+              "schema": {
+                "type": "integer",
+                "default": 1
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "schema": {
+                "type": "integer",
+                "default": 20
+              }
+            },
+            {
+              "in": "query",
+              "name": "search",
+              "schema": {
+                "type": "string"
+              },
+              "description": "Search by client name or company name."
+            },
+            {
+              "in": "query",
+              "name": "industry",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "Infrastructure",
+                  "Residential",
+                  "Commercial",
+                  "Public Works",
+                  "Industrial",
+                  "Healthcare",
+                  "Education",
+                  "Hospitality",
+                  "Mixed Use",
+                  "Other"
+                ]
+              }
+            },
+            {
+              "in": "query",
+              "name": "status",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "pending_review",
+                  "inactive"
+                ]
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Clients retrieved successfully."
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            }
+          }
+        },
+        "post": {
+          "summary": "Add a new client",
+          "description": "Create a client record. For enterprise users the client is linked to their\ncompany. For solo users it is linked to their user account.\nClients do not get login access — they are passive contact records.\n",
+          "tags": [
+            "Clients"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "name"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "Contact person name.",
+                      "example": "Ahmed Nasser"
+                    },
+                    "clientCompanyName": {
+                      "type": "string",
+                      "description": "Client's company / organisation name.",
+                      "example": "Global Build Co."
+                    },
+                    "industry": {
+                      "type": "string",
+                      "enum": [
+                        "Infrastructure",
+                        "Residential",
+                        "Commercial",
+                        "Public Works",
+                        "Industrial",
+                        "Healthcare",
+                        "Education",
+                        "Hospitality",
+                        "Mixed Use",
+                        "Other"
+                      ]
+                    },
+                    "email": {
+                      "type": "string",
+                      "format": "email",
+                      "example": "ahmed@globalbuild.com"
+                    },
+                    "phone": {
+                      "type": "string",
+                      "example": "+234 701 234 5678"
+                    },
+                    "notes": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "Client created successfully."
+            },
+            "400": {
+              "description": "Validation error."
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            }
+          }
+        }
+      },
+      "/clients/{clientId}": {
+        "get": {
+          "summary": "Get a client by ID",
+          "tags": [
+            "Clients"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "clientId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Client retrieved successfully."
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            },
+            "404": {
+              "description": "Client not found."
+            }
+          }
+        },
+        "patch": {
+          "summary": "Update client details",
+          "tags": [
+            "Clients"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "clientId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "clientCompanyName": {
+                      "type": "string"
+                    },
+                    "industry": {
+                      "type": "string",
+                      "enum": [
+                        "Infrastructure",
+                        "Residential",
+                        "Commercial",
+                        "Public Works",
+                        "Industrial",
+                        "Healthcare",
+                        "Education",
+                        "Hospitality",
+                        "Mixed Use",
+                        "Other"
+                      ]
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "active",
+                        "pending_review",
+                        "inactive"
+                      ]
+                    },
+                    "email": {
+                      "type": "string",
+                      "format": "email"
+                    },
+                    "phone": {
+                      "type": "string"
+                    },
+                    "notes": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Client updated successfully."
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            },
+            "404": {
+              "description": "Client not found."
+            }
+          }
+        },
+        "delete": {
+          "summary": "Delete a client",
+          "tags": [
+            "Clients"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "clientId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Client deleted successfully."
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            },
+            "404": {
+              "description": "Client not found."
+            }
+          }
+        }
+      },
+      "/clients/{clientId}/projects": {
+        "get": {
+          "summary": "List projects belonging to a client",
+          "tags": [
+            "Clients"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "clientId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "page",
+              "schema": {
+                "type": "integer",
+                "default": 1
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "schema": {
+                "type": "integer",
+                "default": 20
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Projects retrieved successfully."
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            },
+            "404": {
+              "description": "Client not found."
+            }
+          }
+        }
+      },
+      "/company": {
+        "post": {
+          "summary": "Create a company profile",
+          "description": "Creates a new company for the authenticated user and seeds default role permissions and team membership.",
+          "tags": [
+            "Company"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "legalName"
+                  ],
+                  "properties": {
+                    "legalName": {
+                      "type": "string",
+                      "example": "Quantify Pro Enterprise Ltd"
+                    },
+                    "industry": {
+                      "type": "string",
+                      "example": "Quantity Surveying"
+                    },
+                    "companySize": {
+                      "type": "string",
+                      "example": "1-10"
+                    },
+                    "registrationNumber": {
+                      "type": "string",
+                      "example": "12345678"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "Company created successfully."
+            },
+            "409": {
+              "description": "You already have a company account."
+            }
+          }
+        },
+        "get": {
+          "summary": "Get company profile",
+          "description": "Returns the company profile owned by the authenticated user, including addresses and plan details.",
+          "tags": [
+            "Company"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Company profile fetched successfully."
+            },
+            "404": {
+              "description": "Company not found."
+            }
+          }
+        },
+        "put": {
+          "summary": "Update company profile",
+          "description": "Updates the authenticated user's company information (legal name, industry, size, registration number).",
+          "tags": [
+            "Company"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "legalName": {
+                      "type": "string"
+                    },
+                    "industry": {
+                      "type": "string"
+                    },
+                    "companySize": {
+                      "type": "string"
+                    },
+                    "registrationNumber": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Company profile updated successfully."
+            }
+          }
+        }
+      },
+      "/company/locations": {
+        "post": {
+          "summary": "Add an office location",
+          "description": "Creates a new address and links it to the company.",
+          "tags": [
+            "Company - Locations"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "label",
+                    "country"
+                  ],
+                  "properties": {
+                    "label": {
+                      "type": "string",
+                      "example": "Headquarters"
+                    },
+                    "street": {
+                      "type": "string",
+                      "example": "123 Victoria Island"
+                    },
+                    "city": {
+                      "type": "string",
+                      "example": "Lagos"
+                    },
+                    "state": {
+                      "type": "string"
+                    },
+                    "postalCode": {
+                      "type": "string"
+                    },
+                    "country": {
+                      "type": "string",
+                      "example": "Nigeria"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "Office location added successfully."
+            }
+          }
+        }
+      },
+      "/company/locations/{locationId}": {
+        "put": {
+          "summary": "Update an office location",
+          "tags": [
+            "Company - Locations"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "locationId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "street": {
+                      "type": "string"
+                    },
+                    "city": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "type": "string"
+                    },
+                    "country": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Office location updated successfully."
+            },
+            "404": {
+              "description": "Location not found."
+            }
+          }
+        },
+        "delete": {
+          "summary": "Delete an office location",
+          "tags": [
+            "Company - Locations"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "locationId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Office location removed successfully."
+            },
+            "404": {
+              "description": "Location not found."
+            }
+          }
+        }
+      },
+      "/company/team": {
+        "get": {
+          "summary": "List team members",
+          "description": "Returns a paginated list of the company's team members with optional status/search filters.",
+          "tags": [
+            "Company - Team"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "query",
+              "name": "page",
+              "schema": {
+                "type": "integer",
+                "default": 1
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "schema": {
+                "type": "integer",
+                "default": 20
+              }
+            },
+            {
+              "in": "query",
+              "name": "status",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "offline",
+                  "invited"
+                ]
+              }
+            },
+            {
+              "in": "query",
+              "name": "search",
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Team members fetched successfully."
+            }
+          }
+        }
+      },
+      "/company/team/invite": {
+        "post": {
+          "summary": "Invite a team member",
+          "description": "Sends an invitation to join the company. Checks seat limits before sending.",
+          "tags": [
+            "Company - Team"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "fullName",
+                    "email"
+                  ],
+                  "properties": {
+                    "fullName": {
+                      "type": "string",
+                      "example": "Alex Johnson"
+                    },
+                    "email": {
+                      "type": "string",
+                      "example": "alex@company.com"
+                    },
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "owner",
+                        "admin",
+                        "lead_surveyor",
+                        "member"
+                      ],
+                      "default": "member"
+                    },
+                    "permissions": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "read_access",
+                          "write_access",
+                          "full_access",
+                          "invite_others"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "Invitation sent successfully."
+            },
+            "409": {
+              "description": "User is already a member."
+            }
+          }
+        }
+      },
+      "/company/team/invitations/{invitationId}/resend": {
+        "post": {
+          "summary": "Resend a team invitation",
+          "tags": [
+            "Company - Team"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "invitationId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Invitation resent successfully."
+            }
+          }
+        }
+      },
+      "/company/team/invitations/{invitationId}/accept": {
+        "post": {
+          "summary": "Accept a team invitation",
+          "description": "Accepts a pending team invitation using the token sent via email.\nThe authenticated user becomes an active team member of the company\nwith the role and permissions specified in the invitation.\nThis is the counterpart to the invite (`POST /team/invite`) and\nresend (`POST /team/invitations/{invitationId}/resend`) endpoints.\n",
+          "tags": [
+            "Company - Team"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "invitationId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "The 24-character MongoDB ObjectId of the invitation."
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "token"
+                  ],
+                  "properties": {
+                    "token": {
+                      "type": "string",
+                      "description": "The 64-character hex token from the invitation email.",
+                      "example": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+                    }
+                  }
+                },
+                "example": {
+                  "token": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Invitation accepted successfully. Returns the new team member object.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Invitation accepted successfully",
+                    "data": {
+                      "_id": "665abc123def456789012345",
+                      "userId": "664aaa111bbb222ccc333444",
+                      "companyId": "664bbb222ccc333ddd444555",
+                      "role": "member",
+                      "status": "active",
+                      "permissions": [
+                        "read_access"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid or expired invitation token."
+            },
+            "404": {
+              "description": "Invitation not found."
+            },
+            "409": {
+              "description": "Invitation already accepted or user is already a team member."
+            }
+          }
+        }
+      },
+      "/company/team/{memberId}": {
+        "put": {
+          "summary": "Update a team member's role or permissions",
+          "tags": [
+            "Company - Team"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "memberId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "role": {
+                      "type": "string"
+                    },
+                    "permissions": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Team member updated successfully."
+            }
+          }
+        },
+        "delete": {
+          "summary": "Remove a team member",
+          "tags": [
+            "Company - Team"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "memberId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Team member removed successfully."
+            }
+          }
+        }
+      },
+      "/company/transfer-ownership": {
+        "post": {
+          "summary": "Transfer company ownership",
+          "description": "Transfers the company owner role to another active team member.\nRequires typing the company legal name to confirm.\n",
+          "tags": [
+            "Company"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "newOwnerId",
+                    "confirmName"
+                  ],
+                  "properties": {
+                    "newOwnerId": {
+                      "type": "string",
+                      "description": "The user ID of the new owner (must be an active team member)"
+                    },
+                    "confirmName": {
+                      "type": "string",
+                      "description": "Must match the company legal name exactly"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Ownership transferred successfully."
+            },
+            "400": {
+              "description": "Confirmation name does not match."
+            },
+            "403": {
+              "description": "New owner is not an active team member."
+            }
+          }
+        }
+      },
+      "/company/role-permissions": {
+        "get": {
+          "summary": "Get role permissions for all roles",
+          "tags": [
+            "Company - Role Permissions"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Role permissions fetched successfully."
+            }
+          }
+        },
+        "put": {
+          "summary": "Update role permissions",
+          "description": "Updates the permission matrix for a given role. Owner permissions cannot be modified.",
+          "tags": [
+            "Company - Role Permissions"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "role"
+                  ],
+                  "properties": {
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "admin",
+                        "lead_surveyor",
+                        "member"
+                      ]
+                    },
+                    "createDeleteProjects": {
+                      "type": "boolean"
+                    },
+                    "editProjectDetails": {
+                      "type": "boolean"
+                    },
+                    "viewInvoicesBilling": {
+                      "type": "boolean"
+                    },
+                    "exportBudgetReports": {
+                      "type": "boolean"
+                    },
+                    "inviteNewMembers": {
+                      "type": "boolean"
+                    },
+                    "manageRolePermissions": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Role permissions updated successfully."
+            },
+            "403": {
+              "description": "Owner permissions are locked."
+            }
+          }
+        }
+      },
+      "/company/billing": {
+        "get": {
+          "summary": "Get billing and subscription info",
+          "description": "Returns the company's current plan, subscription status, seat usage,\nactive payment methods, and recent invoices. Used to render the\nBilling & Plan settings page.\n",
+          "tags": [
+            "Company - Billing"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Billing information fetched successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Billing information fetched successfully",
+                    "data": {
+                      "plan": {
+                        "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                        "name": "Professional",
+                        "slug": "professional",
+                        "monthlyPrice": 15000,
+                        "yearlyPrice": 150000
+                      },
+                      "subscriptionStatus": "active",
+                      "billingInterval": "monthly",
+                      "nextBillingDate": "2026-04-21T00:00:00.000Z",
+                      "totalSeats": 5,
+                      "usedSeats": 3,
+                      "paymentMethods": [
+                        {
+                          "_id": "65a1b2c3d4e5f6a7b8c9d0e2",
+                          "type": "card",
+                          "last4": "4242",
+                          "label": "Mastercard •••• 4242",
+                          "isPrimary": true
+                        }
+                      ],
+                      "recentInvoices": [
+                        {
+                          "invoiceId": "INV-2026-001",
+                          "amount": 15000,
+                          "currency": "NGN",
+                          "status": "paid",
+                          "paidAt": "2026-03-01T10:00:00.000Z"
+                        }
+                      ]
+                    },
+                    "timestamp": "2026-03-21T10:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token."
+            },
+            "404": {
+              "description": "Company not found."
+            }
+          }
+        }
+      },
+      "/company/billing/plan": {
+        "put": {
+          "summary": "Change subscription plan",
+          "description": "Updates the company's plan and billing interval. This performs a direct\nplan switch without going through the payment gateway. For a payment-backed\nplan change, use `/billing/subscribe` instead.\n",
+          "tags": [
+            "Company - Billing"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "planId",
+                    "billingInterval"
+                  ],
+                  "properties": {
+                    "planId": {
+                      "type": "string",
+                      "description": "The 24-character MongoDB ObjectId of the target plan.",
+                      "example": "65a1b2c3d4e5f6a7b8c9d0e1"
+                    },
+                    "billingInterval": {
+                      "type": "string",
+                      "enum": [
+                        "monthly",
+                        "annually"
+                      ],
+                      "example": "annually"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Subscription plan changed successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Subscription plan changed successfully",
+                    "data": {
+                      "_id": "65a1b2c3d4e5f6a7b8c9d0e3",
+                      "legalName": "Acme Corp",
+                      "planId": "65a1b2c3d4e5f6a7b8c9d0e1",
+                      "billingInterval": "annually",
+                      "subscriptionStatus": "active"
+                    },
+                    "timestamp": "2026-03-21T10:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token."
+            },
+            "404": {
+              "description": "Plan not found."
+            }
+          }
+        }
+      },
+      "/company/billing/history": {
+        "get": {
+          "summary": "Get billing history",
+          "description": "Returns a paginated list of invoices for the company, sorted by most recent.\nIncludes paid, pending, and failed invoices. Used to render the Billing History page.\n",
+          "tags": [
+            "Company - Billing"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "query",
+              "name": "page",
+              "description": "Page number (1-based).",
+              "schema": {
+                "type": "integer",
+                "minimum": 1,
+                "default": 1
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "description": "Number of invoices per page (max 100).",
+              "schema": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100,
+                "default": 20
+              }
+            },
+            {
+              "in": "query",
+              "name": "status",
+              "description": "Filter by invoice status.",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "paid",
+                  "pending",
+                  "failed",
+                  "voided"
+                ]
+              }
+            },
+            {
+              "in": "query",
+              "name": "search",
+              "description": "Search by invoice number or description.",
+              "schema": {
+                "type": "string",
+                "maxLength": 200
+              }
+            },
+            {
+              "in": "query",
+              "name": "sortBy",
+              "description": "Sort field (descending).",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "createdAt",
+                  "amount",
+                  "dueDate"
+                ],
+                "default": "createdAt"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Billing history fetched successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Billing history fetched successfully",
+                    "data": [
+                      {
+                        "invoiceId": "INV-2026-003",
+                        "amount": 15000,
+                        "currency": "NGN",
+                        "status": "paid",
+                        "description": "Professional — monthly",
+                        "billingInterval": "monthly",
+                        "paidAt": "2026-03-01T10:00:00.000Z",
+                        "createdAt": "2026-03-01T09:55:00.000Z"
+                      },
+                      {
+                        "invoiceId": "INV-2026-002",
+                        "amount": 15000,
+                        "currency": "NGN",
+                        "status": "paid",
+                        "description": "Professional — monthly",
+                        "billingInterval": "monthly",
+                        "paidAt": "2026-02-01T10:00:00.000Z",
+                        "createdAt": "2026-02-01T09:55:00.000Z"
+                      }
+                    ],
+                    "pagination": {
+                      "total": 12,
+                      "page": 1,
+                      "limit": 20,
+                      "pages": 1
+                    },
+                    "timestamp": "2026-03-21T10:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token."
+            }
+          }
+        }
+      },
+      "/company/billing/payment-methods": {
+        "get": {
+          "summary": "List payment methods",
+          "description": "Returns all saved payment methods (cards, bank accounts) for the company.",
+          "tags": [
+            "Company - Billing"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Payment methods fetched successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Payment methods fetched successfully",
+                    "data": [
+                      {
+                        "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                        "type": "card",
+                        "last4": "4242",
+                        "label": "Mastercard •••• 4242",
+                        "expiryDate": "12/28",
+                        "isPrimary": true
+                      },
+                      {
+                        "_id": "65a1b2c3d4e5f6a7b8c9d0e2",
+                        "type": "card",
+                        "last4": "5678",
+                        "label": "Visa •••• 5678",
+                        "expiryDate": "06/27",
+                        "isPrimary": false
+                      }
+                    ],
+                    "timestamp": "2026-03-21T10:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token."
+            }
+          }
+        },
+        "post": {
+          "summary": "Add a payment method",
+          "description": "Saves a new payment method to the company. The first method added is automatically set as primary.",
+          "tags": [
+            "Company - Billing"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "type",
+                    "last4",
+                    "label"
+                  ],
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "card",
+                        "bank_account"
+                      ],
+                      "description": "The payment method type.",
+                      "example": "card"
+                    },
+                    "last4": {
+                      "type": "string",
+                      "pattern": "^\\d{4}$",
+                      "description": "Last 4 digits of the card or account number.",
+                      "example": "4242"
+                    },
+                    "label": {
+                      "type": "string",
+                      "description": "Display label for the payment method.",
+                      "example": "Mastercard •••• 4242"
+                    },
+                    "expiryDate": {
+                      "type": "string",
+                      "pattern": "^\\d{2}/\\d{2,4}$",
+                      "description": "Card expiry in MM/YY or MM/YYYY format.",
+                      "example": "12/28"
+                    },
+                    "providerRef": {
+                      "type": "string",
+                      "description": "Gateway authorization code (set automatically when payment is verified)."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "Payment method added successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Payment method added successfully",
+                    "data": {
+                      "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                      "type": "card",
+                      "last4": "4242",
+                      "label": "Mastercard •••• 4242",
+                      "expiryDate": "12/28",
+                      "isPrimary": true
+                    },
+                    "timestamp": "2026-03-21T10:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation failed."
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token."
+            }
+          }
+        }
+      },
+      "/company/billing/payment-methods/{paymentMethodId}/primary": {
+        "put": {
+          "summary": "Set a payment method as primary",
+          "description": "Sets the specified payment method as the primary method and unsets any previous primary.",
+          "tags": [
+            "Company - Billing"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "paymentMethodId",
+              "required": true,
+              "description": "The 24-character MongoDB ObjectId of the payment method.",
+              "schema": {
+                "type": "string",
+                "example": "65a1b2c3d4e5f6a7b8c9d0e1"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Payment method set as primary.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Payment method updated successfully",
+                    "data": {
+                      "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                      "type": "card",
+                      "last4": "4242",
+                      "label": "Mastercard •••• 4242",
+                      "isPrimary": true
+                    },
+                    "timestamp": "2026-03-21T10:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token."
+            },
+            "404": {
+              "description": "Payment method not found."
+            }
+          }
+        }
+      },
+      "/company/billing/payment-methods/{paymentMethodId}": {
+        "delete": {
+          "summary": "Remove a payment method",
+          "description": "Deletes a saved payment method. Cannot delete the primary payment method;\nset another card as primary first.\n",
+          "tags": [
+            "Company - Billing"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "paymentMethodId",
+              "required": true,
+              "description": "The 24-character MongoDB ObjectId of the payment method to remove.",
+              "schema": {
+                "type": "string",
+                "example": "65a1b2c3d4e5f6a7b8c9d0e1"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Payment method removed successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Payment method removed successfully",
+                    "data": null,
+                    "timestamp": "2026-03-21T10:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token."
+            },
+            "403": {
+              "description": "Cannot delete the primary payment method.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Cannot delete the primary payment method. Set another as primary first.",
+                    "timestamp": "2026-03-21T10:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "404": {
+              "description": "Payment method not found."
+            }
+          }
+        }
+      },
+      "/company/billing/subscribe": {
+        "post": {
+          "summary": "Initialize a subscription payment",
+          "description": "Creates a pending invoice for the selected plan and billing interval, then\ninitializes a transaction with the configured payment gateway (e.g. Paystack).\nReturns an `authorizationUrl` — redirect the user there to complete payment.\nAfter payment, call `/billing/verify` with the returned `reference`.\n",
+          "tags": [
+            "Company - Billing"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "planId",
+                    "billingInterval"
+                  ],
+                  "properties": {
+                    "planId": {
+                      "type": "string",
+                      "description": "The 24-character MongoDB ObjectId of the target plan.",
+                      "example": "65a1b2c3d4e5f6a7b8c9d0e1"
+                    },
+                    "billingInterval": {
+                      "type": "string",
+                      "enum": [
+                        "monthly",
+                        "annually"
+                      ],
+                      "example": "monthly"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Subscription payment initialized. Redirect user to the authorization URL.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Subscription payment initialized. Redirect to authorization URL.",
+                    "data": {
+                      "authorizationUrl": "https://checkout.paystack.com/abc123xyz",
+                      "reference": "ref_abc123xyz",
+                      "invoiceId": "65a1b2c3d4e5f6a7b8c9d0e1"
+                    },
+                    "timestamp": "2026-03-21T10:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token."
+            },
+            "404": {
+              "description": "Plan not found or company not found."
+            }
+          }
+        }
+      },
+      "/company/billing/verify": {
+        "post": {
+          "summary": "Verify a payment and activate subscription",
+          "description": "Verifies the payment reference with the configured payment gateway.\nIf the payment was successful, marks the corresponding invoice as paid,\nactivates the subscription on the company, sets the next billing date,\nand saves the payment method (card) if returned by the gateway.\n",
+          "tags": [
+            "Company - Billing"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "reference"
+                  ],
+                  "properties": {
+                    "reference": {
+                      "type": "string",
+                      "description": "The payment reference returned from the /subscribe endpoint.",
+                      "example": "ref_abc123xyz"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Payment verified and subscription activated.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Subscription activated successfully",
+                    "data": {
+                      "status": "active",
+                      "planName": "Professional"
+                    },
+                    "timestamp": "2026-03-21T10:05:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token."
+            },
+            "402": {
+              "description": "Payment verification failed (e.g. declined or abandoned)."
+            },
+            "404": {
+              "description": "Invoice not found for the given reference."
+            }
+          }
+        }
+      },
+      "/company/billing/cancel": {
+        "post": {
+          "summary": "Cancel the current subscription",
+          "description": "Cancels the company's active subscription. The subscription status is set to\n`cancelled`. Access typically remains until the end of the current billing period.\n",
+          "tags": [
+            "Company - Billing"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Subscription cancelled successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Subscription cancelled successfully",
+                    "data": {
+                      "status": "cancelled"
+                    },
+                    "timestamp": "2026-03-21T10:10:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token."
+            },
+            "409": {
+              "description": "No active subscription to cancel.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "No active subscription to cancel",
+                    "timestamp": "2026-03-21T10:10:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/company/billing/usage": {
+        "get": {
+          "summary": "Get plan usage statistics",
+          "description": "Returns usage metrics for the current billing period: active projects count,\nBOQ extractions (PDF + BIM jobs), plan limits parsed from the plan benefits,\nand the current subscription status.\n",
+          "tags": [
+            "Company - Billing"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Usage statistics fetched successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Usage statistics fetched successfully",
+                    "data": {
+                      "activeProjects": {
+                        "used": 5,
+                        "limit": 20
+                      },
+                      "boqExtractions": {
+                        "used": 34,
+                        "limit": 100
+                      },
+                      "plan": {
+                        "name": "Professional",
+                        "slug": "professional"
+                      },
+                      "subscriptionStatus": "active",
+                      "nextBillingDate": "2026-04-21T00:00:00.000Z",
+                      "billingInterval": "monthly"
+                    },
+                    "timestamp": "2026-03-21T10:15:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token."
+            },
+            "404": {
+              "description": "Company not found."
+            }
+          }
+        }
+      },
+      "/company/billing/invoices/{invoiceId}/pdf": {
+        "get": {
+          "summary": "Download an invoice as PDF",
+          "description": "Generates and returns a PDF document for the specified invoice.\nThe invoice must belong to the authenticated user's company.\nThe response is a binary PDF file with Content-Disposition: attachment.\n",
+          "tags": [
+            "Company - Billing"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "invoiceId",
+              "required": true,
+              "description": "The 24-character MongoDB ObjectId of the invoice.",
+              "schema": {
+                "type": "string",
+                "example": "65a1b2c3d4e5f6a7b8c9d0e1"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "PDF file download.",
+              "content": {
+                "application/pdf": {
+                  "schema": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              },
+              "headers": {
+                "Content-Disposition": {
+                  "description": "Attachment filename (e.g. INV-2026-001.pdf).",
+                  "schema": {
+                    "type": "string",
+                    "example": "attachment; filename=\"INV-2026-001.pdf\""
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token."
+            },
+            "404": {
+              "description": "Invoice not found or does not belong to this company.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Invoice not found",
+                    "timestamp": "2026-03-21T10:20:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/company/sessions": {
+        "get": {
+          "summary": "List active sessions (Security & Access)",
+          "description": "Returns all active device sessions for the authenticated user.\nEach session includes device info, IP address, and last active timestamp.\n",
+          "tags": [
+            "Company - Sessions"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Active sessions fetched successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Active sessions fetched successfully",
+                    "data": [
+                      {
+                        "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                        "deviceInfo": "Chrome 120, macOS",
+                        "ipAddress": "102.89.23.45",
+                        "lastActiveAt": "2026-03-21T09:50:00.000Z",
+                        "createdAt": "2026-03-20T14:00:00.000Z"
+                      },
+                      {
+                        "_id": "65a1b2c3d4e5f6a7b8c9d0e2",
+                        "deviceInfo": "Safari, iPhone 15",
+                        "ipAddress": "197.210.54.12",
+                        "lastActiveAt": "2026-03-19T16:30:00.000Z",
+                        "createdAt": "2026-03-19T10:00:00.000Z"
+                      }
+                    ],
+                    "timestamp": "2026-03-21T10:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token."
+            }
+          }
+        },
+        "delete": {
+          "summary": "Sign out from all other devices",
+          "description": "Terminates all active sessions except the one identified by the provided\n`refreshToken`. This is the \"Sign Out All Other Devices\" action from the\nSecurity & Login settings page.\n",
+          "tags": [
+            "Company - Sessions"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "refreshToken"
+                  ],
+                  "properties": {
+                    "refreshToken": {
+                      "type": "string",
+                      "description": "The refresh token of the current session (to keep it alive)."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "All other sessions terminated.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "All other sessions have been terminated",
+                    "data": {
+                      "terminatedCount": 3
+                    },
+                    "timestamp": "2026-03-21T10:10:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "refreshToken is required."
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token."
+            },
+            "404": {
+              "description": "Current session not found for the provided refresh token."
+            }
+          }
+        }
+      },
+      "/company/sessions/{sessionId}": {
+        "delete": {
+          "summary": "Log out a specific session (device)",
+          "description": "Terminates a single active session by session ID.\nCannot be used to terminate the current session — use the logout endpoint instead.\n",
+          "tags": [
+            "Company - Sessions"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "sessionId",
+              "required": true,
+              "description": "The 24-character MongoDB ObjectId of the session to terminate.",
+              "schema": {
+                "type": "string",
+                "example": "65a1b2c3d4e5f6a7b8c9d0e1"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Session logged out successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Session logged out successfully",
+                    "data": null,
+                    "timestamp": "2026-03-21T10:05:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token."
+            },
+            "404": {
+              "description": "Session not found.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Session not found",
+                    "timestamp": "2026-03-21T10:05:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/dashboard": {
+        "get": {
+          "summary": "Get account dashboard summary",
+          "description": "Returns an aggregated dashboard overview for the authenticated user's account:\n\n- **totalProjectValue** — sum of `estimateTotal` across all non-archived projects.\n- **projects** — current project count and the plan's project limit (`null` = unlimited).\n- **boqCount** — total number of BOQ extraction jobs (PDF, BIM, and multi-file combined).\n- **plan** — the user's current subscription plan name and slug (`null` if none).\n- **subscriptionStatus** — e.g. `active`, `cancelled`, `past_due`, or `null`.\n\nThis endpoint powers the main home dashboard cards (Total Project Value, Projects,\nBOQs, Upgrade your plan). It does **not** return per-project breakdowns — use\n`GET /api/v1/projects/:projectId/dashboard` for that.\n",
+          "tags": [
+            "Dashboard"
+          ],
+          "responses": {
+            "200": {
+              "description": "Dashboard summary fetched successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Dashboard summary fetched successfully.",
+                    "data": {
+                      "totalProjectValue": 0,
+                      "projects": {
+                        "count": 6,
+                        "limit": 5
+                      },
+                      "boqCount": 0,
+                      "plan": {
+                        "name": "Basic",
+                        "slug": "basic"
+                      },
+                      "subscriptionStatus": "active"
+                    },
+                    "timestamp": "2025-01-15T12:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Authentication required",
+                    "timestamp": "2025-01-15T12:00:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/documents/process": {
+        "post": {
+          "summary": "Submit a document for AI processing",
+          "description": "Uploads a previously-uploaded document for AI analysis. The system will:\n1. Validate the uploaded file exists\n2. Estimate and reserve credits\n3. Process the document with the selected AI provider\n4. Return extracted dimensions, quantities, materials, and symbols\n\nSupported document types: floor plans, elevations, sections, structural drawings,\nMEP drawings, schedules, and full skyscraper plan sets (up to 2000 pages).\n",
+          "tags": [
+            "Document Processing"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "uploadedFileId",
+                    "documentType",
+                    "operationTypes"
+                  ],
+                  "properties": {
+                    "uploadedFileId": {
+                      "type": "string",
+                      "description": "The ID of a previously uploaded file."
+                    },
+                    "documentType": {
+                      "type": "string",
+                      "enum": [
+                        "floor_plan",
+                        "elevation",
+                        "section",
+                        "detail_drawing",
+                        "site_plan",
+                        "structural",
+                        "mep",
+                        "schedule",
+                        "specification",
+                        "boq_existing",
+                        "mixed"
+                      ],
+                      "description": "Type of construction document."
+                    },
+                    "operationTypes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "ocr_extraction",
+                          "vision_analysis",
+                          "symbol_recognition",
+                          "dimension_extraction",
+                          "quantity_takeoff",
+                          "cost_estimation",
+                          "boq_generation",
+                          "material_identification",
+                          "document_classification"
+                        ]
+                      },
+                      "description": "AI operations to perform."
+                    },
+                    "preferredProvider": {
+                      "type": "string",
+                      "enum": [
+                        "openai",
+                        "anthropic",
+                        "google_document_ai",
+                        "aws_textract"
+                      ],
+                      "description": "Optional preferred AI provider."
+                    },
+                    "documentHint": {
+                      "type": "string",
+                      "description": "Optional hint about the document (e.g., \"20-storey residential tower\")."
+                    }
+                  }
+                },
+                "example": {
+                  "uploadedFileId": "65a1b2c3d4e5f6a7b8c9d0e1",
+                  "documentType": "floor_plan",
+                  "operationTypes": [
+                    "vision_analysis",
+                    "dimension_extraction",
+                    "quantity_takeoff"
+                  ],
+                  "preferredProvider": "openai",
+                  "documentHint": "Ground floor plan for a 15-storey commercial building"
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "Processing job submitted successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Document processing job submitted",
+                    "data": {
+                      "_id": "65a1b2c3d4e5f6a7b8c9d0e2",
+                      "status": "pending",
+                      "documentType": "floor_plan",
+                      "estimatedCredits": 45,
+                      "primaryProvider": "openai"
+                    },
+                    "timestamp": "2026-02-22T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation failed."
+            },
+            "401": {
+              "description": "Unauthorized."
+            },
+            "402": {
+              "description": "Insufficient credits."
+            },
+            "404": {
+              "description": "Uploaded file not found."
+            }
+          }
+        }
+      },
+      "/documents/estimate": {
+        "post": {
+          "summary": "Estimate processing cost",
+          "description": "Returns the estimated credit cost for a set of AI operations without\nactually processing anything. Use this for pre-flight checks before\nsubmitting a job.\n",
+          "tags": [
+            "Document Processing"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "operationTypes",
+                    "pageCount"
+                  ],
+                  "properties": {
+                    "operationTypes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "pageCount": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 2000
+                    }
+                  }
+                },
+                "example": {
+                  "operationTypes": [
+                    "vision_analysis",
+                    "dimension_extraction"
+                  ],
+                  "pageCount": 25
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Cost estimated successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Cost estimated successfully",
+                    "data": {
+                      "estimatedCost": 150,
+                      "currentBalance": 500,
+                      "sufficient": true
+                    },
+                    "timestamp": "2026-02-22T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/documents/jobs": {
+        "get": {
+          "summary": "List processing jobs",
+          "description": "Returns the authenticated user's document processing jobs with optional status filter.",
+          "tags": [
+            "Document Processing"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "query",
+              "name": "status",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "validating",
+                  "preprocessing",
+                  "processing",
+                  "post_processing",
+                  "completed",
+                  "failed",
+                  "cancelled"
+                ]
+              }
+            },
+            {
+              "in": "query",
+              "name": "page",
+              "schema": {
+                "type": "integer",
+                "default": 1
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "schema": {
+                "type": "integer",
+                "default": 20
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Jobs listed successfully."
+            }
+          }
+        }
+      },
+      "/documents/jobs/{id}": {
+        "get": {
+          "summary": "Get a processing job",
+          "description": "Returns details of a specific processing job, including extracted data when completed.",
+          "tags": [
+            "Document Processing"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "id",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Job details fetched."
+            },
+            "404": {
+              "description": "Job not found."
+            }
+          }
+        }
+      },
+      "/documents/jobs/{id}/cancel": {
+        "post": {
+          "summary": "Cancel a processing job",
+          "description": "Cancels a pending or processing job and releases reserved credits.",
+          "tags": [
+            "Document Processing"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "id",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Job cancelled successfully."
+            },
+            "400": {
+              "description": "Job cannot be cancelled (already completed/cancelled)."
+            }
+          }
+        }
+      },
+      "/documents/jobs/{id}/retry": {
+        "post": {
+          "summary": "Retry a failed processing job",
+          "description": "Retries a failed job with the same parameters. Re-reserves credits.",
+          "tags": [
+            "Document Processing"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "id",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Job retried successfully."
+            },
+            "400": {
+              "description": "Job is not retryable or max retries exceeded."
+            }
+          }
+        }
+      },
+      "/": {
+        "get": {
+          "summary": "Welcome page",
+          "description": "Returns project info, available routes, and a link to the Swagger docs.",
+          "tags": [
+            "Health"
+          ],
+          "security": [],
+          "responses": {
+            "200": {
+              "description": "Welcome page rendered successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Welcome to QuantifyPro API"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/health": {
+        "get": {
+          "summary": "Health check endpoint",
+          "description": "Returns the current health status of the server including uptime in seconds.\nThis endpoint does not require authentication and is useful for load balancer\nhealth probes or monitoring tools.\n",
+          "tags": [
+            "Health"
+          ],
+          "security": [],
+          "responses": {
+            "200": {
+              "description": "Server is healthy and operational.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Server is healthy",
+                    "data": {
+                      "uptime": 3456.789
+                    },
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/library/categories/summary": {
+        "get": {
+          "summary": "List categories with item counts",
+          "description": "Returns all categories visible to the caller (global + company-scoped) with a computed `itemCount` field showing how many library items belong to each category within the company. Useful for the sidebar display.\n",
+          "tags": [
+            "Library - Categories"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "query",
+              "name": "companyId",
+              "schema": {
+                "type": "string"
+              },
+              "description": "Required for team members who are not the company owner."
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Library categories with counts fetched successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Library categories with item counts fetched successfully",
+                    "data": [
+                      {
+                        "_id": "665f4a2b8e4d3c001f2a3b4c",
+                        "name": "Concrete",
+                        "icon": "Layers",
+                        "categoryType": "material",
+                        "itemCount": 124
+                      },
+                      {
+                        "_id": "665f4a2b8e4d3c001f2a3b4d",
+                        "name": "Steel",
+                        "icon": "Triangle",
+                        "categoryType": "material",
+                        "itemCount": 86
+                      },
+                      {
+                        "_id": "665f4a2b8e4d3c001f2a3b4e",
+                        "name": "Earthworks",
+                        "icon": "Mountain",
+                        "categoryType": "composite",
+                        "itemCount": 42
+                      },
+                      {
+                        "_id": "665f4a2b8e4d3c001f2a3b4f",
+                        "name": "MEP",
+                        "icon": "Zap",
+                        "categoryType": "mep",
+                        "itemCount": 92
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthenticated."
+            },
+            "404": {
+              "description": "Company not found."
+            }
+          }
+        }
+      },
+      "/library/categories": {
+        "get": {
+          "summary": "List library categories",
+          "description": "Returns all global categories plus any categories created by the caller's company. Pass `companyId` as a query param for team members who are not the company owner.\n",
+          "tags": [
+            "Library - Categories"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "query",
+              "name": "companyId",
+              "schema": {
+                "type": "string"
+              },
+              "description": "Required for team members who are not the company owner."
+            },
+            {
+              "in": "query",
+              "name": "search",
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "activeOnly",
+              "schema": {
+                "type": "boolean",
+                "default": true
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Library categories fetched successfully.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "Library categories fetched successfully"
+                      },
+                      "data": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/components/schemas/LibraryCategory"
+                        }
+                      }
+                    }
+                  },
+                  "example": {
+                    "success": true,
+                    "message": "Library categories fetched successfully",
+                    "data": [
+                      {
+                        "_id": "665f4a2b8e4d3c001f2a3b4c",
+                        "name": "Earthworks",
+                        "icon": "Layers",
+                        "description": "Rates for excavation, soil disposal, and specialised machinery.",
+                        "companyId": null,
+                        "isGlobal": true,
+                        "isActive": true,
+                        "sortOrder": 3
+                      },
+                      {
+                        "_id": "665f4a2b8e4d3c001f2a3b4d",
+                        "name": "MEP",
+                        "icon": "Zap",
+                        "description": "Mechanical, Electrical, and Plumbing assemblies.",
+                        "companyId": "665f4a2b8e4d3c001f2a3b4e",
+                        "isGlobal": false,
+                        "isActive": true,
+                        "sortOrder": 7
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthenticated."
+            }
+          }
+        },
+        "post": {
+          "summary": "Create a library category",
+          "description": "Company owners and members with write/full access can create company-scoped categories. Admins can create global categories by setting `isGlobal: true`.\n",
+          "tags": [
+            "Library - Categories"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "query",
+              "name": "companyId",
+              "schema": {
+                "type": "string"
+              },
+              "description": "Required for team members who are not the company owner."
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "name"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "example": "MEP"
+                    },
+                    "icon": {
+                      "type": "string",
+                      "example": "Zap"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "sortOrder": {
+                      "type": "integer",
+                      "example": 7
+                    },
+                    "categoryType": {
+                      "type": "string",
+                      "enum": [
+                        "material",
+                        "labour",
+                        "composite",
+                        "mep"
+                      ],
+                      "default": "material",
+                      "description": "Hint for the UI to choose the correct column layout."
+                    },
+                    "isGlobal": {
+                      "type": "boolean",
+                      "description": "Admin-only. Creates a system-level global category."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "Library category created successfully.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "Library category created successfully"
+                      },
+                      "data": {
+                        "$ref": "#/components/schemas/LibraryCategory"
+                      }
+                    }
+                  },
+                  "example": {
+                    "success": true,
+                    "message": "Library category created successfully",
+                    "data": {
+                      "_id": "665f4a2b8e4d3c001f2a3b4d",
+                      "name": "MEP",
+                      "icon": "Zap",
+                      "description": "Mechanical, Electrical, and Plumbing assemblies.",
+                      "companyId": "665f4a2b8e4d3c001f2a3b4e",
+                      "isGlobal": false,
+                      "isActive": true,
+                      "sortOrder": 7
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation failed."
+            },
+            "401": {
+              "description": "Unauthenticated."
+            },
+            "403": {
+              "description": "Insufficient permissions."
+            },
+            "409": {
+              "description": "A category with this name already exists in this scope."
+            }
+          }
+        }
+      },
+      "/library/categories/{categoryId}": {
+        "patch": {
+          "summary": "Update a library category",
+          "description": "Admins can update global categories. Company owners / write-access members can update their company-scoped categories.\n",
+          "tags": [
+            "Library - Categories"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "categoryId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "companyId",
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "icon": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "sortOrder": {
+                      "type": "integer"
+                    },
+                    "isActive": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Library category updated successfully.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "Library category updated successfully"
+                      },
+                      "data": {
+                        "$ref": "#/components/schemas/LibraryCategory"
+                      }
+                    }
+                  },
+                  "example": {
+                    "success": true,
+                    "message": "Library category updated successfully",
+                    "data": {
+                      "_id": "665f4a2b8e4d3c001f2a3b4d",
+                      "name": "MEP",
+                      "icon": "Zap",
+                      "isActive": true,
+                      "sortOrder": 7
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation failed."
+            },
+            "401": {
+              "description": "Unauthenticated."
+            },
+            "403": {
+              "description": "Insufficient permissions."
+            },
+            "404": {
+              "description": "Library category not found."
+            }
+          }
+        },
+        "delete": {
+          "summary": "Delete a library category",
+          "description": "Fails with 409 if any library items are still associated with the category. Admins can delete global categories.\n",
+          "tags": [
+            "Library - Categories"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "categoryId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "companyId",
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Library category deleted successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Library category deleted successfully",
+                    "data": null
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthenticated."
+            },
+            "403": {
+              "description": "Insufficient permissions."
+            },
+            "404": {
+              "description": "Library category not found."
+            },
+            "409": {
+              "description": "Category is still in use — reassign or delete items first.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Cannot delete a category that has library items associated with it"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/library/items": {
+        "get": {
+          "summary": "List library items",
+          "description": "Returns paginated library items for the caller's company. Filter by `categoryId`, `state`, `country`, or full-text `search`.\n",
+          "tags": [
+            "Library - Items"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "query",
+              "name": "companyId",
+              "schema": {
+                "type": "string"
+              },
+              "description": "Required for team members who are not the company owner."
+            },
+            {
+              "in": "query",
+              "name": "categoryId",
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "state",
+              "schema": {
+                "type": "string"
+              },
+              "example": "Lagos"
+            },
+            {
+              "in": "query",
+              "name": "country",
+              "schema": {
+                "type": "string"
+              },
+              "example": "Nigeria"
+            },
+            {
+              "in": "query",
+              "name": "search",
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "page",
+              "schema": {
+                "type": "integer",
+                "default": 1
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "schema": {
+                "type": "integer",
+                "default": 20
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Library items fetched successfully.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/PaginatedLibraryItems"
+                  },
+                  "example": {
+                    "success": true,
+                    "message": "Library items fetched successfully",
+                    "data": [
+                      {
+                        "_id": "665f4a2b8e4d3c001f2a3b4d",
+                        "description": "Bulk Excavation",
+                        "unit": "m³",
+                        "baseRate": 4500.5,
+                        "markupPercentage": 15,
+                        "finalRate": 5175.58,
+                        "state": "Lagos",
+                        "country": "Nigeria",
+                        "categoryId": {
+                          "_id": "665f4a2b8e4d3c001f2a3b4c",
+                          "name": "Earthworks",
+                          "icon": "Layers"
+                        }
+                      }
+                    ],
+                    "pagination": {
+                      "total": 42,
+                      "page": 1,
+                      "limit": 20,
+                      "pages": 3
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthenticated."
+            },
+            "404": {
+              "description": "Company not found."
+            }
+          }
+        },
+        "post": {
+          "summary": "Create a library item (rate)",
+          "description": "Requires write or full access. `finalRate` is auto-computed from `baseRate × (1 + markupPercentage / 100)`.\n",
+          "tags": [
+            "Library - Items"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "query",
+              "name": "companyId",
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "categoryId",
+                    "description",
+                    "baseRate"
+                  ],
+                  "properties": {
+                    "categoryId": {
+                      "type": "string",
+                      "example": "665f4a2b8e4d3c001f2a3b4c"
+                    },
+                    "description": {
+                      "type": "string",
+                      "example": "Bulk Excavation"
+                    },
+                    "unit": {
+                      "type": "string",
+                      "example": "m³"
+                    },
+                    "baseRate": {
+                      "type": "number",
+                      "example": 4500.5
+                    },
+                    "markupPercentage": {
+                      "type": "number",
+                      "example": 15
+                    },
+                    "state": {
+                      "type": "string",
+                      "example": "Lagos"
+                    },
+                    "country": {
+                      "type": "string",
+                      "example": "Nigeria"
+                    },
+                    "breakdown": {
+                      "type": "object",
+                      "properties": {
+                        "machinery": {
+                          "type": "number"
+                        },
+                        "labour": {
+                          "type": "number"
+                        },
+                        "material": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "Library item created successfully.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "Library item created successfully"
+                      },
+                      "data": {
+                        "$ref": "#/components/schemas/LibraryItem"
+                      }
+                    }
+                  },
+                  "example": {
+                    "success": true,
+                    "message": "Library item created successfully",
+                    "data": {
+                      "_id": "665f4a2b8e4d3c001f2a3b4d",
+                      "description": "Bulk Excavation",
+                      "unit": "m³",
+                      "baseRate": 4500.5,
+                      "markupPercentage": 15,
+                      "finalRate": 5175.58,
+                      "state": "Lagos",
+                      "country": "Nigeria",
+                      "categoryId": {
+                        "_id": "665f4a2b8e4d3c001f2a3b4c",
+                        "name": "Earthworks",
+                        "icon": "Layers"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation failed."
+            },
+            "401": {
+              "description": "Unauthenticated."
+            },
+            "403": {
+              "description": "Insufficient write permissions."
+            },
+            "404": {
+              "description": "Company or category not found."
+            }
+          }
+        }
+      },
+      "/library/items/locations": {
+        "get": {
+          "summary": "Get distinct item locations (states)",
+          "description": "Returns an alphabetically sorted list of distinct `state` values across all library items for the company. Used to populate the location tabs (e.g. Lagos, Abuja, Port Harcourt, Kaduna).\n",
+          "tags": [
+            "Library - Items"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "query",
+              "name": "companyId",
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Locations fetched successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Library locations fetched successfully",
+                    "data": [
+                      "Abuja",
+                      "Kaduna",
+                      "Lagos",
+                      "Port Harcourt"
+                    ]
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthenticated."
+            },
+            "404": {
+              "description": "Company not found."
+            }
+          }
+        }
+      },
+      "/library/items/units": {
+        "get": {
+          "summary": "Get standard construction measurement units",
+          "description": "Returns a static list of standard construction measurement units (m, m², m³, kg, tonne, nr, Sheet, etc.) for populating the unit dropdown when creating or editing a library item.\n",
+          "tags": [
+            "Library - Items"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Units list fetched successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Construction units fetched successfully",
+                    "data": [
+                      {
+                        "value": "m",
+                        "label": "Metre (m)"
+                      },
+                      {
+                        "value": "m²",
+                        "label": "Square Metre (m²)"
+                      },
+                      {
+                        "value": "m³",
+                        "label": "Cubic Metre (m³)"
+                      },
+                      {
+                        "value": "kg",
+                        "label": "Kilogram (kg)"
+                      },
+                      {
+                        "value": "tonne",
+                        "label": "Tonne"
+                      },
+                      {
+                        "value": "nr",
+                        "label": "Number (nr)"
+                      },
+                      {
+                        "value": "Sheet",
+                        "label": "Sheet"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/library/items/{itemId}": {
+        "get": {
+          "summary": "Get a single library item",
+          "tags": [
+            "Library - Items"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "itemId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "companyId",
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Library item fetched successfully.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "Library item fetched successfully"
+                      },
+                      "data": {
+                        "$ref": "#/components/schemas/LibraryItem"
+                      }
+                    }
+                  },
+                  "example": {
+                    "success": true,
+                    "message": "Library item fetched successfully",
+                    "data": {
+                      "_id": "665f4a2b8e4d3c001f2a3b4d",
+                      "description": "Bulk Excavation",
+                      "unit": "m³",
+                      "baseRate": 4500.5,
+                      "markupPercentage": 15,
+                      "finalRate": 5175.58,
+                      "state": "Lagos",
+                      "country": "Nigeria",
+                      "breakdown": {
+                        "machinery": 7500.5,
+                        "labour": 2500.5
+                      },
+                      "categoryId": {
+                        "_id": "665f4a2b8e4d3c001f2a3b4c",
+                        "name": "Earthworks",
+                        "icon": "Layers"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthenticated."
+            },
+            "404": {
+              "description": "Library item not found."
+            }
+          }
+        },
+        "patch": {
+          "summary": "Update a library item (rate)",
+          "description": "Partial update. `finalRate` is recomputed automatically if `baseRate` or `markupPercentage` change.\n",
+          "tags": [
+            "Library - Items"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "itemId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "companyId",
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "categoryId": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "unit": {
+                      "type": "string"
+                    },
+                    "baseRate": {
+                      "type": "number"
+                    },
+                    "markupPercentage": {
+                      "type": "number"
+                    },
+                    "state": {
+                      "type": "string"
+                    },
+                    "country": {
+                      "type": "string"
+                    },
+                    "breakdown": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Library item updated successfully.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "Library item updated successfully"
+                      },
+                      "data": {
+                        "$ref": "#/components/schemas/LibraryItem"
+                      }
+                    }
+                  },
+                  "example": {
+                    "success": true,
+                    "message": "Library item updated successfully",
+                    "data": {
+                      "_id": "665f4a2b8e4d3c001f2a3b4d",
+                      "description": "Bulk Excavation",
+                      "unit": "m³",
+                      "baseRate": 31115,
+                      "markupPercentage": 15,
+                      "finalRate": 35782.25,
+                      "state": "Lagos",
+                      "country": "Nigeria"
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation failed."
+            },
+            "401": {
+              "description": "Unauthenticated."
+            },
+            "403": {
+              "description": "Insufficient write permissions."
+            },
+            "404": {
+              "description": "Library item not found."
+            }
+          }
+        },
+        "delete": {
+          "summary": "Delete a library item (rate)",
+          "tags": [
+            "Library - Items"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "itemId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "companyId",
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Library item deleted successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Library item deleted successfully",
+                    "data": null
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthenticated."
+            },
+            "403": {
+              "description": "Insufficient write permissions."
+            },
+            "404": {
+              "description": "Library item not found."
+            }
+          }
+        }
+      },
+      "/library/items/{itemId}/price-history": {
+        "get": {
+          "summary": "Get price change history for a library item",
+          "description": "Returns a chronological list of historical price snapshots for the given item. Each record captures the `baseRate`, `markupPercentage`, and `finalRate` at the time of change. Supports optional date range filtering via `from` and `to` query parameters (ISO 8601 dates).\n",
+          "tags": [
+            "Library - Items"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "itemId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "companyId",
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "from",
+              "schema": {
+                "type": "string",
+                "format": "date"
+              },
+              "description": "Start of date range (inclusive).",
+              "example": "2022-11-01"
+            },
+            {
+              "in": "query",
+              "name": "to",
+              "schema": {
+                "type": "string",
+                "format": "date"
+              },
+              "description": "End of date range (inclusive).",
+              "example": "2024-03-21"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Price history fetched successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Price history fetched successfully",
+                    "data": {
+                      "item": {
+                        "_id": "665f4a2b8e4d3c001f2a3b4d",
+                        "itemCode": "RES-00042",
+                        "description": "Ready-mix Concrete C25/30",
+                        "unit": "m³",
+                        "baseRate": 31115,
+                        "markupPercentage": 15,
+                        "finalRate": 35782.25
+                      },
+                      "history": [
+                        {
+                          "baseRate": 28000,
+                          "markupPercentage": 15,
+                          "finalRate": 32200,
+                          "changedAt": "2023-06-15T09:30:00.000Z"
+                        },
+                        {
+                          "baseRate": 25000,
+                          "markupPercentage": 12,
+                          "finalRate": 28000,
+                          "changedAt": "2022-11-01T14:00:00.000Z"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthenticated."
+            },
+            "404": {
+              "description": "Library item not found."
+            }
+          }
+        }
+      },
+      "/logs/stats": {
+        "get": {
+          "tags": [
+            "Logs"
+          ],
+          "summary": "Aggregate dashboard counts for logs",
+          "description": "Returns counts useful for an at-a-glance ops dashboard:\n- Unresolved error count and breakdown by severity\n- Last 24h counts across all log collections\n- 5 most recent unresolved errors\n",
+          "security": [
+            {
+              "ApiKeyAuth": []
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Stats payload",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Logs stats",
+                    "data": {
+                      "unresolvedTotal": 12,
+                      "bySeverity": {
+                        "low": 1,
+                        "medium": 3,
+                        "high": 6,
+                        "critical": 2
+                      },
+                      "last24h": {
+                        "errors": 12,
+                        "appErrorLogs": 18,
+                        "integrationFailures": 4,
+                        "http5xx": 7
+                      },
+                      "latestUnresolvedErrors": []
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "$ref": "#/components/responses/LogsUnauthorized"
+            },
+            "503": {
+              "$ref": "#/components/responses/LogsKeyNotConfigured"
+            }
+          }
+        }
+      },
+      "/logs/app": {
+        "get": {
+          "tags": [
+            "Logs"
+          ],
+          "summary": "Search application logs (general breadcrumbs)",
+          "description": "AppLog is a general-purpose log stream (debug/info/warn/error) for breadcrumbs\nand diagnostic context. By default this endpoint returns only `warn` and `error`\nentries — pass `level` to override.\n",
+          "security": [
+            {
+              "ApiKeyAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "$ref": "#/components/parameters/LogsPage"
+            },
+            {
+              "$ref": "#/components/parameters/LogsLimit"
+            },
+            {
+              "$ref": "#/components/parameters/LogsFrom"
+            },
+            {
+              "$ref": "#/components/parameters/LogsTo"
+            },
+            {
+              "in": "query",
+              "name": "level",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "debug",
+                  "info",
+                  "warn",
+                  "error"
+                ]
+              },
+              "example": "error"
+            },
+            {
+              "in": "query",
+              "name": "source",
+              "schema": {
+                "type": "string"
+              },
+              "example": "BIMProcessingService.processJob"
+            },
+            {
+              "in": "query",
+              "name": "q",
+              "description": "Case-insensitive substring match against `message`.",
+              "schema": {
+                "type": "string"
+              },
+              "example": "timed out"
+            }
+          ],
+          "responses": {
+            "200": {
+              "$ref": "#/components/responses/LogsPaginated"
+            },
+            "400": {
+              "$ref": "#/components/responses/LogsBadRequest"
+            },
+            "401": {
+              "$ref": "#/components/responses/LogsUnauthorized"
+            },
+            "503": {
+              "$ref": "#/components/responses/LogsKeyNotConfigured"
+            }
+          }
+        }
+      },
+      "/logs/errors": {
+        "get": {
+          "tags": [
+            "Logs"
+          ],
+          "summary": "Search structured error logs",
+          "description": "Structured exception records emitted by `Logger.exception()`. Each entry includes\nseverity, status code, source, and (optionally) the stack trace and request body.\nBy default only **unresolved** errors are returned — pass `resolved=true` to view all.\n\nHeavy fields (`requestBody`, `queryParams`, `context`, `errorStack`) are stripped\nunless `includeBody=true`.\n",
+          "security": [
+            {
+              "ApiKeyAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "$ref": "#/components/parameters/LogsPage"
+            },
+            {
+              "$ref": "#/components/parameters/LogsLimit"
+            },
+            {
+              "$ref": "#/components/parameters/LogsFrom"
+            },
+            {
+              "$ref": "#/components/parameters/LogsTo"
+            },
+            {
+              "in": "query",
+              "name": "severity",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "critical"
+                ]
+              },
+              "example": "critical"
+            },
+            {
+              "in": "query",
+              "name": "resolved",
+              "description": "Filter by resolution state. Defaults to `false` (unresolved only).",
+              "schema": {
+                "type": "boolean"
+              },
+              "example": false
+            },
+            {
+              "in": "query",
+              "name": "jobType",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "bim",
+                  "pdf",
+                  "multiFile",
+                  "document",
+                  "other"
+                ]
+              },
+              "example": "bim"
+            },
+            {
+              "in": "query",
+              "name": "jobId",
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "source",
+              "schema": {
+                "type": "string"
+              },
+              "example": "BIMProcessingService.processJob"
+            },
+            {
+              "in": "query",
+              "name": "statusCode",
+              "schema": {
+                "type": "integer"
+              },
+              "example": 500
+            },
+            {
+              "in": "query",
+              "name": "q",
+              "description": "Case-insensitive substring match against `errorMessage`.",
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "includeBody",
+              "description": "Include heavy fields (requestBody, queryParams, context, errorStack).",
+              "schema": {
+                "type": "boolean",
+                "default": false
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "$ref": "#/components/responses/LogsPaginated"
+            },
+            "400": {
+              "$ref": "#/components/responses/LogsBadRequest"
+            },
+            "401": {
+              "$ref": "#/components/responses/LogsUnauthorized"
+            },
+            "503": {
+              "$ref": "#/components/responses/LogsKeyNotConfigured"
+            }
+          }
+        }
+      },
+      "/logs/errors/{id}/resolve": {
+        "patch": {
+          "tags": [
+            "Logs"
+          ],
+          "summary": "Mark an error log as resolved (or unresolved)",
+          "security": [
+            {
+              "ApiKeyAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "id",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "pattern": "^[a-fA-F0-9]{24}$"
+              }
+            }
+          ],
+          "requestBody": {
+            "required": false,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "resolved": {
+                      "type": "boolean",
+                      "default": true
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "example": {
+                  "resolved": true,
+                  "note": "Fixed in deploy a1b2c3d"
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Updated error log"
+            },
+            "400": {
+              "$ref": "#/components/responses/LogsBadRequest"
+            },
+            "401": {
+              "$ref": "#/components/responses/LogsUnauthorized"
+            },
+            "404": {
+              "description": "Error log not found"
+            },
+            "503": {
+              "$ref": "#/components/responses/LogsKeyNotConfigured"
+            }
+          }
+        }
+      },
+      "/logs/audit": {
+        "get": {
+          "tags": [
+            "Logs"
+          ],
+          "summary": "Search audit logs (user actions on resources)",
+          "security": [
+            {
+              "ApiKeyAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "$ref": "#/components/parameters/LogsPage"
+            },
+            {
+              "$ref": "#/components/parameters/LogsLimit"
+            },
+            {
+              "$ref": "#/components/parameters/LogsFrom"
+            },
+            {
+              "$ref": "#/components/parameters/LogsTo"
+            },
+            {
+              "in": "query",
+              "name": "action",
+              "schema": {
+                "type": "string"
+              },
+              "example": "USER_LOGIN"
+            },
+            {
+              "in": "query",
+              "name": "resource",
+              "schema": {
+                "type": "string"
+              },
+              "example": "Project"
+            },
+            {
+              "in": "query",
+              "name": "status",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "success",
+                  "failure"
+                ]
+              }
+            },
+            {
+              "in": "query",
+              "name": "userId",
+              "schema": {
+                "type": "string",
+                "pattern": "^[a-fA-F0-9]{24}$"
+              }
+            },
+            {
+              "in": "query",
+              "name": "q",
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "$ref": "#/components/responses/LogsPaginated"
+            },
+            "400": {
+              "$ref": "#/components/responses/LogsBadRequest"
+            },
+            "401": {
+              "$ref": "#/components/responses/LogsUnauthorized"
+            },
+            "503": {
+              "$ref": "#/components/responses/LogsKeyNotConfigured"
+            }
+          }
+        }
+      },
+      "/logs/integration": {
+        "get": {
+          "tags": [
+            "Logs"
+          ],
+          "summary": "Search 3rd-party integration call logs",
+          "description": "Outbound API calls (Stripe, Claude, etc). By default only **failures** (`success=false`)\nare returned — pass `success=true` or omit the filter via `success=` to see all.\n\nHeavy fields (`requestPayload`, `responseRaw`, `errorRaw`) are stripped unless\n`includePayload=true`.\n",
+          "security": [
+            {
+              "ApiKeyAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "$ref": "#/components/parameters/LogsPage"
+            },
+            {
+              "$ref": "#/components/parameters/LogsLimit"
+            },
+            {
+              "$ref": "#/components/parameters/LogsFrom"
+            },
+            {
+              "$ref": "#/components/parameters/LogsTo"
+            },
+            {
+              "in": "query",
+              "name": "service",
+              "schema": {
+                "type": "string"
+              },
+              "example": "claude"
+            },
+            {
+              "in": "query",
+              "name": "operation",
+              "schema": {
+                "type": "string"
+              },
+              "example": "messages.create"
+            },
+            {
+              "in": "query",
+              "name": "success",
+              "description": "Defaults to `false` (failures only). Pass `true` for successes.",
+              "schema": {
+                "type": "boolean"
+              },
+              "example": false
+            },
+            {
+              "in": "query",
+              "name": "statusCode",
+              "schema": {
+                "type": "integer"
+              }
+            },
+            {
+              "in": "query",
+              "name": "includePayload",
+              "schema": {
+                "type": "boolean",
+                "default": false
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "$ref": "#/components/responses/LogsPaginated"
+            },
+            "400": {
+              "$ref": "#/components/responses/LogsBadRequest"
+            },
+            "401": {
+              "$ref": "#/components/responses/LogsUnauthorized"
+            },
+            "503": {
+              "$ref": "#/components/responses/LogsKeyNotConfigured"
+            }
+          }
+        }
+      },
+      "/logs/http": {
+        "get": {
+          "tags": [
+            "Logs"
+          ],
+          "summary": "Search HTTP access logs (Morgan)",
+          "security": [
+            {
+              "ApiKeyAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "$ref": "#/components/parameters/LogsPage"
+            },
+            {
+              "$ref": "#/components/parameters/LogsLimit"
+            },
+            {
+              "$ref": "#/components/parameters/LogsFrom"
+            },
+            {
+              "$ref": "#/components/parameters/LogsTo"
+            },
+            {
+              "in": "query",
+              "name": "method",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "GET",
+                  "POST",
+                  "PUT",
+                  "PATCH",
+                  "DELETE",
+                  "OPTIONS",
+                  "HEAD"
+                ]
+              }
+            },
+            {
+              "in": "query",
+              "name": "statusCode",
+              "schema": {
+                "type": "integer"
+              },
+              "example": 500
+            },
+            {
+              "in": "query",
+              "name": "url",
+              "description": "Case-insensitive substring match.",
+              "schema": {
+                "type": "string"
+              },
+              "example": "/api/v1/projects"
+            },
+            {
+              "in": "query",
+              "name": "userId",
+              "schema": {
+                "type": "string",
+                "pattern": "^[a-fA-F0-9]{24}$"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "$ref": "#/components/responses/LogsPaginated"
+            },
+            "400": {
+              "$ref": "#/components/responses/LogsBadRequest"
+            },
+            "401": {
+              "$ref": "#/components/responses/LogsUnauthorized"
+            },
+            "503": {
+              "$ref": "#/components/responses/LogsKeyNotConfigured"
+            }
+          }
+        }
+      },
+      "/projects/{projectId}/measurement-sessions": {
+        "post": {
+          "tags": [
+            "Measurement Sessions"
+          ],
+          "summary": "Open or resume a measurement session",
+          "description": "Opens a measurement session on an uploaded drawing for the given project.\nA project may only have **one live (non-finalized) session at a time**. If a\nlive session already exists for the same drawing + page it is returned\n(idempotent resume / join) unless `resume: false` is sent; if it exists for a\ndifferent drawing, a `409 Conflict` is returned — join or delete it first.\nFinalized sessions do not block creating a new one. The caller must be the\nproject owner or an active project member.\n",
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "minLength": 24,
+                "maxLength": 24
+              },
+              "description": "The project the session belongs to",
+              "example": "664e0a0a2b3c4d5e6f7a8b01"
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "uploadedFileId",
+                    "canvas"
+                  ],
+                  "properties": {
+                    "uploadedFileId": {
+                      "type": "string",
+                      "example": "664e0b0b2b3c4d5e6f7a8b02"
+                    },
+                    "pageNumber": {
+                      "type": "integer",
+                      "example": 1
+                    },
+                    "title": {
+                      "type": "string",
+                      "example": "Foundation layout"
+                    },
+                    "resume": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "canvas": {
+                      "type": "object",
+                      "required": [
+                        "width",
+                        "height"
+                      ],
+                      "properties": {
+                        "width": {
+                          "type": "number",
+                          "example": 1920
+                        },
+                        "height": {
+                          "type": "number",
+                          "example": 1080
+                        },
+                        "unit": {
+                          "type": "string",
+                          "enum": [
+                            "mm",
+                            "cm",
+                            "m",
+                            "ft",
+                            "in",
+                            "px"
+                          ],
+                          "example": "m"
+                        },
+                        "rotation": {
+                          "type": "number",
+                          "example": 0
+                        },
+                        "calibration": {
+                          "$ref": "#/components/schemas/MeasurementCalibration"
+                        },
+                        "viewport": {
+                          "$ref": "#/components/schemas/MeasurementViewport"
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "uploadedFileId": "664e0b0b2b3c4d5e6f7a8b02",
+                  "pageNumber": 1,
+                  "title": "Foundation layout",
+                  "canvas": {
+                    "width": 1920,
+                    "height": 1080,
+                    "calibration": {
+                      "knownDistance": 5,
+                      "pixelDistance": 250,
+                      "unit": "m"
+                    },
+                    "viewport": {
+                      "x": 0,
+                      "y": 0,
+                      "zoom": 1
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "Session created (or resumed)",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Measurement session created successfully.",
+                    "data": {
+                      "_id": "665f0b0a2b3c4d5e6f7a8b90",
+                      "projectId": "664e0a0a2b3c4d5e6f7a8b01",
+                      "uploadedFileId": "664e0b0b2b3c4d5e6f7a8b02",
+                      "pageNumber": 1,
+                      "status": "active",
+                      "canvas": {
+                        "width": 1920,
+                        "height": 1080,
+                        "unit": "m",
+                        "scale": 0.02,
+                        "rotation": 0
+                      }
+                    },
+                    "timestamp": "2026-07-01T10:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation error"
+            },
+            "401": {
+              "description": "Missing or expired JWT"
+            },
+            "404": {
+              "description": "Project or uploaded file not found / no access"
+            },
+            "409": {
+              "description": "A live session already exists for this project"
+            }
+          }
+        },
+        "get": {
+          "tags": [
+            "Measurement Sessions"
+          ],
+          "summary": "List a project's measurement sessions",
+          "description": "Returns all measurement sessions for the project, newest first. Caller must be owner or active member.",
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "minLength": 24,
+                "maxLength": 24
+              },
+              "example": "664e0a0a2b3c4d5e6f7a8b01"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Sessions fetched",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Measurement sessions fetched successfully.",
+                    "data": [
+                      {
+                        "_id": "665f0b0a2b3c4d5e6f7a8b90",
+                        "uploadedFileId": "664e0b0b2b3c4d5e6f7a8b02",
+                        "status": "active",
+                        "pageNumber": 1
+                      }
+                    ],
+                    "timestamp": "2026-07-01T10:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Missing or expired JWT"
+            },
+            "404": {
+              "description": "Project not found / no access"
+            }
+          }
+        }
+      },
+      "/measurement-sessions/{sessionId}": {
+        "get": {
+          "tags": [
+            "Measurement Sessions"
+          ],
+          "summary": "Hydrate a session with all its elements",
+          "description": "Returns the session (canvas + calibration + viewport) together with all its\nmeasurement elements. Call this to resume work after closing, or right after\njoining a collaborative session.\n",
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "sessionId",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "minLength": 24,
+                "maxLength": 24
+              },
+              "example": "665f0b0a2b3c4d5e6f7a8b90"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Session and elements",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Measurement session fetched successfully.",
+                    "data": {
+                      "session": {
+                        "_id": "665f0b0a2b3c4d5e6f7a8b90",
+                        "status": "active",
+                        "pageNumber": 1,
+                        "canvas": {
+                          "width": 1920,
+                          "height": 1080,
+                          "scale": 0.02,
+                          "unit": "m",
+                          "calibration": {
+                            "knownDistance": 5,
+                            "pixelDistance": 250,
+                            "unit": "m"
+                          }
+                        }
+                      },
+                      "elements": [
+                        {
+                          "clientId": "elem-pile-01",
+                          "tool": "count",
+                          "label": "P1",
+                          "mapsToElementType": "pile",
+                          "floorLabel": "GROUND_FLOOR",
+                          "geometry": {
+                            "type": "multipoint",
+                            "points": [
+                              [
+                                120,
+                                340
+                              ],
+                              [
+                                200,
+                                410
+                              ]
+                            ],
+                            "page": 1
+                          },
+                          "style": {
+                            "color": "#f59e0b",
+                            "strokeWidth": 2
+                          },
+                          "attributes": {
+                            "elementId": "a1b2c3d4-uuid",
+                            "elementName": "Pile Group A",
+                            "elementCategory": "Substructure",
+                            "categoryFolder": "Substructure / Piles",
+                            "measurementUnit": "items",
+                            "diameter": 0.6,
+                            "depth": 15,
+                            "reinforcement": [
+                              {
+                                "barMark": "B1",
+                                "barCount": 8,
+                                "barType": "Y",
+                                "diameter": 16,
+                                "length": 5.4
+                              }
+                            ]
+                          },
+                          "computed": {
+                            "count": 2
+                          }
+                        }
+                      ]
+                    },
+                    "timestamp": "2026-07-01T10:05:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Missing or expired JWT"
+            },
+            "404": {
+              "description": "Session not found / no access"
+            }
+          }
+        },
+        "delete": {
+          "tags": [
+            "Measurement Sessions"
+          ],
+          "summary": "Delete a measurement session (drawn elements are retained)",
+          "description": "Deletes a session. Only permitted when the session is **not live** — i.e. no\nparticipant is currently connected over Socket.IO. The session's measurement\nelements are intentionally **kept** so the drawn work is not lost. The caller\nmust be the project owner or an active project member.\n",
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "sessionId",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "minLength": 24,
+                "maxLength": 24
+              },
+              "example": "665f0b0a2b3c4d5e6f7a8b90"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Session deleted (elements retained)",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Measurement session deleted successfully.",
+                    "data": null,
+                    "timestamp": "2026-07-01T10:11:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Missing or expired JWT"
+            },
+            "404": {
+              "description": "Session not found / no access"
+            },
+            "409": {
+              "description": "Session is live with active participants"
+            }
+          }
+        }
+      },
+      "/measurement-sessions/{sessionId}/canvas": {
+        "patch": {
+          "tags": [
+            "Measurement Sessions"
+          ],
+          "summary": "Update canvas size, calibration, rotation or viewport",
+          "description": "Partially updates the canvas. When `calibration` changes, `scale` is\nre-derived and every existing element's computed length/area is recalculated\nserver-side so measurements stay consistent. Send `calibration: null` to clear\ncalibration (back to pixel units).\n",
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "sessionId",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "minLength": 24,
+                "maxLength": 24
+              },
+              "example": "665f0b0a2b3c4d5e6f7a8b90"
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "width": {
+                      "type": "number"
+                    },
+                    "height": {
+                      "type": "number"
+                    },
+                    "unit": {
+                      "type": "string",
+                      "enum": [
+                        "mm",
+                        "cm",
+                        "m",
+                        "ft",
+                        "in",
+                        "px"
+                      ]
+                    },
+                    "rotation": {
+                      "type": "number"
+                    },
+                    "calibration": {
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/MeasurementCalibration"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "viewport": {
+                      "$ref": "#/components/schemas/MeasurementViewport"
+                    }
+                  }
+                },
+                "example": {
+                  "calibration": {
+                    "knownDistance": 10,
+                    "pixelDistance": 500,
+                    "unit": "m"
+                  },
+                  "viewport": {
+                    "x": 40,
+                    "y": 20,
+                    "zoom": 1.25
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Canvas updated",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Measurement canvas updated successfully.",
+                    "data": {
+                      "_id": "665f0b0a2b3c4d5e6f7a8b90",
+                      "canvas": {
+                        "scale": 0.02,
+                        "unit": "m"
+                      }
+                    },
+                    "timestamp": "2026-07-01T10:06:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation error (no fields provided)"
+            },
+            "401": {
+              "description": "Missing or expired JWT"
+            },
+            "403": {
+              "description": "Session is finalized — no mutations allowed"
+            },
+            "404": {
+              "description": "Session not found / no access"
+            }
+          }
+        }
+      },
+      "/measurement-sessions/{sessionId}/status": {
+        "patch": {
+          "tags": [
+            "Measurement Sessions"
+          ],
+          "summary": "Pause, resume, or re-open a session",
+          "description": "Sets the session status to `active` or `paused`. Setting `active` on a\n**finalized** session re-opens it so a missed measurement can be added and\nthe session re-finalized — allowed only when no other live session exists for\nthe project (otherwise `409`).\n",
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "sessionId",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "minLength": 24,
+                "maxLength": 24
+              },
+              "example": "665f0b0a2b3c4d5e6f7a8b90"
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "status"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "active",
+                        "paused"
+                      ]
+                    }
+                  }
+                },
+                "example": {
+                  "status": "paused"
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Status updated",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Measurement session status updated successfully.",
+                    "data": {
+                      "_id": "665f0b0a2b3c4d5e6f7a8b90",
+                      "status": "paused"
+                    },
+                    "timestamp": "2026-07-01T10:07:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation error"
+            },
+            "401": {
+              "description": "Missing or expired JWT"
+            },
+            "403": {
+              "description": "Finalized session — only re-opening to active is allowed"
+            },
+            "404": {
+              "description": "Session not found / no access"
+            },
+            "409": {
+              "description": "Another live session already exists for this project"
+            }
+          }
+        }
+      },
+      "/measurement-sessions/{sessionId}/elements": {
+        "get": {
+          "tags": [
+            "Measurement Sessions"
+          ],
+          "summary": "List a session's measurement elements",
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "sessionId",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "minLength": 24,
+                "maxLength": 24
+              },
+              "example": "665f0b0a2b3c4d5e6f7a8b90"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Elements fetched",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Measurement elements fetched successfully.",
+                    "data": [
+                      {
+                        "clientId": "elem-pile-01",
+                        "tool": "count",
+                        "label": "P1",
+                        "mapsToElementType": "pile",
+                        "floorLabel": "GROUND_FLOOR",
+                        "geometry": {
+                          "type": "multipoint",
+                          "points": [
+                            [
+                              120,
+                              340
+                            ],
+                            [
+                              200,
+                              410
+                            ]
+                          ],
+                          "page": 1
+                        },
+                        "style": {
+                          "color": "#f59e0b",
+                          "strokeWidth": 2
+                        },
+                        "attributes": {
+                          "elementId": "a1b2c3d4-uuid",
+                          "elementName": "Pile Group A",
+                          "elementCategory": "Substructure",
+                          "categoryFolder": "Substructure / Piles",
+                          "measurementUnit": "items",
+                          "diameter": 0.6,
+                          "depth": 15,
+                          "reinforcement": [
+                            {
+                              "barMark": "B1",
+                              "barCount": 8,
+                              "barType": "Y",
+                              "diameter": 16,
+                              "length": 5.4
+                            }
+                          ]
+                        },
+                        "computed": {
+                          "count": 2
+                        }
+                      }
+                    ],
+                    "timestamp": "2026-07-01T10:08:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Missing or expired JWT"
+            },
+            "404": {
+              "description": "Session not found / no access"
+            }
+          }
+        },
+        "post": {
+          "tags": [
+            "Measurement Sessions"
+          ],
+          "summary": "Create or update a measurement element (idempotent by clientId)",
+          "description": "Upserts an element keyed by `clientId` within the session. The server computes\nauthoritative `count`/`length`/`area` from the geometry and current canvas\ncalibration, and increments the element `version`. This is the REST fallback\nfor the realtime `measurement:element:upsert` event.\n\n### Supported Geometry Types (`geometry.type`)\n\n- `point`: A single coordinate pair `[x, y]` representing a single spot count.\n\n- `multipoint`: An array of coordinate pairs representing multiple independent counts.\n\n- `polyline`: Connected line segments `[[x1, y1], [x2, y2], ...]` for measuring lengths/perimeters.\n\n- `polygon`: A closed-loop area defined by ordered vertex coordinate pairs.\n\n- `rectangle`: A bounding rectangle defined by two corner coordinate pairs.\n\n- `circle`: A circular area defined by a single center point pair and a `radius` property.\n\n- `freehand`: Connected coordinates representing an arbitrary freeform hand-drawn path.\n",
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "sessionId",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "minLength": 24,
+                "maxLength": 24
+              },
+              "example": "665f0b0a2b3c4d5e6f7a8b90"
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "clientId",
+                    "tool",
+                    "geometry"
+                  ],
+                  "properties": {
+                    "clientId": {
+                      "type": "string",
+                      "example": "elem-9a7c-01"
+                    },
+                    "tool": {
+                      "type": "string",
+                      "enum": [
+                        "count",
+                        "length",
+                        "area",
+                        "polyline",
+                        "rectangle",
+                        "circle",
+                        "bending",
+                        "freehand"
+                      ]
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "mapsToElementType": {
+                      "type": "string",
+                      "example": "slab"
+                    },
+                    "floorLabel": {
+                      "type": "string",
+                      "example": "GROUND_FLOOR"
+                    },
+                    "geometry": {
+                      "$ref": "#/components/schemas/MeasurementGeometry"
+                    },
+                    "style": {
+                      "type": "object",
+                      "properties": {
+                        "color": {
+                          "type": "string"
+                        },
+                        "strokeWidth": {
+                          "type": "number"
+                        }
+                      }
+                    },
+                    "attributes": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        },
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        }
+                      ]
+                    }
+                  }
+                },
+                "examples": {
+                  "column_in_foundation": {
+                    "$ref": "#/components/examples/column_in_foundation"
+                  },
+                  "pile_cap": {
+                    "$ref": "#/components/examples/pile_cap"
+                  },
+                  "pile_cap_multi_attribute": {
+                    "$ref": "#/components/examples/pile_cap_multi_attribute"
+                  },
+                  "ground_beam": {
+                    "$ref": "#/components/examples/ground_beam"
+                  },
+                  "raft_foundation": {
+                    "$ref": "#/components/examples/raft_foundation"
+                  },
+                  "strip_foundation": {
+                    "$ref": "#/components/examples/strip_foundation"
+                  },
+                  "pile": {
+                    "$ref": "#/components/examples/pile"
+                  },
+                  "column": {
+                    "$ref": "#/components/examples/column"
+                  },
+                  "beam": {
+                    "$ref": "#/components/examples/beam"
+                  },
+                  "slab": {
+                    "$ref": "#/components/examples/slab"
+                  },
+                  "staircase": {
+                    "$ref": "#/components/examples/staircase"
+                  },
+                  "staircase_landing": {
+                    "$ref": "#/components/examples/staircase_landing"
+                  },
+                  "staircase_strings_steps": {
+                    "$ref": "#/components/examples/staircase_strings_steps"
+                  },
+                  "staircase_upper_floors": {
+                    "$ref": "#/components/examples/staircase_upper_floors"
+                  },
+                  "wall": {
+                    "$ref": "#/components/examples/wall"
+                  },
+                  "swimming_pool": {
+                    "$ref": "#/components/examples/swimming_pool"
+                  },
+                  "oversite_slab": {
+                    "$ref": "#/components/examples/oversite_slab"
+                  },
+                  "column_footing": {
+                    "$ref": "#/components/examples/column_footing"
+                  },
+                  "pile_cap_frames": {
+                    "$ref": "#/components/examples/pile_cap_frames"
+                  },
+                  "shear_wall": {
+                    "$ref": "#/components/examples/shear_wall"
+                  },
+                  "lift_wall": {
+                    "$ref": "#/components/examples/lift_wall"
+                  },
+                  "lift_shaft": {
+                    "$ref": "#/components/examples/lift_shaft"
+                  },
+                  "lintels": {
+                    "$ref": "#/components/examples/lintels"
+                  },
+                  "roof_column": {
+                    "$ref": "#/components/examples/roof_column"
+                  },
+                  "roof_beam": {
+                    "$ref": "#/components/examples/roof_beam"
+                  },
+                  "kitchen_countertop": {
+                    "$ref": "#/components/examples/kitchen_countertop"
+                  },
+                  "excavation_clearing": {
+                    "$ref": "#/components/examples/excavation_clearing"
+                  },
+                  "excavation_strip": {
+                    "$ref": "#/components/examples/excavation_strip"
+                  },
+                  "ddt_pad_pit_in_strip": {
+                    "$ref": "#/components/examples/ddt_pad_pit_in_strip"
+                  },
+                  "strip_length_calculator": {
+                    "$ref": "#/components/examples/strip_length_calculator"
+                  },
+                  "pad_footing": {
+                    "$ref": "#/components/examples/pad_footing"
+                  },
+                  "ground_floor_bed": {
+                    "$ref": "#/components/examples/ground_floor_bed"
+                  },
+                  "excavation_ground_beam": {
+                    "$ref": "#/components/examples/excavation_ground_beam"
+                  },
+                  "ground_floor_bed_void": {
+                    "$ref": "#/components/examples/ground_floor_bed_void"
+                  },
+                  "water_slab": {
+                    "$ref": "#/components/examples/water_slab"
+                  },
+                  "roof_slab": {
+                    "$ref": "#/components/examples/roof_slab"
+                  },
+                  "upper_floor_ddt_void": {
+                    "$ref": "#/components/examples/upper_floor_ddt_void"
+                  },
+                  "parapet_wall": {
+                    "$ref": "#/components/examples/parapet_wall"
+                  },
+                  "parapet_wall_copping": {
+                    "$ref": "#/components/examples/parapet_wall_copping"
+                  },
+                  "elementWithMultipleRebarRows": {
+                    "$ref": "#/components/examples/elementWithMultipleRebarRows"
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Element saved",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Measurement element saved successfully.",
+                    "data": {
+                      "clientId": "elem-9a7c-01",
+                      "tool": "area",
+                      "computed": {
+                        "areaPx": 30000,
+                        "area": 12
+                      },
+                      "version": 2
+                    },
+                    "timestamp": "2026-07-01T10:09:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation error"
+            },
+            "401": {
+              "description": "Missing or expired JWT"
+            },
+            "403": {
+              "description": "Session is finalized"
+            },
+            "404": {
+              "description": "Session not found / no access"
+            }
+          }
+        }
+      },
+      "/measurement-sessions/{sessionId}/elements/{clientId}": {
+        "delete": {
+          "tags": [
+            "Measurement Sessions"
+          ],
+          "summary": "Delete a measurement element by clientId",
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "sessionId",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "minLength": 24,
+                "maxLength": 24
+              },
+              "example": "665f0b0a2b3c4d5e6f7a8b90"
+            },
+            {
+              "in": "path",
+              "name": "clientId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "example": "elem-9a7c-01"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Element deleted",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Measurement element deleted successfully.",
+                    "data": null,
+                    "timestamp": "2026-07-01T10:10:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Missing or expired JWT"
+            },
+            "403": {
+              "description": "Session is finalized"
+            },
+            "404": {
+              "description": "Session or element not found / no access"
+            }
+          }
+        }
+      },
+      "/measurement-sessions/{sessionId}/finalize": {
+        "post": {
+          "tags": [
+            "Measurement Sessions"
+          ],
+          "summary": "Finalize the session and prepare the BOQ",
+          "description": "Materializes measurement elements into `TakeoffElement`s and marks the session\n`finalized`. Only elements that have a `mapsToElementType` **and** an\n`attributes.elementId` are materialized; the rest are reported as `skipped`.\nMeasured `count`/`length` are injected into the takeoff payload when not\nalready supplied in `attributes`.\n\nWhen `commit: true`, the existing takeoff commit runs to generate the BOQ and\nthe result is returned in `data.boqResult`. Materialization and commit run under\nthe project owner's account, reusing the existing takeoff flow unchanged.\n",
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "sessionId",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "minLength": 24,
+                "maxLength": 24
+              },
+              "example": "665f0b0a2b3c4d5e6f7a8b90"
+            }
+          ],
+          "requestBody": {
+            "required": false,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "commit": {
+                      "type": "boolean",
+                      "default": false
+                    }
+                  }
+                },
+                "example": {
+                  "commit": true
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Session finalized",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Measurement session finalized successfully.",
+                    "data": {
+                      "sessionId": "665f0b0a2b3c4d5e6f7a8b90",
+                      "materialized": 8,
+                      "skipped": 1,
+                      "groups": [
+                        {
+                          "elementType": "slab",
+                          "count": 3
+                        },
+                        {
+                          "elementType": "pile",
+                          "count": 5
+                        }
+                      ]
+                    },
+                    "timestamp": "2026-07-01T10:12:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "commit requested but no materializable elements"
+            },
+            "401": {
+              "description": "Missing or expired JWT"
+            },
+            "403": {
+              "description": "Session already finalized"
+            },
+            "404": {
+              "description": "Session not found / no access"
+            }
+          }
+        }
+      },
+      "/boq/multi-generate": {
+        "post": {
+          "summary": "Step 1 — Upload multiple BIM/PDF files and submit unified BOQ generation",
+          "description": "Upload one or more BIM and/or PDF files to generate a single unified BOQ.\nReturns a `jobId` immediately (**HTTP 202**).\n\n**What happens in the background:**\n1. BIM files are uploaded to Autodesk Platform Services (APS) and translated to SVF2.\n2. PDF files are read by Claude's vision API (every page, visually).\n3. Extracted data from all files is embedded as vectors (Voyage AI).\n4. Claude generates a unified BOQ using RAG — semantically searching across all file data.\n\n**Next step:** Poll `GET /multi-jobs/:jobId` every 5–10 seconds until `status === \"completed\"`.\n\n> **Tip:** Provide a `documentHint` for best results. Describe the project type,\n> location, what each file contains, and any construction methodology.\n",
+          "tags": [
+            "Multi-File BOQ (RAG)"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "multipart/form-data": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "files"
+                  ],
+                  "properties": {
+                    "files": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "binary"
+                      },
+                      "description": "One or more BIM/PDF files (max 20 files, 200 MB each).\nUse field name `files` for all uploads.\n"
+                    },
+                    "documentHint": {
+                      "type": "string",
+                      "maxLength": 1000,
+                      "description": "Free-text project context to improve BOQ quality.\nDescribe what each file contains, the project type, location, number of floors, etc.\n",
+                      "example": "Architectural RVT + Structural IFC + MEP PDF specs. 8-storey mixed-use, Abuja."
+                    },
+                    "projectId": {
+                      "type": "string",
+                      "description": "Existing project ID to link this job to.",
+                      "example": "66f1a2b3c4d5e6f7a8b9c0d1"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "202": {
+              "description": "Job accepted. Poll `GET /multi-jobs/:jobId` for status.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Multi-file BOQ generation job submitted successfully.",
+                    "data": {
+                      "jobId": "66f1a2b3c4d5e6f7a8b9c0d1",
+                      "status": "pending",
+                      "fileCount": 3,
+                      "files": [
+                        {
+                          "originalFilename": "Architectural.rvt",
+                          "fileType": "bim",
+                          "status": "pending"
+                        },
+                        {
+                          "originalFilename": "Structural.ifc",
+                          "fileType": "bim",
+                          "status": "pending"
+                        },
+                        {
+                          "originalFilename": "MEP_Specs.pdf",
+                          "fileType": "pdf",
+                          "status": "pending"
+                        }
+                      ]
+                    },
+                    "timestamp": "2026-03-17T12:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "No files, unsupported format, or too many files.",
+              "content": {
+                "application/json": {
+                  "examples": {
+                    "no_files": {
+                      "summary": "No files uploaded",
+                      "value": {
+                        "success": false,
+                        "message": "At least one file is required for multi-file BOQ generation.",
+                        "timestamp": "2026-03-17T12:00:00.000Z"
+                      }
+                    },
+                    "unsupported": {
+                      "summary": "All files unsupported",
+                      "value": {
+                        "success": false,
+                        "message": "No supported files found. Please upload BIM (.rvt, .dwg, .ifc, etc.) or PDF files.",
+                        "timestamp": "2026-03-17T12:00:00.000Z"
+                      }
+                    },
+                    "too_many": {
+                      "summary": "Too many files",
+                      "value": {
+                        "success": false,
+                        "message": "Too many files. Maximum 20 files allowed per request.",
+                        "timestamp": "2026-03-17T12:00:00.000Z"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            }
+          }
+        }
+      },
+      "/boq/multi-jobs": {
+        "get": {
+          "summary": "List all multi-file BOQ jobs for the current user",
+          "description": "Returns a paginated list of all multi-file BOQ jobs belonging to the\nauthenticated user, sorted by most recent first. Useful for displaying\njob history in a dashboard.\n\nJobs expire automatically after 7 days. Create a project to persist permanently.\n",
+          "tags": [
+            "Multi-File BOQ (RAG)"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "query",
+              "name": "page",
+              "schema": {
+                "type": "integer",
+                "default": 1
+              },
+              "description": "Page number (1-indexed)."
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "schema": {
+                "type": "integer",
+                "default": 20
+              },
+              "description": "Number of jobs per page."
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Paginated list of multi-file BOQ jobs.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Multi-file BOQ jobs fetched successfully.",
+                    "data": [
+                      {
+                        "_id": "66f1a2b3c4d5e6f7a8b9c0d1",
+                        "status": "completed",
+                        "files": [
+                          {
+                            "originalFilename": "Architectural.rvt",
+                            "fileType": "bim",
+                            "status": "extracted"
+                          },
+                          {
+                            "originalFilename": "MEP_Specs.pdf",
+                            "fileType": "pdf",
+                            "status": "extracted"
+                          }
+                        ],
+                        "createdAt": "2026-03-17T12:00:00.000Z"
+                      },
+                      {
+                        "_id": "66f1a2b3c4d5e6f7a8b9c0d2",
+                        "status": "extracting",
+                        "files": [
+                          {
+                            "originalFilename": "Structural.ifc",
+                            "fileType": "bim",
+                            "status": "translating"
+                          }
+                        ],
+                        "createdAt": "2026-03-17T12:05:00.000Z"
+                      }
+                    ],
+                    "pagination": {
+                      "page": 1,
+                      "limit": 20,
+                      "total": 2,
+                      "totalPages": 1
+                    },
+                    "timestamp": "2026-03-17T12:10:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            }
+          }
+        }
+      },
+      "/boq/multi-jobs/{jobId}": {
+        "get": {
+          "summary": "Step 2 — Poll job status and retrieve unified BOQ result",
+          "description": "Returns the full multi-file job record. **Poll every 5–10 seconds** after\nsubmitting a job until `status === \"completed\"`.\n\nMulti-file jobs have more granular status stages than single-file jobs:\n\n| Status        | Action                                                    |\n|---------------|-----------------------------------------------------------|\n| `pending`     | Keep polling — job is queued.                              |\n| `extracting`  | Keep polling — files being processed (BIM translating, PDFs reading). |\n| `embedding`   | Keep polling — extracted data being vectorized.            |\n| `generating`  | Keep polling — Claude generating unified BOQ via RAG.      |\n| `completed`   | ✅ BOQ ready — `data.result` contains the unified BOQ.     |\n| `failed`      | ❌ Error — check `data.errorMessage`.                       |\n\nThe response also includes per-file status in `data.files[]` so you can\nshow individual file processing progress in the UI.\n\nWhen `status === \"completed\"`, the `data.result` object contains:\n- `projectTitle` — Inferred project name.\n- `sections[]` — Array of BOQ sections with work items.\n- `generalNotes` — Summary and data quality notes.\n",
+          "tags": [
+            "Multi-File BOQ (RAG)"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "jobId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "MongoDB ObjectId returned by step 1.",
+              "example": "66f1a2b3c4d5e6f7a8b9c0d1"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Job record with status, per-file progress, and result (if completed).",
+              "content": {
+                "application/json": {
+                  "examples": {
+                    "extracting": {
+                      "summary": "Files still being processed",
+                      "value": {
+                        "success": true,
+                        "message": "Multi-file BOQ job fetched successfully.",
+                        "data": {
+                          "_id": "66f1a2b3c4d5e6f7a8b9c0d1",
+                          "status": "extracting",
+                          "embeddingStatus": "pending",
+                          "files": [
+                            {
+                              "originalFilename": "Architectural.rvt",
+                              "fileType": "bim",
+                              "status": "translating"
+                            },
+                            {
+                              "originalFilename": "Structural.ifc",
+                              "fileType": "bim",
+                              "status": "extracted"
+                            },
+                            {
+                              "originalFilename": "MEP_Specs.pdf",
+                              "fileType": "pdf",
+                              "status": "extracted"
+                            }
+                          ],
+                          "createdAt": "2026-03-17T12:00:00.000Z"
+                        },
+                        "timestamp": "2026-03-17T12:01:30.000Z"
+                      }
+                    },
+                    "completed": {
+                      "summary": "Job completed with unified BOQ",
+                      "value": {
+                        "success": true,
+                        "message": "Multi-file BOQ job fetched successfully.",
+                        "data": {
+                          "_id": "66f1a2b3c4d5e6f7a8b9c0d1",
+                          "status": "completed",
+                          "embeddingStatus": "completed",
+                          "files": [
+                            {
+                              "originalFilename": "Architectural.rvt",
+                              "fileType": "bim",
+                              "status": "extracted",
+                              "rawItemCount": 1250,
+                              "filteredItemCount": 340
+                            },
+                            {
+                              "originalFilename": "MEP_Specs.pdf",
+                              "fileType": "pdf",
+                              "status": "extracted"
+                            }
+                          ],
+                          "result": {
+                            "projectTitle": "Mixed-Use Development — Unified BOQ",
+                            "sections": [
+                              {
+                                "sectionName": "Substructure",
+                                "workItems": [
+                                  {
+                                    "item": "Excavation to reduced level",
+                                    "specification": "Maximum depth 2.0m",
+                                    "unit": "m³",
+                                    "quantity": 580
+                                  }
+                                ]
+                              }
+                            ],
+                            "generalNotes": "Unified BOQ generated from 3 source files (2 BIM + 1 PDF). Cross-referenced quantities where data overlapped."
+                          },
+                          "startedAt": "2026-03-17T12:00:00.000Z",
+                          "completedAt": "2026-03-17T12:08:30.000Z"
+                        },
+                        "timestamp": "2026-03-17T12:08:30.000Z"
+                      }
+                    },
+                    "failed": {
+                      "summary": "Job failed",
+                      "value": {
+                        "success": true,
+                        "message": "Multi-file BOQ job fetched successfully.",
+                        "data": {
+                          "_id": "66f1a2b3c4d5e6f7a8b9c0d3",
+                          "status": "failed",
+                          "errorMessage": "All file extractions failed. Check individual file statuses."
+                        },
+                        "timestamp": "2026-03-17T12:05:00.000Z"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            },
+            "404": {
+              "description": "Job not found or not owned by the current user."
+            }
+          }
+        },
+        "patch": {
+          "summary": "Step 4 (optional) — Save user edits to the unified BOQ result",
+          "description": "Replace the stored BOQ result with a client-edited version. The updated\nresult is persisted and used when downloading the PDF or creating a project.\n\nThe payload must match the BOQ result shape — same as what was returned\nin `data.result` when the job completed.\n",
+          "tags": [
+            "Multi-File BOQ (RAG)"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "jobId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "example": "66f1a2b3c4d5e6f7a8b9c0d1"
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "result"
+                  ],
+                  "properties": {
+                    "result": {
+                      "type": "object",
+                      "required": [
+                        "sections"
+                      ],
+                      "properties": {
+                        "projectTitle": {
+                          "type": "string",
+                          "example": "Mixed-Use Development — BOQ (Revised)"
+                        },
+                        "templateVersion": {
+                          "type": "string"
+                        },
+                        "sections": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "sectionName",
+                              "workItems"
+                            ],
+                            "properties": {
+                              "sectionName": {
+                                "type": "string",
+                                "example": "Substructure"
+                              },
+                              "workItems": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "required": [
+                                    "item",
+                                    "unit"
+                                  ],
+                                  "properties": {
+                                    "item": {
+                                      "type": "string",
+                                      "example": "Excavation"
+                                    },
+                                    "specification": {
+                                      "type": "string",
+                                      "example": "Max depth 2.0m"
+                                    },
+                                    "unit": {
+                                      "type": "string",
+                                      "example": "m³"
+                                    },
+                                    "quantity": {
+                                      "type": "number",
+                                      "nullable": true,
+                                      "example": 580
+                                    },
+                                    "rate": {
+                                      "type": "number",
+                                      "example": 3500
+                                    },
+                                    "total": {
+                                      "type": "number",
+                                      "example": 2030000
+                                    },
+                                    "notes": {
+                                      "type": "string"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "generalNotes": {
+                          "type": "string",
+                          "example": "Revised by QS on 17/03/2026."
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "BOQ result updated successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Multi-file BOQ result updated successfully.",
+                    "data": {
+                      "_id": "66f1a2b3c4d5e6f7a8b9c0d1",
+                      "status": "completed",
+                      "result": {
+                        "projectTitle": "Mixed-Use Development — BOQ (Revised)",
+                        "sections": [
+                          {
+                            "sectionName": "Substructure",
+                            "workItems": [
+                              {
+                                "item": "Excavation",
+                                "unit": "m³",
+                                "quantity": 580
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    "timestamp": "2026-03-17T14:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid request body."
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            },
+            "404": {
+              "description": "Job not found or not owned by the current user."
+            }
+          }
+        }
+      },
+      "/boq/multi-jobs/{jobId}/pdf": {
+        "get": {
+          "summary": "Step 5 (optional) — Download unified BOQ as a PDF document",
+          "description": "Renders the stored BOQ result as a professional A4 PDF and streams it as a\nfile download. If user edits were saved via PATCH, the PDF reflects the\nupdated data.\n\n**Prerequisites:** Job must be in `\"completed\"` status.\n\n**Frontend implementation:**\n```javascript\nconst response = await fetch(`/api/v1/boq/multi-jobs/${jobId}/pdf`, {\n  headers: { Authorization: `Bearer ${token}` },\n});\nconst blob = await response.blob();\nconst url = URL.createObjectURL(blob);\nwindow.open(url);\n```\n",
+          "tags": [
+            "Multi-File BOQ (RAG)"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "jobId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "MongoDB ObjectId of the completed multi-file BOQ job.",
+              "example": "66f1a2b3c4d5e6f7a8b9c0d1"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "PDF file streamed as download.",
+              "headers": {
+                "Content-Disposition": {
+                  "description": "Suggested filename, e.g. `attachment; filename=\"BOQ-Mixed_Use.pdf\"`",
+                  "schema": {
+                    "type": "string"
+                  }
+                }
+              },
+              "content": {
+                "application/pdf": {
+                  "schema": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            },
+            "404": {
+              "description": "Job not found or not owned by the current user."
+            },
+            "409": {
+              "description": "Job is not completed yet. Wait for `status === \"completed\"`.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "BOQ generation is not yet complete for this job.",
+                    "timestamp": "2026-03-17T12:00:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/boq/multi-jobs/{jobId}/create-project": {
+        "post": {
+          "summary": "Step 6 (optional) — Create a project from a completed multi-file job",
+          "description": "Converts a completed multi-file BOQ job into a permanent **Project** record.\nThe full BOQ result is copied automatically.\n\n**What happens:**\n1. Creates a new Project with `source: \"multi_file_boq\"` and `sourceJobId` referencing this job.\n2. Copies the BOQ result to the project.\n3. Links the job back to the project via `projectId`.\n\nIf the client includes a `boqResult` in the request body, that value is\nnormalized and used as the project BOQ instead of the stored job result.\n\n**When to use:** After the user reviews the BOQ and decides to keep it.\nProjects are permanent (no TTL), while jobs expire after 7 days.\n",
+          "tags": [
+            "Multi-File BOQ (RAG)"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "jobId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "MongoDB ObjectId of the completed multi-file BOQ job.",
+              "example": "66f1a2b3c4d5e6f7a8b9c0d1"
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "name"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "maxLength": 255,
+                      "description": "Project name.",
+                      "example": "Admiralty Tower Development"
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 1000,
+                      "example": "8-storey mixed-use residential/commercial"
+                    },
+                    "companyId": {
+                      "type": "string",
+                      "description": "Company ID (for enterprise users with teams)."
+                    },
+                    "clientId": {
+                      "type": "string",
+                      "description": "Client ID to associate this project with."
+                    },
+                    "clientName": {
+                      "type": "string",
+                      "maxLength": 255,
+                      "example": "Admiralty Properties Ltd"
+                    },
+                    "projectCode": {
+                      "type": "string",
+                      "maxLength": 100,
+                      "example": "PRJ-2026-042"
+                    },
+                    "projectType": {
+                      "type": "string",
+                      "maxLength": 100,
+                      "example": "Mixed-Use"
+                    },
+                    "projectLocation": {
+                      "type": "string",
+                      "maxLength": 255,
+                      "example": "Wuse II, Abuja, Nigeria"
+                    },
+                    "drawingType": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "structural",
+                          "architectural",
+                          "mep",
+                          "electrical",
+                          "mechanical",
+                          "plumbing",
+                          "civil",
+                          "landscape",
+                          "interior",
+                          "fire_protection",
+                          "general"
+                        ]
+                      },
+                      "description": "Types of drawings included in the multi-file BOQ",
+                      "example": [
+                        "structural",
+                        "architectural",
+                        "mep"
+                      ]
+                    },
+                    "boqResult": {
+                      "type": "object",
+                      "description": "Optional BOQ override to use for project creation when the client has\nunsaved edits. If omitted, the stored job result is used as-is.\nThe shape matches the job `result` (projectTitle, templateVersion,\nsections[], generalNotes). Nullable numeric/string fields are tolerated\nand normalized server-side.\n",
+                      "properties": {
+                        "projectTitle": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "templateVersion": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "generalNotes": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "sections": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "sectionName": {
+                                "type": "string"
+                              },
+                              "rows": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object"
+                                }
+                              },
+                              "workItems": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "Project created successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Project created from multi-file BOQ successfully.",
+                    "data": {
+                      "_id": "66f2b3c4d5e6f7a8b9c0d456",
+                      "name": "Admiralty Tower Development",
+                      "description": "8-storey mixed-use residential/commercial",
+                      "source": "multi_file_boq",
+                      "sourceJobId": "66f1a2b3c4d5e6f7a8b9c0d1",
+                      "status": "active",
+                      "clientName": "Admiralty Properties Ltd",
+                      "projectCode": "PRJ-2026-042",
+                      "projectType": "Mixed-Use",
+                      "projectLocation": "Wuse II, Abuja, Nigeria",
+                      "boqResult": {
+                        "projectTitle": "Mixed-Use Development — Unified BOQ",
+                        "sections": [
+                          "...sections array..."
+                        ]
+                      },
+                      "createdAt": "2026-03-17T14:30:00.000Z"
+                    },
+                    "timestamp": "2026-03-17T14:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation error (e.g. missing `name`)."
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            },
+            "404": {
+              "description": "Job not found or not owned by the current user."
+            },
+            "409": {
+              "description": "Job is not completed yet.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "BOQ generation is not yet complete for this job.",
+                    "timestamp": "2026-03-17T12:00:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/pdf-boq/generate": {
+        "post": {
+          "summary": "Step 1 — Upload PDF and submit BOQ generation job",
+          "description": "Upload a PDF construction drawing and start async BOQ extraction.\nReturns a `jobId` immediately (**HTTP 202**).\n\n**What happens in the background:**\n1. The PDF is sent to Claude's vision API — every page is read visually.\n2. Claude identifies construction elements, dimensions, specifications, and quantities.\n3. A structured BOQ is generated in professional quantity surveyor format.\n\n**Next step:** Poll `GET /jobs/:jobId` every 3–5 seconds until `status === \"completed\"`.\n\n> **Tip:** Provide a `documentHint` for better results. Tell Claude about the project type,\n> location, number of floors, construction method, etc.\n",
+          "tags": [
+            "AI PDF BOQ"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "multipart/form-data": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "file"
+                  ],
+                  "properties": {
+                    "file": {
+                      "type": "string",
+                      "format": "binary",
+                      "description": "PDF construction drawing (max 32 MB, ~100 pages max)."
+                    },
+                    "documentHint": {
+                      "type": "string",
+                      "maxLength": 300,
+                      "description": "Free-text project context to improve Claude's BOQ quality.\nInclude project type, location, number of floors, materials, etc.\n",
+                      "example": "4-storey residential development, Lagos Nigeria. Reinforced concrete frame with masonry infill walls."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "202": {
+              "description": "Job accepted. Poll `GET /jobs/:jobId` for status.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "PDF BOQ job submitted successfully.",
+                    "data": {
+                      "jobId": "66f1a2b3c4d5e6f7a8b9c0d1",
+                      "status": "pending"
+                    },
+                    "timestamp": "2026-03-17T12:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "No file provided, non-PDF file, or file too large.",
+              "content": {
+                "application/json": {
+                  "examples": {
+                    "no_file": {
+                      "summary": "No file uploaded",
+                      "value": {
+                        "success": false,
+                        "message": "No file provided. Send a multipart/form-data request with field name \"file\".",
+                        "timestamp": "2026-03-17T12:00:00.000Z"
+                      }
+                    },
+                    "wrong_format": {
+                      "summary": "Non-PDF file",
+                      "value": {
+                        "success": false,
+                        "message": "Only PDF files are accepted by this endpoint.",
+                        "timestamp": "2026-03-17T12:00:00.000Z"
+                      }
+                    },
+                    "too_large": {
+                      "summary": "File exceeds 32 MB",
+                      "value": {
+                        "success": false,
+                        "message": "File too large. Maximum allowed size is 32 MB.",
+                        "timestamp": "2026-03-17T12:00:00.000Z"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            }
+          }
+        }
+      },
+      "/pdf-boq/jobs": {
+        "get": {
+          "summary": "List all PDF BOQ jobs for the current user",
+          "description": "Returns a paginated list of all PDF BOQ jobs belonging to the authenticated user,\nsorted by most recent first. Useful for displaying job history in a dashboard.\n\nJobs expire automatically after 7 days. Create a project to persist permanently.\n",
+          "tags": [
+            "AI PDF BOQ"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "query",
+              "name": "page",
+              "schema": {
+                "type": "integer",
+                "default": 1
+              },
+              "description": "Page number (1-indexed)."
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "schema": {
+                "type": "integer",
+                "default": 20
+              },
+              "description": "Number of jobs per page."
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Paginated list of jobs.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "PDF BOQ jobs fetched successfully.",
+                    "data": [
+                      {
+                        "_id": "66f1a2b3c4d5e6f7a8b9c0d1",
+                        "originalFilename": "ArchitecturalDrawings.pdf",
+                        "status": "completed",
+                        "createdAt": "2026-03-17T12:00:00.000Z"
+                      },
+                      {
+                        "_id": "66f1a2b3c4d5e6f7a8b9c0d2",
+                        "originalFilename": "StructuralPlan.pdf",
+                        "status": "processing",
+                        "createdAt": "2026-03-17T12:05:00.000Z"
+                      }
+                    ],
+                    "pagination": {
+                      "page": 1,
+                      "limit": 20,
+                      "total": 2,
+                      "totalPages": 1
+                    },
+                    "timestamp": "2026-03-17T12:10:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            }
+          }
+        }
+      },
+      "/pdf-boq/jobs/{jobId}": {
+        "get": {
+          "summary": "Step 2 — Poll job status and retrieve BOQ result",
+          "description": "Returns the full job record. **Poll every 3–5 seconds** after submitting\na job (step 1) until `status === \"completed\"`.\n\n| Status        | Action                                            |\n|---------------|---------------------------------------------------|\n| `pending`     | Keep polling — job is queued.                      |\n| `processing`  | Keep polling — Claude is reading the PDF.          |\n| `completed`   | ✅ BOQ ready — `data.result` contains the BOQ.     |\n| `failed`      | ❌ Error — check `data.errorMessage`.               |\n\nWhen `status === \"completed\"`, the `data.result` object contains:\n- `projectTitle` — Inferred project name.\n- `sections[]` — Array of BOQ sections, each with `sectionName` and `workItems[]`.\n- `generalNotes` — Overall summary and data quality notes.\n\n**Next steps (all optional):**\n- Display/edit the BOQ in your UI.\n- `PATCH /jobs/:jobId` to save edits.\n- `GET /jobs/:jobId/pdf` to download as PDF.\n- `POST /jobs/:jobId/create-project` to create a permanent project.\n",
+          "tags": [
+            "AI PDF BOQ"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "jobId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "MongoDB ObjectId returned by step 1.",
+              "example": "66f1a2b3c4d5e6f7a8b9c0d1"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Job record with status and result (if completed).",
+              "content": {
+                "application/json": {
+                  "examples": {
+                    "processing": {
+                      "summary": "Job still processing",
+                      "value": {
+                        "success": true,
+                        "message": "PDF BOQ job fetched successfully.",
+                        "data": {
+                          "_id": "66f1a2b3c4d5e6f7a8b9c0d1",
+                          "originalFilename": "ArchitecturalDrawings.pdf",
+                          "status": "processing",
+                          "createdAt": "2026-03-17T12:00:00.000Z"
+                        },
+                        "timestamp": "2026-03-17T12:00:30.000Z"
+                      }
+                    },
+                    "completed": {
+                      "summary": "Job completed with BOQ result",
+                      "value": {
+                        "success": true,
+                        "message": "PDF BOQ job fetched successfully.",
+                        "data": {
+                          "_id": "66f1a2b3c4d5e6f7a8b9c0d1",
+                          "originalFilename": "ArchitecturalDrawings.pdf",
+                          "status": "completed",
+                          "result": {
+                            "projectTitle": "Residential Tower — BOQ",
+                            "sections": [
+                              {
+                                "sectionName": "Substructure",
+                                "workItems": [
+                                  {
+                                    "item": "Excavation to reduced level",
+                                    "specification": "Maximum depth 1.5m, cart away spoil",
+                                    "unit": "m³",
+                                    "quantity": 320,
+                                    "notes": null
+                                  },
+                                  {
+                                    "item": "Plain concrete blinding (1:3:6)",
+                                    "specification": "50mm thick under strip footings",
+                                    "unit": "m²",
+                                    "quantity": 85.5
+                                  }
+                                ]
+                              },
+                              {
+                                "sectionName": "Superstructure — Concrete Work",
+                                "workItems": [
+                                  {
+                                    "item": "Reinforced concrete columns (C35)",
+                                    "specification": "300x300mm, 4Y16 main bars, Y8@200 links",
+                                    "unit": "m³",
+                                    "quantity": 18.6
+                                  },
+                                  {
+                                    "item": "Reinforced concrete suspended slab (C30)",
+                                    "specification": "175mm thick, A393 mesh top and bottom",
+                                    "unit": "m²",
+                                    "quantity": 450
+                                  }
+                                ]
+                              },
+                              {
+                                "sectionName": "Blockwork",
+                                "workItems": [
+                                  {
+                                    "item": "225mm hollow sandcrete block wall",
+                                    "specification": "1:4 cement/sand mortar, 450mm block",
+                                    "unit": "m²",
+                                    "quantity": 680
+                                  }
+                                ]
+                              }
+                            ],
+                            "generalNotes": "BOQ extracted from 12-page architectural PDF drawing. Quantities measured visually by AI — verify critical items against site measurements."
+                          },
+                          "startedAt": "2026-03-17T12:00:00.000Z",
+                          "completedAt": "2026-03-17T12:02:45.000Z"
+                        },
+                        "timestamp": "2026-03-17T12:02:45.000Z"
+                      }
+                    },
+                    "failed": {
+                      "summary": "Job failed",
+                      "value": {
+                        "success": true,
+                        "message": "PDF BOQ job fetched successfully.",
+                        "data": {
+                          "_id": "66f1a2b3c4d5e6f7a8b9c0d3",
+                          "status": "failed",
+                          "errorMessage": "Claude did not return a structured BOQ."
+                        },
+                        "timestamp": "2026-03-17T12:05:00.000Z"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            },
+            "404": {
+              "description": "Job not found or not owned by the current user."
+            }
+          }
+        },
+        "patch": {
+          "summary": "Step 4 (optional) — Save user edits to the BOQ result",
+          "description": "Replace the stored BOQ result with a client-edited version. The updated\nresult is persisted and will be used when downloading the PDF or creating a project.\n\n**Typical use case:** The frontend renders the BOQ from `GET /jobs/:jobId`\nin an editable table. When the user modifies quantities, adds work items,\nor corrects descriptions, send the full updated BOQ structure here.\n\nThe payload must match the `PdfBoqResult` shape — same as what was returned\nin `data.result` when the job completed.\n",
+          "tags": [
+            "AI PDF BOQ"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "jobId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "example": "66f1a2b3c4d5e6f7a8b9c0d1"
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "projectTitle",
+                    "sections"
+                  ],
+                  "properties": {
+                    "projectTitle": {
+                      "type": "string",
+                      "example": "Residential Tower — BOQ (Revised)"
+                    },
+                    "sections": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "sectionName",
+                          "workItems"
+                        ],
+                        "properties": {
+                          "sectionName": {
+                            "type": "string",
+                            "example": "Substructure"
+                          },
+                          "workItems": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "required": [
+                                "item",
+                                "unit"
+                              ],
+                              "properties": {
+                                "item": {
+                                  "type": "string",
+                                  "example": "Excavation to reduced level"
+                                },
+                                "specification": {
+                                  "type": "string",
+                                  "example": "Maximum depth 1.5m"
+                                },
+                                "unit": {
+                                  "type": "string",
+                                  "example": "m³"
+                                },
+                                "quantity": {
+                                  "type": "number",
+                                  "nullable": true,
+                                  "example": 320
+                                },
+                                "rate": {
+                                  "type": "number",
+                                  "example": 3500
+                                },
+                                "total": {
+                                  "type": "number",
+                                  "example": 1120000
+                                },
+                                "notes": {
+                                  "type": "string",
+                                  "example": "Verified against site survey"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "generalNotes": {
+                      "type": "string",
+                      "example": "Revised by QS on 17/03/2026."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "BOQ result updated successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "PDF BOQ result updated successfully.",
+                    "data": {
+                      "_id": "66f1a2b3c4d5e6f7a8b9c0d1",
+                      "status": "completed",
+                      "result": {
+                        "projectTitle": "Residential Tower — BOQ (Revised)",
+                        "sections": [
+                          {
+                            "sectionName": "Substructure",
+                            "workItems": [
+                              {
+                                "item": "Excavation to reduced level",
+                                "specification": "Maximum depth 1.5m",
+                                "unit": "m³",
+                                "quantity": 320,
+                                "rate": 3500,
+                                "total": 1120000
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    "timestamp": "2026-03-17T14:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Invalid request body — must match PdfBoqResult schema."
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            },
+            "404": {
+              "description": "Job not found or not owned by the current user."
+            }
+          }
+        }
+      },
+      "/pdf-boq/jobs/{jobId}/pdf": {
+        "get": {
+          "summary": "Step 5 (optional) — Download BOQ as a PDF document",
+          "description": "Renders the stored BOQ result as a professional A4 PDF and streams it as a\nfile download. The PDF includes a formatted table with sections, work items,\nquantities, units, rates, and totals.\n\n**Prerequisites:**\n- Job must be in `\"completed\"` status.\n- If you've saved user edits via `PATCH /jobs/:jobId`, the PDF will reflect\n  the updated data.\n\n**Frontend implementation:**\n```javascript\nconst response = await fetch(`/api/v1/pdf-boq/jobs/${jobId}/pdf`, {\n  headers: { Authorization: `Bearer ${token}` },\n});\nconst blob = await response.blob();\nconst url = URL.createObjectURL(blob);\nwindow.open(url);  // or trigger download via <a> tag\n```\n",
+          "tags": [
+            "AI PDF BOQ"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "jobId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "MongoDB ObjectId of the completed PDF BOQ job.",
+              "example": "66f1a2b3c4d5e6f7a8b9c0d1"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "PDF file streamed as download.",
+              "headers": {
+                "Content-Disposition": {
+                  "description": "Suggested filename, e.g. `attachment; filename=\"BOQ-Residential_Tower.pdf\"`",
+                  "schema": {
+                    "type": "string"
+                  }
+                }
+              },
+              "content": {
+                "application/pdf": {
+                  "schema": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            },
+            "404": {
+              "description": "Job not found or not owned by the current user."
+            },
+            "409": {
+              "description": "Job is not completed yet. Wait for `status === \"completed\"`.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "BOQ is not ready yet. The job has not completed.",
+                    "timestamp": "2026-03-17T12:00:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/pdf-boq/jobs/{jobId}/create-project": {
+        "post": {
+          "summary": "Step 6 (optional) — Create a project from a completed job",
+          "description": "Converts a completed PDF BOQ job into a permanent **Project** record.\nThe full BOQ result is copied automatically — no need to send the BOQ payload.\n\n**What happens:**\n1. Creates a new Project with `source: \"pdf_boq\"` and `sourceJobId` referencing this job.\n2. Copies the BOQ result to the project.\n3. Links the job back to the project via `projectId`.\n\n**When to use:** After the user reviews the BOQ and decides to keep it.\nProjects are permanent (no TTL), while jobs expire after 7 days.\n",
+          "tags": [
+            "AI PDF BOQ"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "jobId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "MongoDB ObjectId of the completed PDF BOQ job.",
+              "example": "66f1a2b3c4d5e6f7a8b9c0d1"
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "name"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "maxLength": 255,
+                      "description": "Project name.",
+                      "example": "Fanimokun Residence"
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 1000,
+                      "example": "4-bedroom detached duplex with BQ"
+                    },
+                    "companyId": {
+                      "type": "string",
+                      "description": "Company ID (for enterprise users with teams)."
+                    },
+                    "clientId": {
+                      "type": "string",
+                      "description": "Client ID to associate this project with."
+                    },
+                    "clientName": {
+                      "type": "string",
+                      "maxLength": 255,
+                      "example": "Chief Fanimokun"
+                    },
+                    "projectCode": {
+                      "type": "string",
+                      "maxLength": 100,
+                      "example": "PRJ-2026-015"
+                    },
+                    "projectType": {
+                      "type": "string",
+                      "maxLength": 100,
+                      "example": "Residential"
+                    },
+                    "projectLocation": {
+                      "type": "string",
+                      "maxLength": 255,
+                      "example": "Ikoyi, Lagos, Nigeria"
+                    },
+                    "drawingType": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "structural",
+                          "architectural",
+                          "mep",
+                          "electrical",
+                          "mechanical",
+                          "plumbing",
+                          "civil",
+                          "landscape",
+                          "interior",
+                          "fire_protection",
+                          "general"
+                        ]
+                      },
+                      "description": "Types of drawings included in the project",
+                      "example": [
+                        "structural",
+                        "architectural"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "Project created successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Project created from PDF BOQ job successfully.",
+                    "data": {
+                      "_id": "66f2b3c4d5e6f7a8b9c0d456",
+                      "name": "Fanimokun Residence",
+                      "description": "4-bedroom detached duplex with BQ",
+                      "source": "pdf_boq",
+                      "sourceJobId": "66f1a2b3c4d5e6f7a8b9c0d1",
+                      "status": "active",
+                      "clientName": "Chief Fanimokun",
+                      "projectCode": "PRJ-2026-015",
+                      "projectType": "Residential",
+                      "projectLocation": "Ikoyi, Lagos, Nigeria",
+                      "boqResult": {
+                        "projectTitle": "Residential Tower — BOQ",
+                        "sections": [
+                          "...sections array..."
+                        ]
+                      },
+                      "createdAt": "2026-03-17T14:30:00.000Z"
+                    },
+                    "timestamp": "2026-03-17T14:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation error (e.g. missing `name`)."
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            },
+            "404": {
+              "description": "Job not found or not owned by the current user."
+            },
+            "409": {
+              "description": "Job is not completed yet.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "BOQ is not ready yet. The job has not completed.",
+                    "timestamp": "2026-03-17T12:00:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/plans": {
+        "get": {
+          "summary": "List active plans",
+          "description": "Returns all active subscription plans, sorted by `sortOrder`. This is a public\nendpoint — no authentication required. Inactive plans are excluded.\n",
+          "tags": [
+            "Plans"
+          ],
+          "security": [],
+          "responses": {
+            "200": {
+              "description": "Active plans fetched successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Plans fetched successfully",
+                    "data": [
+                      {
+                        "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                        "name": "Basic",
+                        "slug": "basic",
+                        "description": "Best for early career QS residential projects",
+                        "monthlyPrice": 120000,
+                        "yearlyPrice": 1000000,
+                        "currency": "NGN",
+                        "benefits": [
+                          "Up to 5 seats",
+                          "AI Processing — 50 drawings per month",
+                          "Basic project sharing — Read & View Permissions",
+                          "5GB Cloud storage"
+                        ],
+                        "isPopular": false,
+                        "isActive": true,
+                        "sortOrder": 0
+                      },
+                      {
+                        "_id": "65a1b2c3d4e5f6a7b8c9d0e2",
+                        "name": "Standard",
+                        "slug": "standard",
+                        "description": "Best for Medium QS residential projects",
+                        "monthlyPrice": 350000,
+                        "yearlyPrice": 3000000,
+                        "currency": "NGN",
+                        "benefits": [
+                          "Unlimited Seats",
+                          "Unlimited AI Processing",
+                          "Full Team Workflow",
+                          "Unlimited Storage"
+                        ],
+                        "isPopular": true,
+                        "isActive": true,
+                        "sortOrder": 1
+                      }
+                    ],
+                    "timestamp": "2026-02-20T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "post": {
+          "summary": "Create a new plan (admin)",
+          "description": "Creates a new subscription plan. Requires admin authentication. The `slug` must be\nunique and URL-friendly. The `benefits` field is an array of feature strings that\nwill be displayed on the pricing card.\n",
+          "tags": [
+            "Plans"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "slug",
+                    "description",
+                    "monthlyPrice",
+                    "yearlyPrice",
+                    "benefits"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "Display name for the plan.",
+                      "example": "Basic"
+                    },
+                    "slug": {
+                      "type": "string",
+                      "description": "URL-friendly unique identifier.",
+                      "example": "basic"
+                    },
+                    "description": {
+                      "type": "string",
+                      "description": "Short description of the plan.",
+                      "example": "Best for early career QS residential projects"
+                    },
+                    "monthlyPrice": {
+                      "type": "number",
+                      "description": "Monthly price in the smallest currency unit.",
+                      "example": 120000
+                    },
+                    "yearlyPrice": {
+                      "type": "number",
+                      "description": "Yearly price in the smallest currency unit.",
+                      "example": 1000000
+                    },
+                    "currency": {
+                      "type": "string",
+                      "description": "ISO 4217 currency code (defaults to NGN).",
+                      "example": "NGN"
+                    },
+                    "benefits": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "List of plan features/benefits.",
+                      "example": [
+                        "Up to 5 seats",
+                        "AI Processing — 50 drawings per month",
+                        "Basic project sharing — Read & View Permissions",
+                        "5GB Cloud storage"
+                      ]
+                    },
+                    "isPopular": {
+                      "type": "boolean",
+                      "description": "Whether to show the \"Most Popular\" badge.",
+                      "example": false
+                    },
+                    "isActive": {
+                      "type": "boolean",
+                      "description": "Whether the plan is active and visible publicly.",
+                      "example": true
+                    },
+                    "sortOrder": {
+                      "type": "integer",
+                      "description": "Display order (lower = displayed first).",
+                      "example": 0
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "Plan created successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Plan created successfully",
+                    "data": {
+                      "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                      "name": "Basic",
+                      "slug": "basic",
+                      "description": "Best for early career QS residential projects",
+                      "monthlyPrice": 120000,
+                      "yearlyPrice": 1000000,
+                      "currency": "NGN",
+                      "benefits": [
+                        "Up to 5 seats",
+                        "AI Processing — 50 drawings per month",
+                        "Basic project sharing — Read & View Permissions",
+                        "5GB Cloud storage"
+                      ],
+                      "isPopular": false,
+                      "isActive": true,
+                      "sortOrder": 0
+                    },
+                    "timestamp": "2026-02-20T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation failed."
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid token."
+            },
+            "403": {
+              "description": "Forbidden — admin role required."
+            },
+            "409": {
+              "description": "Conflict — a plan with this slug already exists.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "A plan with this slug already exists",
+                    "timestamp": "2026-02-20T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/plans/category/{category}": {
+        "get": {
+          "summary": "List active plans by category",
+          "description": "Returns all active subscription plans for the given category (`individual` or `company`),\nsorted by `sortOrder`. This is a public endpoint — no authentication required.\n",
+          "tags": [
+            "Plans"
+          ],
+          "security": [],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "category",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "individual",
+                  "company"
+                ]
+              },
+              "description": "The plan category to filter by."
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Plans for the requested category fetched successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Plans fetched successfully",
+                    "data": [
+                      {
+                        "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                        "name": "Basic",
+                        "slug": "basic",
+                        "description": "Best for early career QS residential projects",
+                        "category": "individual",
+                        "monthlyPrice": 120000,
+                        "yearlyPrice": 1000000,
+                        "currency": "NGN",
+                        "benefits": [
+                          "Up to 5 seats",
+                          "AI Processing — 50 drawings per month",
+                          "Basic project sharing — Read & View Permissions",
+                          "5GB Cloud storage"
+                        ],
+                        "isPopular": false,
+                        "isActive": true,
+                        "sortOrder": 0
+                      }
+                    ],
+                    "timestamp": "2026-02-20T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/plans/all": {
+        "get": {
+          "summary": "List all plans (admin)",
+          "description": "Returns all subscription plans including inactive ones. Requires admin authentication.\n",
+          "tags": [
+            "Plans"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "All plans fetched successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Plans fetched successfully",
+                    "data": [],
+                    "timestamp": "2026-02-20T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid token."
+            },
+            "403": {
+              "description": "Forbidden — admin role required."
+            }
+          }
+        }
+      },
+      "/plans/{id}": {
+        "get": {
+          "summary": "Get a plan by ID",
+          "description": "Returns a single subscription plan by its ID.",
+          "tags": [
+            "Plans"
+          ],
+          "security": [],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "id",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "The plan's MongoDB ObjectId."
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Plan fetched successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Plan fetched successfully",
+                    "data": {
+                      "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                      "name": "Basic",
+                      "slug": "basic",
+                      "description": "Best for early career QS residential projects",
+                      "monthlyPrice": 120000,
+                      "yearlyPrice": 1000000,
+                      "currency": "NGN",
+                      "benefits": [
+                        "Up to 5 seats",
+                        "AI Processing — 50 drawings per month",
+                        "Basic project sharing — Read & View Permissions",
+                        "5GB Cloud storage"
+                      ],
+                      "isPopular": false,
+                      "isActive": true,
+                      "sortOrder": 0
+                    },
+                    "timestamp": "2026-02-20T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "404": {
+              "description": "Plan not found.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Plan not found",
+                    "timestamp": "2026-02-20T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "patch": {
+          "summary": "Update a plan (admin)",
+          "description": "Partially updates a subscription plan by its ID. Only the fields provided in the\nrequest body will be changed. Requires admin authentication.\n",
+          "tags": [
+            "Plans"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "id",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "The plan's MongoDB ObjectId."
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "example": {
+                  "monthlyPrice": 150000,
+                  "benefits": [
+                    "Up to 10 seats",
+                    "AI Processing — 100 drawings per month",
+                    "Full project sharing",
+                    "10GB Cloud storage"
+                  ]
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Plan updated successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Plan updated successfully",
+                    "data": {
+                      "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                      "name": "Basic",
+                      "slug": "basic",
+                      "description": "Best for early career QS residential projects",
+                      "monthlyPrice": 150000,
+                      "yearlyPrice": 1000000,
+                      "currency": "NGN",
+                      "benefits": [
+                        "Up to 10 seats",
+                        "AI Processing — 100 drawings per month",
+                        "Full project sharing",
+                        "10GB Cloud storage"
+                      ],
+                      "isPopular": false,
+                      "isActive": true,
+                      "sortOrder": 0
+                    },
+                    "timestamp": "2026-02-20T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation failed."
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid token."
+            },
+            "403": {
+              "description": "Forbidden — admin role required."
+            },
+            "404": {
+              "description": "Plan not found."
+            },
+            "409": {
+              "description": "Conflict — a plan with this slug already exists."
+            }
+          }
+        },
+        "delete": {
+          "summary": "Delete a plan (admin)",
+          "description": "Permanently deletes a subscription plan by its ID. Requires admin authentication.",
+          "tags": [
+            "Plans"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "id",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "The plan's MongoDB ObjectId."
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Plan deleted successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Plan deleted successfully",
+                    "data": null,
+                    "timestamp": "2026-02-20T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid token."
+            },
+            "403": {
+              "description": "Forbidden — admin role required."
+            },
+            "404": {
+              "description": "Plan not found."
+            }
+          }
+        }
+      },
+      "/projects/{projectId}/members": {
+        "post": {
+          "summary": "Invite a user to a project",
+          "description": "Adds a new member to the project. Only the project **owner** can invite.\n\n**Rules:**\n- The project must belong to a company.\n- The invited user must be an **active** team member of that company.\n- Duplicate active memberships are rejected (409 Conflict).\n- A previously removed member is re-activated with the new role.\n\n**Related endpoints:**\n- `GET /api/v1/projects/{projectId}/members` — list members\n- `PATCH /api/v1/projects/{projectId}/members/{memberId}` — update role\n- `DELETE /api/v1/projects/{projectId}/members/{memberId}` — remove member\n",
+          "tags": [
+            "Project Members"
+          ],
+          "security": [
+            {
+              "BearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "example": "665f4a2b8e4d3c001f2a3b4d"
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "userId"
+                  ],
+                  "properties": {
+                    "userId": {
+                      "type": "string",
+                      "description": "The ID of the user to invite. Must be a 24-character ObjectId.",
+                      "example": "665f4a2b8e4d3c001f2a3b4e"
+                    },
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "editor",
+                        "viewer"
+                      ],
+                      "default": "viewer",
+                      "description": "The role to assign. Cannot assign 'owner'.",
+                      "example": "editor"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "Member added successfully.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "Project member added successfully."
+                      },
+                      "data": {
+                        "$ref": "#/components/schemas/ProjectMember"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation error (e.g. invalid userId, project has no company)."
+            },
+            "403": {
+              "description": "Only the project owner can invite members."
+            },
+            "404": {
+              "description": "Project not found."
+            },
+            "409": {
+              "description": "User is already an active member of this project."
+            }
+          }
+        },
+        "get": {
+          "summary": "List project members",
+          "description": "Returns a paginated list of active members for the given project.\nThe caller must be an active member of the project.\nEach member's userId is populated with firstName, lastName, and email.\n\n**Related endpoints:**\n- `POST /api/v1/projects/{projectId}/members` — invite a member\n",
+          "tags": [
+            "Project Members"
+          ],
+          "security": [
+            {
+              "BearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "example": "665f4a2b8e4d3c001f2a3b4d"
+            },
+            {
+              "in": "query",
+              "name": "page",
+              "schema": {
+                "type": "integer",
+                "minimum": 1,
+                "default": 1
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "schema": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100,
+                "default": 20
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Members fetched successfully.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "Project members fetched successfully."
+                      },
+                      "data": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/components/schemas/ProjectMember"
+                        }
+                      },
+                      "pagination": {
+                        "type": "object",
+                        "properties": {
+                          "total": {
+                            "type": "integer"
+                          },
+                          "page": {
+                            "type": "integer"
+                          },
+                          "limit": {
+                            "type": "integer"
+                          },
+                          "pages": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "403": {
+              "description": "Not a member of this project."
+            }
+          }
+        }
+      },
+      "/projects/{projectId}/members/{memberId}": {
+        "patch": {
+          "summary": "Update a member's role",
+          "description": "Changes the role of a project member. Only the project **owner** can update roles.\nThe owner's own role cannot be changed.\n\n**Related endpoints:**\n- `GET /api/v1/projects/{projectId}/members` — list members\n- `DELETE /api/v1/projects/{projectId}/members/{memberId}` — remove member\n",
+          "tags": [
+            "Project Members"
+          ],
+          "security": [
+            {
+              "BearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "example": "665f4a2b8e4d3c001f2a3b4d"
+            },
+            {
+              "in": "path",
+              "name": "memberId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "example": "665f4a2b8e4d3c001f2a3b4c"
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "role"
+                  ],
+                  "properties": {
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "editor",
+                        "viewer"
+                      ],
+                      "description": "The new role. Cannot be 'owner'.",
+                      "example": "editor"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Role updated successfully.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "Project member role updated successfully."
+                      },
+                      "data": {
+                        "$ref": "#/components/schemas/ProjectMember"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "403": {
+              "description": "Only the project owner can update roles / Owner role is locked."
+            },
+            "404": {
+              "description": "Member not found."
+            }
+          }
+        },
+        "delete": {
+          "summary": "Remove a member from a project",
+          "description": "Soft-removes a member by setting their status to 'removed'.\nOnly the project **owner** can remove members.\nThe owner cannot remove themselves.\n\n**Related endpoints:**\n- `GET /api/v1/projects/{projectId}/members` — list members\n- `PATCH /api/v1/projects/{projectId}/members/{memberId}` — update role\n",
+          "tags": [
+            "Project Members"
+          ],
+          "security": [
+            {
+              "BearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "example": "665f4a2b8e4d3c001f2a3b4d"
+            },
+            {
+              "in": "path",
+              "name": "memberId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "example": "665f4a2b8e4d3c001f2a3b4c"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Member removed successfully.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "Project member removed successfully."
+                      },
+                      "data": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "403": {
+              "description": "Only the project owner can remove members / Cannot remove the owner."
+            },
+            "404": {
+              "description": "Member not found."
+            }
+          }
+        }
+      },
+      "/projects": {
+        "post": {
+          "summary": "Create a new project",
+          "tags": [
+            "Projects"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "source",
+                    "processingMode"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "example": "Lagos Office Tower"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "pdf_boq",
+                        "bim",
+                        "manual",
+                        "template",
+                        "manual-drawn"
+                      ]
+                    },
+                    "sourceJobId": {
+                      "type": "string",
+                      "description": "ObjectId of the originating job (for pdf_boq / bim sources)"
+                    },
+                    "boqResult": {
+                      "$ref": "#/components/schemas/BoqResult"
+                    },
+                    "libraryItems": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "drawings": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Array of UploadedFile ObjectIds representing drawing references"
+                    },
+                    "companyId": {
+                      "type": "string"
+                    },
+                    "clientId": {
+                      "type": "string",
+                      "description": "ObjectId of an existing client"
+                    },
+                    "clientName": {
+                      "type": "string",
+                      "example": "Dangote Industries"
+                    },
+                    "projectCode": {
+                      "type": "string",
+                      "example": "LOT-2026-001"
+                    },
+                    "projectType": {
+                      "type": "string",
+                      "example": "Commercial"
+                    },
+                    "projectLocation": {
+                      "type": "string",
+                      "example": "Victoria Island, Lagos"
+                    },
+                    "drawingType": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "structural",
+                          "architectural",
+                          "mep",
+                          "electrical",
+                          "mechanical",
+                          "plumbing",
+                          "civil",
+                          "landscape",
+                          "interior",
+                          "fire_protection",
+                          "general"
+                        ]
+                      },
+                      "description": "Types of drawings submitted for the project",
+                      "example": [
+                        "structural",
+                        "architectural"
+                      ]
+                    },
+                    "processingMode": {
+                      "type": "string",
+                      "enum": [
+                        "ai",
+                        "manual"
+                      ],
+                      "description": "Whether the project uses AI processing or manual configuration",
+                      "example": "manual"
+                    },
+                    "projectPhase": {
+                      "type": "string",
+                      "enum": [
+                        "pre_contract",
+                        "post_contract",
+                        "design",
+                        "construction"
+                      ],
+                      "example": "pre_contract"
+                    },
+                    "duration": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Estimated project duration in months",
+                      "example": 18
+                    },
+                    "currency": {
+                      "type": "string",
+                      "example": "NGN"
+                    },
+                    "scopeCategories": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "substructure",
+                          "superstructure",
+                          "finishing",
+                          "external"
+                        ]
+                      },
+                      "description": "Scope areas included in this project",
+                      "example": [
+                        "substructure",
+                        "superstructure"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "Project created",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Project"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "get": {
+          "summary": "List projects for the authenticated user",
+          "tags": [
+            "Projects"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "query",
+              "name": "page",
+              "schema": {
+                "type": "integer",
+                "default": 1
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "schema": {
+                "type": "integer",
+                "default": 20
+              }
+            },
+            {
+              "in": "query",
+              "name": "status",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "active",
+                  "archived"
+                ]
+              }
+            },
+            {
+              "in": "query",
+              "name": "source",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "pdf_boq",
+                  "bim",
+                  "manual",
+                  "manual-drawn"
+                ]
+              }
+            },
+            {
+              "in": "query",
+              "name": "companyId",
+              "schema": {
+                "type": "string"
+              },
+              "description": "Filter by company (returns company projects instead of personal)"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Paginated project list",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "data": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/components/schemas/Project"
+                        }
+                      },
+                      "pagination": {
+                        "type": "object",
+                        "properties": {
+                          "page": {
+                            "type": "integer",
+                            "example": 1
+                          },
+                          "limit": {
+                            "type": "integer",
+                            "example": 20
+                          },
+                          "total": {
+                            "type": "integer",
+                            "example": 42
+                          },
+                          "pages": {
+                            "type": "integer",
+                            "example": 3
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Not authenticated"
+            }
+          }
+        }
+      },
+      "/projects/me": {
+        "get": {
+          "summary": "Get projects for the authenticated user",
+          "tags": [
+            "Projects"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "query",
+              "name": "page",
+              "schema": {
+                "type": "integer",
+                "default": 1
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "schema": {
+                "type": "integer",
+                "default": 20
+              }
+            },
+            {
+              "in": "query",
+              "name": "status",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "active",
+                  "archived"
+                ]
+              }
+            },
+            {
+              "in": "query",
+              "name": "source",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "pdf_boq",
+                  "bim",
+                  "manual",
+                  "manual-drawn"
+                ]
+              }
+            },
+            {
+              "in": "query",
+              "name": "search",
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Paginated list of the signed-in user's projects",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "data": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/components/schemas/Project"
+                        }
+                      },
+                      "pagination": {
+                        "type": "object",
+                        "properties": {
+                          "page": {
+                            "type": "integer",
+                            "example": 1
+                          },
+                          "limit": {
+                            "type": "integer",
+                            "example": 20
+                          },
+                          "total": {
+                            "type": "integer",
+                            "example": 12
+                          },
+                          "pages": {
+                            "type": "integer",
+                            "example": 1
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Not authenticated"
+            }
+          }
+        }
+      },
+      "/projects/filter": {
+        "get": {
+          "summary": "Filter projects by client, type, location, drawing type, source, and status",
+          "tags": [
+            "Projects"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "query",
+              "name": "page",
+              "schema": {
+                "type": "integer",
+                "default": 1
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "schema": {
+                "type": "integer",
+                "default": 20
+              }
+            },
+            {
+              "in": "query",
+              "name": "search",
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "status",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "active",
+                  "archived"
+                ]
+              }
+            },
+            {
+              "in": "query",
+              "name": "source",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "pdf_boq",
+                  "bim",
+                  "manual",
+                  "manual-drawn"
+                ]
+              }
+            },
+            {
+              "in": "query",
+              "name": "companyId",
+              "schema": {
+                "type": "string"
+              },
+              "description": "Filter by company ObjectId"
+            },
+            {
+              "in": "query",
+              "name": "clientId",
+              "schema": {
+                "type": "string"
+              },
+              "description": "Filter by client ObjectId"
+            },
+            {
+              "in": "query",
+              "name": "clientName",
+              "schema": {
+                "type": "string"
+              },
+              "description": "Partial/case-insensitive match on client name"
+            },
+            {
+              "in": "query",
+              "name": "projectType",
+              "schema": {
+                "type": "string"
+              },
+              "example": "Commercial"
+            },
+            {
+              "in": "query",
+              "name": "projectLocation",
+              "schema": {
+                "type": "string"
+              },
+              "description": "Partial/case-insensitive match on location"
+            },
+            {
+              "in": "query",
+              "name": "drawingType",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "structural",
+                  "architectural",
+                  "mep",
+                  "electrical",
+                  "mechanical",
+                  "plumbing",
+                  "civil",
+                  "landscape",
+                  "interior",
+                  "fire_protection",
+                  "general"
+                ]
+              },
+              "description": "Filter by drawing type (matches projects containing this type)",
+              "example": "structural"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Paginated filtered project list",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "data": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/components/schemas/Project"
+                        }
+                      },
+                      "pagination": {
+                        "type": "object",
+                        "properties": {
+                          "page": {
+                            "type": "integer",
+                            "example": 1
+                          },
+                          "limit": {
+                            "type": "integer",
+                            "example": 20
+                          },
+                          "total": {
+                            "type": "integer",
+                            "example": 8
+                          },
+                          "pages": {
+                            "type": "integer",
+                            "example": 1
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Not authenticated"
+            }
+          }
+        }
+      },
+      "/projects/company/{companyId}": {
+        "get": {
+          "summary": "Get projects belonging to a company",
+          "tags": [
+            "Projects"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "companyId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            },
+            {
+              "in": "query",
+              "name": "page",
+              "schema": {
+                "type": "integer",
+                "default": 1
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "schema": {
+                "type": "integer",
+                "default": 20
+              }
+            },
+            {
+              "in": "query",
+              "name": "status",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "active",
+                  "archived"
+                ]
+              }
+            },
+            {
+              "in": "query",
+              "name": "source",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "pdf_boq",
+                  "bim",
+                  "manual",
+                  "manual-drawn"
+                ]
+              }
+            },
+            {
+              "in": "query",
+              "name": "search",
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Paginated list of company projects",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "data": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/components/schemas/Project"
+                        }
+                      },
+                      "pagination": {
+                        "type": "object",
+                        "properties": {
+                          "page": {
+                            "type": "integer",
+                            "example": 1
+                          },
+                          "limit": {
+                            "type": "integer",
+                            "example": 20
+                          },
+                          "total": {
+                            "type": "integer",
+                            "example": 5
+                          },
+                          "pages": {
+                            "type": "integer",
+                            "example": 1
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Not authenticated"
+            },
+            "404": {
+              "description": "Company not found"
+            }
+          }
+        }
+      },
+      "/projects/{projectId}": {
+        "get": {
+          "summary": "Get a project by ID",
+          "tags": [
+            "Projects"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Project document",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "data": {
+                        "$ref": "#/components/schemas/Project"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Not authenticated"
+            },
+            "403": {
+              "description": "Caller lacks access to this project"
+            },
+            "404": {
+              "description": "Project not found"
+            }
+          }
+        },
+        "patch": {
+          "summary": "Update project metadata, status, client info, and dashboard fields",
+          "description": "General-purpose partial update for the project document. Send only the\nfields you want to change — all properties are optional (but at least one\nis required).\n\n### Typical uses\n- **Client info:** Set or change `clientName`, `clientId`, `projectCode`,\n  `projectType`, `projectLocation`, `drawingType` during project creation or later.\n- **Status transitions:** Move a project from `draft` → `active`, or to `archived`\n  (prefer the dedicated `PATCH …/archive` endpoint for archiving).\n- **Dashboard fields:** Update `grossFloorArea`, `buildingType`,\n  `completionStatus` — these feed into `GET …/dashboard`.\n- **BOQ & pricing:** Attach or replace `boqResult`, `libraryItems`.\n- **Wizard config:** Update `processingMode`, `projectPhase`, `duration`,\n  `currency`, `scopeCategories`.\n\n> **Note:** QS config fields (`qsProjectType`, `foundationTypes`,\n> `hasSwimmingPool`, etc.) are **not** set here — use\n> `PATCH /takeoff/{projectId}/qs-config` instead (see Takeoff tag).\n",
+          "tags": [
+            "Projects"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "example": "Lagos Office Tower Phase 2"
+                    },
+                    "description": {
+                      "type": "string",
+                      "example": "Revised scope for Phase 2"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "draft",
+                        "active",
+                        "archived"
+                      ]
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "pdf_boq",
+                        "bim",
+                        "manual",
+                        "template",
+                        "manual-drawn"
+                      ]
+                    },
+                    "boqResult": {
+                      "$ref": "#/components/schemas/BoqResult"
+                    },
+                    "libraryItems": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "drawings": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Array of UploadedFile ObjectIds representing drawing references"
+                    },
+                    "clientName": {
+                      "type": "string",
+                      "description": "Display name of the project client",
+                      "example": "Dangote Industries"
+                    },
+                    "clientId": {
+                      "type": "string",
+                      "nullable": true,
+                      "description": "ObjectId of an existing Client record (or null to clear)"
+                    },
+                    "projectCode": {
+                      "type": "string",
+                      "description": "Internal project reference code",
+                      "example": "LOT-2026-002"
+                    },
+                    "projectType": {
+                      "type": "string",
+                      "description": "Classification of the project",
+                      "example": "Commercial"
+                    },
+                    "projectLocation": {
+                      "type": "string",
+                      "description": "Site location",
+                      "example": "Victoria Island, Lagos"
+                    },
+                    "drawingType": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "structural",
+                          "architectural",
+                          "mep",
+                          "electrical",
+                          "mechanical",
+                          "plumbing",
+                          "civil",
+                          "landscape",
+                          "interior",
+                          "fire_protection",
+                          "general"
+                        ]
+                      },
+                      "description": "Types of drawings used in the project",
+                      "example": [
+                        "structural",
+                        "mep"
+                      ]
+                    },
+                    "processingMode": {
+                      "type": "string",
+                      "enum": [
+                        "ai",
+                        "manual"
+                      ]
+                    },
+                    "projectPhase": {
+                      "type": "string",
+                      "enum": [
+                        "pre_contract",
+                        "post_contract",
+                        "design",
+                        "construction"
+                      ]
+                    },
+                    "duration": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Estimated project duration in months"
+                    },
+                    "currency": {
+                      "type": "string",
+                      "example": "NGN"
+                    },
+                    "scopeCategories": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "substructure",
+                          "superstructure",
+                          "finishing",
+                          "external"
+                        ]
+                      }
+                    },
+                    "grossFloorArea": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "Total gross floor area in m² (used by the dashboard)",
+                      "example": 2500
+                    },
+                    "buildingType": {
+                      "type": "string",
+                      "description": "Building classification (used by the dashboard)",
+                      "example": "Commercial"
+                    },
+                    "completionStatus": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100,
+                      "description": "Project completion percentage 0–100 (used by the dashboard)",
+                      "example": 45
+                    }
+                  }
+                },
+                "example": {
+                  "name": "Lagos Office Tower Phase 2",
+                  "clientName": "Dangote Industries",
+                  "projectCode": "LOT-2026-002",
+                  "projectType": "Commercial",
+                  "projectLocation": "Victoria Island, Lagos",
+                  "grossFloorArea": 2500,
+                  "buildingType": "Commercial",
+                  "completionStatus": 45
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Updated project",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "Project updated successfully."
+                      },
+                      "data": {
+                        "$ref": "#/components/schemas/Project"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation error — at least one field is required"
+            },
+            "401": {
+              "description": "Not authenticated"
+            },
+            "403": {
+              "description": "Caller lacks edit access or project is archived"
+            },
+            "404": {
+              "description": "Project not found"
+            }
+          }
+        },
+        "delete": {
+          "summary": "Permanently delete a project (irreversible)",
+          "description": "**Permanently removes** the project document from the database.\nThis action is **irreversible** — there is no recycle bin or undo.\n\n### What is deleted\n- The project document itself (metadata, BOQ result, configs).\n\n### What is NOT deleted\n- Related takeoff elements, structural scope, and template records\n  are **not** cascade-deleted. They become orphaned and may be\n  cleaned up separately.\n\n### Who can delete\nOnly the project **OWNER** (creator or user with the OWNER role).\n\n> **Tip:** Consider using `PATCH …/archive` first. Archiving is\n> reversible and preserves all data while blocking further mutations.\n",
+          "tags": [
+            "Projects"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Project permanently deleted",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Project deleted successfully."
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Not authenticated"
+            },
+            "403": {
+              "description": "Caller is not the project owner"
+            },
+            "404": {
+              "description": "Project not found"
+            }
+          }
+        }
+      },
+      "/projects/{projectId}/boq/save-to-library": {
+        "post": {
+          "summary": "Promote a BOQ row to a new library item",
+          "description": "Copies the values from a specific row in the project's BOQ into a new enterprise\nlibrary item. The source BOQ and any existing library item referenced by the row's\n`librarySnapshot` are **never modified** — this always creates a brand-new item.\n\nValue resolution order (first non-null wins):\n1. Explicit override fields in the request body\n2. The row's embedded `librarySnapshot` (if present)\n3. The row's own fields (`rate`, `unit`, `description`)\n\nThe new item is created in the company linked to the project (or the user's owned\ncompany if the project has no `companyId`). The caller must have write access to\nthat company library.\n\n**Typical flow:**\n1. User edits a BOQ row manually (e.g. adjusts the rate for a specific project).\n2. User decides the edited rate is worth keeping for future projects.\n3. Client calls this endpoint — a new library item is created, leaving the original untouched.\n",
+          "tags": [
+            "Projects"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "ObjectId of the project"
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "sectionIndex",
+                    "rowIndex",
+                    "categoryId"
+                  ],
+                  "properties": {
+                    "sectionIndex": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Zero-based index of the section in boqResult.sections",
+                      "example": 0
+                    },
+                    "rowIndex": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Zero-based index of the row within the section",
+                      "example": 2
+                    },
+                    "categoryId": {
+                      "type": "string",
+                      "description": "ObjectId of the library category to attach the new item to",
+                      "example": "665f4a2b8e4d3c001f2a3b4c"
+                    },
+                    "description": {
+                      "type": "string",
+                      "description": "Override the row description (max 500 chars)",
+                      "example": "Reinforced Concrete Column C25"
+                    },
+                    "unit": {
+                      "type": "string",
+                      "description": "Override the unit of measure",
+                      "example": "m³"
+                    },
+                    "baseRate": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "Override the base rate (before markup)",
+                      "example": 85000
+                    },
+                    "markupPercentage": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100,
+                      "description": "Override the markup percentage (default 0)",
+                      "example": 10
+                    },
+                    "state": {
+                      "type": "string",
+                      "example": "Lagos"
+                    },
+                    "country": {
+                      "type": "string",
+                      "example": "Nigeria"
+                    },
+                    "breakdown": {
+                      "type": "object",
+                      "properties": {
+                        "machinery": {
+                          "type": "number",
+                          "minimum": 0,
+                          "example": 10000
+                        },
+                        "labour": {
+                          "type": "number",
+                          "minimum": 0,
+                          "example": 25000
+                        },
+                        "material": {
+                          "type": "number",
+                          "minimum": 0,
+                          "example": 50000
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "sectionIndex": 0,
+                  "rowIndex": 2,
+                  "categoryId": "665f4a2b8e4d3c001f2a3b4c",
+                  "baseRate": 87500,
+                  "markupPercentage": 10,
+                  "state": "Lagos",
+                  "country": "Nigeria"
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "New library item created from the BOQ row",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "BOQ row saved as a new library item successfully.",
+                    "data": {
+                      "_id": "665f4a2b8e4d3c001f2a3b99",
+                      "itemCode": "RES-00041",
+                      "description": "Reinforced Concrete Column C25",
+                      "unit": "m³",
+                      "baseRate": 87500,
+                      "markupPercentage": 10,
+                      "finalRate": 96250,
+                      "state": "Lagos",
+                      "country": "Nigeria"
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Could not derive description or base rate from the row"
+            },
+            "403": {
+              "description": "Caller lacks write access to the company library"
+            },
+            "404": {
+              "description": "Project, section, or row not found"
+            }
+          }
+        }
+      },
+      "/projects/{projectId}/finishing": {
+        "patch": {
+          "summary": "Update finishing configuration for a project",
+          "description": "Updates the finishing configuration (Step 4 of the project setup wizard).\nThis includes finishing specifications (screeding, mesh, ceiling, paint types, etc.),\nfloor tile types (general areas, wet areas, stairs, swimming pool, lift walls), and\nwall tile types (internal/external walls).\n\nEach section is merged with existing data — only provided fields are overwritten.\nTile arrays (e.g. `generalAreas`) are replaced entirely when provided.\n\n**Tile conditional logic:**\n- `swimmingPool` tiles should only be set when `hasSwimmingPool` is true on the project.\n- `liftWalls` tiles should only be set when `liftOption` is not `none`.\n\n**Typical flow:** After configuring the Structural Scope (Step 3), the user configures\nfinishing specs and tile types on this page, then proceeds to Metrics (Step 5).\n",
+          "tags": [
+            "Projects"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "ObjectId of the project"
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "finishingSpecifications": {
+                      "type": "object",
+                      "description": "Dropdown selections for finishing material specifications",
+                      "properties": {
+                        "screedingOnDpm": {
+                          "type": "string",
+                          "example": "Sand & Cement"
+                        },
+                        "meshType": {
+                          "type": "string",
+                          "example": "A193"
+                        },
+                        "ceilingType": {
+                          "type": "string",
+                          "example": "Gypsum Board"
+                        },
+                        "roofParapetWall": {
+                          "type": "string",
+                          "example": "600mm Blockwork"
+                        },
+                        "paintTypeInternally": {
+                          "type": "string",
+                          "example": "Emulsion Matte"
+                        },
+                        "paintTypeExternally": {
+                          "type": "string",
+                          "example": "Weather Shield"
+                        },
+                        "riserHeightForStairs": {
+                          "type": "string",
+                          "example": "150mm Standard"
+                        },
+                        "skirtingLandingThickness": {
+                          "type": "string",
+                          "example": "100mm"
+                        }
+                      }
+                    },
+                    "floorTiles": {
+                      "type": "object",
+                      "description": "Floor tile type lines grouped by area",
+                      "properties": {
+                        "generalAreas": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "typeCode",
+                              "description"
+                            ],
+                            "properties": {
+                              "typeCode": {
+                                "type": "string",
+                                "example": "A"
+                              },
+                              "description": {
+                                "type": "string",
+                                "example": "60x60 Porcelain White"
+                              }
+                            }
+                          }
+                        },
+                        "wetAreas": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "typeCode",
+                              "description"
+                            ],
+                            "properties": {
+                              "typeCode": {
+                                "type": "string",
+                                "example": "P"
+                              },
+                              "description": {
+                                "type": "string",
+                                "example": "Non-slip Ceramic 30x30"
+                              }
+                            }
+                          }
+                        },
+                        "stairsArea": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "typeCode",
+                              "description"
+                            ],
+                            "properties": {
+                              "typeCode": {
+                                "type": "string",
+                                "example": "K"
+                              },
+                              "description": {
+                                "type": "string",
+                                "example": "Granite Step - Grey"
+                              }
+                            }
+                          }
+                        },
+                        "swimmingPool": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "typeCode",
+                              "description"
+                            ],
+                            "properties": {
+                              "typeCode": {
+                                "type": "string",
+                                "example": "Z(F)"
+                              },
+                              "description": {
+                                "type": "string",
+                                "example": "Pool Floor Mosaic Blue"
+                              }
+                            }
+                          }
+                        },
+                        "liftWalls": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "typeCode",
+                              "description"
+                            ],
+                            "properties": {
+                              "typeCode": {
+                                "type": "string",
+                                "example": "Z"
+                              },
+                              "description": {
+                                "type": "string",
+                                "example": "Lift Wall Tile"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "wallTiles": {
+                      "type": "object",
+                      "description": "Wall tile type lines grouped by location",
+                      "properties": {
+                        "internalWalls": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "typeCode",
+                              "description"
+                            ],
+                            "properties": {
+                              "typeCode": {
+                                "type": "string",
+                                "example": "F"
+                              },
+                              "description": {
+                                "type": "string",
+                                "example": "30x60 Ceramic Gloss"
+                              }
+                            }
+                          }
+                        },
+                        "externalWalls": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "typeCode",
+                              "description"
+                            ],
+                            "properties": {
+                              "typeCode": {
+                                "type": "string",
+                                "example": "V"
+                              },
+                              "description": {
+                                "type": "string",
+                                "example": "Exterior Cladding Tile"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "finishingSpecifications": {
+                    "screedingOnDpm": "Sand & Cement",
+                    "meshType": "A193",
+                    "ceilingType": "Gypsum Board",
+                    "paintTypeInternally": "Emulsion Matte",
+                    "paintTypeExternally": "Weather Shield",
+                    "riserHeightForStairs": "150mm Standard",
+                    "skirtingLandingThickness": "100mm"
+                  },
+                  "floorTiles": {
+                    "generalAreas": [
+                      {
+                        "typeCode": "A",
+                        "description": "60x60 Porcelain White"
+                      },
+                      {
+                        "typeCode": "B",
+                        "description": "60x60 Ceramic Beige"
+                      }
+                    ],
+                    "wetAreas": [
+                      {
+                        "typeCode": "P",
+                        "description": "Non-slip Ceramic 30x30"
+                      }
+                    ]
+                  },
+                  "wallTiles": {
+                    "internalWalls": [
+                      {
+                        "typeCode": "F",
+                        "description": "30x60 Ceramic Gloss"
+                      },
+                      {
+                        "typeCode": "G",
+                        "description": "30x60 Ceramic Matte"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Finishing configuration updated",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Finishing configuration updated successfully.",
+                    "data": {
+                      "_id": "665f4a2b8e4d3c001f2a3b4c",
+                      "name": "Lagos Office Tower",
+                      "finishingConfig": {
+                        "finishingSpecifications": {
+                          "screedingOnDpm": "Sand & Cement",
+                          "ceilingType": "Gypsum Board"
+                        },
+                        "floorTiles": {
+                          "generalAreas": [
+                            {
+                              "typeCode": "A",
+                              "description": "60x60 Porcelain White"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation error — at least one finishing section is required"
+            },
+            "403": {
+              "description": "Caller lacks edit access or project is archived"
+            },
+            "404": {
+              "description": "Project not found"
+            }
+          }
+        }
+      },
+      "/projects/{projectId}/metrics": {
+        "patch": {
+          "summary": "Update metrics configuration for a project",
+          "description": "Updates the metrics configuration (Step 5 of the project setup wizard).\nThis includes the advance payment amount, FX rate, and percentage-based\nmarkups and allowances (markup, retention, contingency, preliminaries).\n\nEach provided field is merged into the existing metrics config — only the\nfields you send are overwritten.\n\n**Typical flow:** After configuring Finishing (Step 4), the user sets metrics\non this page, then proceeds to the Workspace (takeoff elements).\n",
+          "tags": [
+            "Projects"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "ObjectId of the project"
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "advancePayment": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "Advance payment amount in the project currency",
+                      "example": 5000000
+                    },
+                    "fxRate": {
+                      "type": "number",
+                      "minimum": 0,
+                      "description": "Foreign exchange rate (e.g. NGN per USD)",
+                      "example": 1234.56
+                    },
+                    "markup": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100,
+                      "description": "Global markup percentage across all elements",
+                      "example": 12.5
+                    },
+                    "retention": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100,
+                      "description": "Retention percentage",
+                      "example": 12.5
+                    },
+                    "contingency": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100,
+                      "description": "Contingency allowance percentage",
+                      "example": 5
+                    },
+                    "preliminaries": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100,
+                      "description": "Preliminaries allowance percentage",
+                      "example": 2.5
+                    }
+                  }
+                },
+                "example": {
+                  "advancePayment": 5000000,
+                  "fxRate": 1234.56,
+                  "markup": 12.5,
+                  "retention": 12.5,
+                  "contingency": 5,
+                  "preliminaries": 2.5
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Metrics configuration updated",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Metrics configuration updated successfully.",
+                    "data": {
+                      "_id": "665f4a2b8e4d3c001f2a3b4c",
+                      "name": "Lagos Office Tower",
+                      "metricsConfig": {
+                        "advancePayment": 5000000,
+                        "fxRate": 1234.56,
+                        "markup": 12.5,
+                        "retention": 12.5,
+                        "contingency": 5,
+                        "preliminaries": 2.5
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation error — at least one metric field is required"
+            },
+            "403": {
+              "description": "Caller lacks edit access or project is archived"
+            },
+            "404": {
+              "description": "Project not found"
+            }
+          }
+        }
+      },
+      "/projects/{projectId}/archive": {
+        "patch": {
+          "summary": "Archive a project (soft-delete, reversible)",
+          "description": "Sets the project status to `archived`. This is a **soft-delete** —\nno data is removed and the operation is fully reversible.\n\n### What happens\n- The project's `status` field changes to `archived`.\n- All related data (takeoff elements, structural scope, BOQ, configs)\n  remains intact and unchanged.\n- **Mutations are blocked** on archived projects — any write endpoint\n  for this project will return `403`.\n\n### How to undo\nUse `PATCH /projects/{projectId}` with `{ \"status\": \"draft\" }` (or `\"active\"`)\nto restore the project.\n\n### Who can archive\nOnly the project **OWNER** (creator or user with the OWNER role).\n",
+          "tags": [
+            "Projects"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Project archived — status is now `archived`",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Project archived successfully.",
+                    "data": {
+                      "_id": "665f4a2b8e4d3c001f2a3b4c",
+                      "name": "Lagos Office Tower",
+                      "status": "archived"
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Not authenticated"
+            },
+            "403": {
+              "description": "Caller is not the project owner, or project is already archived"
+            },
+            "404": {
+              "description": "Project not found"
+            }
+          }
+        }
+      },
+      "/projects/{projectId}/dashboard": {
+        "get": {
+          "summary": "Get project dashboard summary",
+          "description": "Returns a computed dashboard summary for the specified project, including:\n- Key project fields (name, status, buildingType, completionStatus, grossFloorArea)\n- Financial overview (estimateTotal, costPerSqm derived from estimateTotal / grossFloorArea)\n- Cost distribution breakdown by BOQ section\n\nThis endpoint is read-only and available to any project member (OWNER, EDITOR, VIEWER).\nUse the PATCH /projects/:projectId endpoint to update grossFloorArea, buildingType, or\ncompletionStatus values that feed into this summary.\n",
+          "tags": [
+            "Projects"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "minLength": 24,
+                "maxLength": 24
+              },
+              "description": "The 24-character MongoDB ObjectId of the project"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Dashboard summary fetched successfully",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Dashboard summary fetched successfully.",
+                    "data": {
+                      "projectId": "665f4a2b8e4d3c001f2a3b4c",
+                      "name": "Lagos Office Tower",
+                      "status": "draft",
+                      "buildingType": "Commercial",
+                      "completionStatus": 45,
+                      "grossFloorArea": 2500,
+                      "estimateTotal": 125000000,
+                      "costPerSqm": 50000,
+                      "currency": "NGN",
+                      "costDistribution": [
+                        {
+                          "sectionName": "Substructure",
+                          "amount": 45000000
+                        },
+                        {
+                          "sectionName": "Superstructure",
+                          "amount": 60000000
+                        },
+                        {
+                          "sectionName": "Finishing",
+                          "amount": 20000000
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "403": {
+              "description": "Caller lacks access to this project"
+            },
+            "404": {
+              "description": "Project not found"
+            }
+          }
+        }
+      },
+      "/projects/{projectId}/thumbnail": {
+        "patch": {
+          "summary": "Update project thumbnail",
+          "description": "Sets or replaces the project's preview/thumbnail image URL.\n\n**Intended flow:**\n1. Upload the image via `POST /upload` (the general file-upload endpoint).\n2. Take the returned file URL and pass it here as `thumbnailUrl`.\n\nThis endpoint only stores the URL — it does **not** handle the file upload itself.\nFor BIM-sourced projects the thumbnail is set automatically during processing,\nbut this endpoint lets users override it or set one for manual/PDF projects.\n\nRequires `owner` or `editor` role. Archived projects cannot be modified.\n",
+          "tags": [
+            "Projects"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "minLength": 24,
+                "maxLength": 24
+              },
+              "description": "The 24-character MongoDB ObjectId of the project"
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "thumbnailUrl"
+                  ],
+                  "properties": {
+                    "thumbnailUrl": {
+                      "type": "string",
+                      "format": "uri",
+                      "maxLength": 2048,
+                      "description": "Public URL of the uploaded image to use as the project thumbnail",
+                      "example": "https://res.cloudinary.com/demo/image/upload/v1/project-thumbnails/my-project.jpg"
+                    }
+                  }
+                },
+                "example": {
+                  "thumbnailUrl": "https://res.cloudinary.com/demo/image/upload/v1/project-thumbnails/my-project.jpg"
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Thumbnail updated successfully",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Project thumbnail updated successfully.",
+                    "data": {
+                      "_id": "665f4a2b8e4d3c001f2a3b4c",
+                      "name": "Lagos Office Tower",
+                      "thumbnailUrl": "https://res.cloudinary.com/demo/image/upload/v1/project-thumbnails/my-project.jpg",
+                      "status": "draft"
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation error (invalid URL or missing field)"
+            },
+            "403": {
+              "description": "Caller lacks access or project is archived"
+            },
+            "404": {
+              "description": "Project not found"
+            }
+          }
+        }
+      },
+      "/projects/{projectId}/boq-report-preview": {
+        "get": {
+          "summary": "Get Final BOQ Report Preview",
+          "description": "Returns a complete, pre-assembled payload for the **Final BOQ Report Preview** page.\nThis is a read-only, computed endpoint — it does not persist any data.\n\n### What's included\n- **Company info:** Company name and logo (resolved from the project's `companyId`).\n- **Report metadata:** Auto-generated reference number (from `projectCode` or project ID),\n  generation timestamp, and key project fields (name, client, location, type, currency, etc.).\n- **Executive summary:**\n  - `grandTotal` — sum of all BOQ section subtotals.\n  - `costPerSqm` — derived from `grandTotal / grossFloorArea` (null when GFA is missing).\n  - `costDistribution` — each section's name, absolute amount, and percentage of the grand total.\n  - `resourceAllocations` — array of `{ name, percentage }` objects for Labor, Materials,\n    and Equipment, derived from the `breakdown` field on the linked library items.\n    Returns `0` percentage for all three when no breakdown data exists.\n- **BOQ sections:** Each section's name, subtotal, and full row list (item code, description,\n  specification, unit, quantity, rate, amount). Supports both new template rows and legacy workItems.\n- **Terms & notes:** The `generalNotes` field from the BOQ result (if any).\n\n### Related endpoints\n- `GET /projects/{projectId}/dashboard` — lighter summary for the project workspace.\n- `PATCH /projects/{projectId}` — update project metadata, BOQ result, or library items.\n- `GET /projects/{projectId}` — full project document.\n",
+          "tags": [
+            "Projects"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "minLength": 24,
+                "maxLength": 24
+              },
+              "description": "The 24-character MongoDB ObjectId of the project"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "BOQ report preview fetched successfully",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "BOQ report preview fetched successfully.",
+                    "data": {
+                      "referenceNumber": "LOT-2026-002",
+                      "generatedAt": "2024-06-10T14:30:00.000Z",
+                      "company": {
+                        "name": "Apex Construction Ltd",
+                        "logo": "https://res.cloudinary.com/demo/image/upload/v1/logos/apex.png"
+                      },
+                      "project": {
+                        "projectId": "665f4a2b8e4d3c001f2a3b4c",
+                        "name": "Lagos Office Tower",
+                        "description": "12-storey commercial tower in Victoria Island",
+                        "clientName": "Dangote Industries",
+                        "projectCode": "LOT-2026-002",
+                        "projectType": "Commercial",
+                        "projectLocation": "Victoria Island, Lagos",
+                        "status": "active",
+                        "currency": "NGN",
+                        "grossFloorArea": 2500,
+                        "buildingType": "Commercial",
+                        "duration": 18
+                      },
+                      "executiveSummary": {
+                        "grandTotal": 125000000,
+                        "costPerSqm": 50000,
+                        "sectionCount": 3,
+                        "costDistribution": [
+                          {
+                            "sectionName": "Substructure",
+                            "amount": 45000000,
+                            "percentage": 36
+                          },
+                          {
+                            "sectionName": "Superstructure",
+                            "amount": 60000000,
+                            "percentage": 48
+                          },
+                          {
+                            "sectionName": "Finishing",
+                            "amount": 20000000,
+                            "percentage": 16
+                          }
+                        ],
+                        "resourceAllocations": [
+                          {
+                            "name": "Labor",
+                            "percentage": 35.2
+                          },
+                          {
+                            "name": "Materials",
+                            "percentage": 52.1
+                          },
+                          {
+                            "name": "Equipment",
+                            "percentage": 12.7
+                          }
+                        ]
+                      },
+                      "sections": [
+                        {
+                          "sectionName": "Substructure",
+                          "subtotal": 45000000,
+                          "rows": [
+                            {
+                              "itemCode": "SUB-001",
+                              "description": "Excavation to reduced level",
+                              "specification": "Average depth 1.5m",
+                              "unit": "m³",
+                              "quantity": 500,
+                              "rate": 12000,
+                              "amount": 6000000
+                            },
+                            {
+                              "itemCode": "SUB-002",
+                              "description": "Mass concrete foundation",
+                              "unit": "m³",
+                              "quantity": 200,
+                              "rate": 85000,
+                              "amount": 17000000
+                            }
+                          ]
+                        }
+                      ],
+                      "termsAndNotes": "All rates are inclusive of VAT. Prices valid for 90 days."
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Not authenticated"
+            },
+            "403": {
+              "description": "Caller lacks access to this project"
+            },
+            "404": {
+              "description": "Project not found"
+            }
+          }
+        }
+      },
+      "/projects/{projectId}/activity": {
+        "get": {
+          "summary": "Get recent project activity",
+          "description": "Returns a chronologically ordered list of recent activities for the project.\nActivities are derived from project-level timestamps and configuration changes\n(e.g. BOQ generation, finishing config, metrics config).\n\nUse the `limit` query parameter to control how many activity items are returned\n(default: 10, max: 50). This endpoint is read-only and available to any project member.\n\nPair with GET /projects/:projectId/dashboard for a full workspace overview.\n",
+          "tags": [
+            "Projects"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "minLength": 24,
+                "maxLength": 24
+              },
+              "description": "The 24-character MongoDB ObjectId of the project"
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "schema": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 50,
+                "default": 10
+              },
+              "description": "Maximum number of activity items to return"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Recent activity fetched successfully",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Recent activity fetched successfully.",
+                    "data": [
+                      {
+                        "action": "Metrics configuration set",
+                        "timestamp": "2024-06-05T14:30:00.000Z"
+                      },
+                      {
+                        "action": "BOQ generated",
+                        "timestamp": "2024-06-05T12:00:00.000Z",
+                        "detail": "3 sections"
+                      },
+                      {
+                        "action": "Project created",
+                        "timestamp": "2024-06-01T09:00:00.000Z"
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "403": {
+              "description": "Caller lacks access to this project"
+            },
+            "404": {
+              "description": "Project not found"
+            }
+          }
+        }
+      },
+      "/projects/{projectId}/drawings": {
+        "patch": {
+          "summary": "Add drawing file references to a project",
+          "description": "Appends new drawing file IDs (`UploadedFile` references) to the project's drawings array.\nEnforces uniqueness to avoid duplicate entries.\n",
+          "tags": [
+            "Projects"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "The 24-character MongoDB ObjectId of the project"
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "drawings"
+                  ],
+                  "properties": {
+                    "drawings": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Array of UploadedFile ObjectIds representing drawing references"
+                    }
+                  },
+                  "example": {
+                    "drawings": [
+                      "65a1b2c3d4e5f6a7b8c9d0f1",
+                      "65a1b2c3d4e5f6a7b8c9d0f2"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Drawings added successfully",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "Drawings added to project successfully."
+                      },
+                      "data": {
+                        "$ref": "#/components/schemas/Project"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation error"
+            },
+            "403": {
+              "description": "Caller lacks edit access or project is archived"
+            },
+            "404": {
+              "description": "Project not found"
+            }
+          }
+        }
+      },
+      "/projects/{projectId}/drawings/{drawingId}": {
+        "delete": {
+          "summary": "Remove a drawing file reference from a project",
+          "description": "Removes the specified drawing file ID (`UploadedFile` reference) from the project's drawings array.\nThe raw uploaded file itself is NOT deleted.\n",
+          "tags": [
+            "Projects"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "The 24-character MongoDB ObjectId of the project"
+            },
+            {
+              "in": "path",
+              "name": "drawingId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "The 24-character MongoDB ObjectId of the drawing reference to remove"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Drawing removed successfully",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "Drawing removed from project successfully."
+                      },
+                      "data": {
+                        "$ref": "#/components/schemas/Project"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation error"
+            },
+            "403": {
+              "description": "Caller lacks edit access or project is archived"
+            },
+            "404": {
+              "description": "Project not found"
+            }
+          }
+        }
+      },
+      "/takeoff/{projectId}/structural-scope/{foundationType}": {
+        "put": {
+          "summary": "Upsert structural scope configuration",
+          "description": "Create or update the structural scope configuration for a specific foundation\ntype on a project. This is Step 3 of the manual-mode project wizard.\n\nThe body should include only the sections relevant to the chosen foundation type:\n- **pile**: `pileSpecification`, `superstructureElements`\n- **raft / strip**: `superstructureElements`\n- **raft_pile_with_basement**: all sections (`pileSpecification`, `blindingElements`,\n  `substructureFilling`, `substructureElements`, `superstructureElements`)\n- Frontend form aliases `pileSystem` and `superstructure` are also accepted and normalized.\n\nThe endpoint is idempotent — calling it again with the same foundation type\nreplaces the previous configuration.\n",
+          "tags": [
+            "Structural Scope"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "The project's MongoDB ObjectId",
+              "example": "665f4a2b8e4d3c001f2a3b4d"
+            },
+            {
+              "in": "path",
+              "name": "foundationType",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "pile",
+                  "raft",
+                  "strip",
+                  "raft_pile_with_basement"
+                ]
+              },
+              "description": "Foundation type to configure",
+              "example": "raft_pile_with_basement"
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "pileSpecification": {
+                      "$ref": "#/components/schemas/PileSpecification"
+                    },
+                    "blindingElements": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/BlindingElementConfig"
+                      }
+                    },
+                    "substructureFilling": {
+                      "$ref": "#/components/schemas/SubstructureFilling"
+                    },
+                    "substructureElements": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SubstructureElementConfig"
+                      }
+                    },
+                    "superstructureElements": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SuperstructureElementConfig"
+                      }
+                    },
+                    "finishingElements": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/FinishingElementConfig"
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "pileSpecification": {
+                    "concreteGrade": "grade_25",
+                    "castingMethod": "rmc_with_pump",
+                    "castingLabourMethod": "hydro_rig",
+                    "depth": 12.5,
+                    "diameter": 0.45,
+                    "centerToCenter": 2,
+                    "plasticizers": true,
+                    "mainBarNo": 6,
+                    "mainBarSize": 16,
+                    "ringBarSize": 10,
+                    "rebarDepth": 11.5
+                  },
+                  "blindingElements": [
+                    {
+                      "elementType": "pile_cap",
+                      "concreteGrade": "grade_15",
+                      "castingMethod": "traditional",
+                      "wastePercentage": 5,
+                      "blindingThickness": 50
+                    }
+                  ],
+                  "substructureFilling": {
+                    "totalFilling": {
+                      "thickness": 0.3,
+                      "wastePercentage": 10
+                    },
+                    "laterite": {
+                      "thickness": 0.15,
+                      "wastePercentage": 10
+                    },
+                    "hardcore": {
+                      "thickness": 0.15,
+                      "wastePercentage": 10
+                    }
+                  },
+                  "substructureElements": [
+                    {
+                      "elementType": "column_in_foundation",
+                      "concreteGrade": "grade_25",
+                      "castingMethod": "rmc",
+                      "formworkType": "timber",
+                      "blockTypeOfFormwork": "nil",
+                      "blockworkFilling": "nil",
+                      "wastePercentage": 5
+                    }
+                  ],
+                  "superstructureElements": [
+                    {
+                      "elementType": "column",
+                      "concreteGrade": "grade_25",
+                      "castingMethod": "rmc_with_pump",
+                      "castingLabourMethod": "traditional",
+                      "plasticizers": true,
+                      "wastePercentage": 3
+                    }
+                  ],
+                  "finishingElements": [
+                    {
+                      "elementType": "column",
+                      "concreteGrade": "grade_25",
+                      "castingMethod": "rmc_with_pump",
+                      "castingLabourMethod": "traditional",
+                      "plasticizers": true,
+                      "wastePercentage": 3
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Structural scope configuration saved successfully",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "Structural scope configuration saved successfully."
+                      },
+                      "data": {
+                        "$ref": "#/components/schemas/StructuralScope"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation error"
+            },
+            "401": {
+              "description": "Unauthorized"
+            },
+            "403": {
+              "description": "Project is archived"
+            },
+            "404": {
+              "description": "Project not found or foundation type not configured on project"
+            }
+          }
+        },
+        "get": {
+          "summary": "Get structural scope for a foundation type",
+          "description": "Retrieve the saved structural scope configuration for a specific foundation\ntype on the project. Returns 404 if no scope has been saved yet for that\nfoundation type — the frontend should treat this as \"start fresh\".\n",
+          "tags": [
+            "Structural Scope"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "The project's MongoDB ObjectId",
+              "example": "665f4a2b8e4d3c001f2a3b4d"
+            },
+            {
+              "in": "path",
+              "name": "foundationType",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "pile",
+                  "raft",
+                  "strip",
+                  "raft_pile_with_basement"
+                ]
+              },
+              "description": "Foundation type to retrieve",
+              "example": "pile"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Structural scope configuration fetched successfully",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "Structural scope configuration fetched successfully."
+                      },
+                      "data": {
+                        "$ref": "#/components/schemas/StructuralScope"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized"
+            },
+            "404": {
+              "description": "Project or scope not found"
+            }
+          }
+        },
+        "delete": {
+          "summary": "Delete structural scope for a foundation type",
+          "description": "Remove the structural scope configuration for a specific foundation type.\nTypically used when the user removes a foundation type from the project\nconfiguration (Step 2) and the corresponding scope data should be cleaned up.\n",
+          "tags": [
+            "Structural Scope"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "The project's MongoDB ObjectId",
+              "example": "665f4a2b8e4d3c001f2a3b4d"
+            },
+            {
+              "in": "path",
+              "name": "foundationType",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "pile",
+                  "raft",
+                  "strip",
+                  "raft_pile_with_basement"
+                ]
+              },
+              "description": "Foundation type to delete",
+              "example": "strip"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Structural scope configuration deleted successfully",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "Structural scope configuration deleted successfully."
+                      },
+                      "data": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized"
+            },
+            "403": {
+              "description": "Project is archived"
+            },
+            "404": {
+              "description": "Project or scope not found"
+            }
+          }
+        }
+      },
+      "/takeoff/{projectId}/structural-scope": {
+        "get": {
+          "summary": "List all structural scopes for a project",
+          "description": "Retrieve all saved structural scope configurations for the project.\nReturns an array of scope documents, one per foundation type that has been\nconfigured. Useful for the summary/overview page to show which foundation\ntypes have been set up.\n",
+          "tags": [
+            "Structural Scope"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "The project's MongoDB ObjectId",
+              "example": "665f4a2b8e4d3c001f2a3b4d"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Structural scope configurations fetched successfully",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "Structural scope configurations fetched successfully."
+                      },
+                      "data": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/components/schemas/StructuralScope"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized"
+            },
+            "404": {
+              "description": "Project not found"
+            }
+          }
+        }
+      },
+      "/support/tickets": {
+        "post": {
+          "summary": "Open a new support ticket",
+          "description": "Creates a support ticket on behalf of the authenticated user.\nThe `fullName` and `email` fields are stored on the ticket to ensure\nthe support team has contact details even if the user profile changes later.\n",
+          "tags": [
+            "Support"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "fullName",
+                    "email",
+                    "description"
+                  ],
+                  "properties": {
+                    "fullName": {
+                      "type": "string",
+                      "description": "Full name of the person submitting the ticket.",
+                      "example": "Alex Johnson"
+                    },
+                    "email": {
+                      "type": "string",
+                      "format": "email",
+                      "description": "Contact email for the ticket.",
+                      "example": "alex@company.com"
+                    },
+                    "subject": {
+                      "type": "string",
+                      "maxLength": 200,
+                      "description": "Optional ticket subject. Auto-generated from category + description if omitted.",
+                      "example": "Bulk export failed on large datasets"
+                    },
+                    "category": {
+                      "type": "string",
+                      "enum": [
+                        "Technical Support",
+                        "Account & Billing",
+                        "Feature Request",
+                        "Automation",
+                        "Other"
+                      ],
+                      "default": "Technical Support"
+                    },
+                    "description": {
+                      "type": "string",
+                      "minLength": 10,
+                      "maxLength": 5000,
+                      "example": "When I try to export a BOQ with more than 500 items, the download spinner hangs indefinitely..."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "Support ticket created successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Support ticket created successfully",
+                    "data": {
+                      "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                      "ticketId": "TK-2026-00001",
+                      "fullName": "Alex Johnson",
+                      "email": "alex@company.com",
+                      "subject": "Bulk export failed on large datasets",
+                      "category": "Technical Support",
+                      "status": "open",
+                      "createdAt": "2026-03-21T10:30:00.000Z"
+                    },
+                    "timestamp": "2026-03-21T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation failed (e.g. missing required fields, description too short).",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Validation failed",
+                    "errors": [
+                      {
+                        "field": "description",
+                        "message": "Description must be at least 10 characters"
+                      }
+                    ],
+                    "timestamp": "2026-03-21T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token."
+            }
+          }
+        },
+        "get": {
+          "summary": "List my support tickets",
+          "description": "Returns a paginated list of support tickets for the authenticated user.",
+          "tags": [
+            "Support"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "query",
+              "name": "page",
+              "schema": {
+                "type": "integer",
+                "default": 1
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "schema": {
+                "type": "integer",
+                "default": 20
+              }
+            },
+            {
+              "in": "query",
+              "name": "status",
+              "description": "Filter by ticket status.",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "open",
+                  "in_progress",
+                  "resolved",
+                  "closed"
+                ]
+              }
+            },
+            {
+              "in": "query",
+              "name": "category",
+              "description": "Filter by ticket category.",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "Technical Support",
+                  "Account & Billing",
+                  "Feature Request",
+                  "Automation",
+                  "Other"
+                ]
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Support tickets fetched successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Support tickets fetched successfully",
+                    "data": [
+                      {
+                        "ticketId": "TK-2026-00001",
+                        "subject": "Bulk export failed on large datasets",
+                        "category": "Technical Support",
+                        "status": "in_progress",
+                        "createdAt": "2026-10-24T10:30:00.000Z"
+                      }
+                    ],
+                    "pagination": {
+                      "total": 3,
+                      "page": 1,
+                      "limit": 20,
+                      "pages": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/support/tickets/{ticketId}": {
+        "get": {
+          "summary": "Get a single support ticket",
+          "tags": [
+            "Support"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "ticketId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Support ticket fetched successfully."
+            },
+            "404": {
+              "description": "Support ticket not found."
+            }
+          }
+        }
+      },
+      "/takeoff/{projectId}/qs-config": {
+        "patch": {
+          "summary": "Step 1 — Configure QS project type and global defaults",
+          "description": "**This is the first step in the manual takeoff flow.**\n\nSets the quantification project type, allowed foundation types,\nswimming pool flag, and global defaults (concrete grade, rebar sizes, etc.).\nAlso supports number of floors, lift option, and pool locations.\n\n### What happens\n1. Validates that the requested `foundationTypes` are allowed for the chosen `qsProjectType`\n   (see the **Project Types & Allowed Elements** table in the tag description).\n2. Stores the QS config on the project document (`qsProjectType`, `foundationTypes`,\n   `hasSwimmingPool`, `poolLocations`, `numberOfFloors`, `liftOption`, `globalConfiguration`).\n3. Returns the full updated project.\n\n### Foundation type constraints\n- `piling_alone` → only `pile`\n- `piling_and_substructure` → `pile`, `raft_pile_with_basement`\n- `foundation_and_carcass` / `carcass_with_finishes` → all foundation types\n\n### Prerequisites\n- Project must exist and not be archived.\n- Call this **before** adding elements so the frontend knows which element types to show.\n\n### Next step\n→ **Step 2** — Bulk upsert elements (`PUT /:projectId/elements/:elementType`)\n",
+          "tags": [
+            "Takeoff"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "The project's ObjectId",
+              "example": "665f4a2b8e4d3c001f2a3b4c"
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "qsProjectType": {
+                      "type": "string",
+                      "enum": [
+                        "piling_alone",
+                        "piling_and_substructure",
+                        "foundation_and_carcass",
+                        "carcass_with_finishes"
+                      ],
+                      "example": "foundation_and_carcass"
+                    },
+                    "foundationTypes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "pile",
+                          "raft",
+                          "strip",
+                          "raft_pile_with_basement"
+                        ]
+                      },
+                      "example": [
+                        "raft",
+                        "strip"
+                      ]
+                    },
+                    "hasSwimmingPool": {
+                      "type": "boolean",
+                      "example": false
+                    },
+                    "poolLocations": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "substructure",
+                          "superstructure",
+                          "external"
+                        ]
+                      },
+                      "description": "Where the swimming pool is located (only relevant when hasSwimmingPool is true).\nCan select multiple locations. If numberOfFloors ≤ 1 (ground floor building),\n\"superstructure\" is not allowed.\n",
+                      "example": [
+                        "substructure",
+                        "external"
+                      ]
+                    },
+                    "numberOfFloors": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Number of floors in the building",
+                      "example": 3
+                    },
+                    "liftOption": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "passenger",
+                        "service",
+                        "passenger_and_service"
+                      ],
+                      "description": "Lift / elevator option for the building",
+                      "example": "passenger"
+                    },
+                    "globalConfiguration": {
+                      "$ref": "#/components/schemas/GlobalConfiguration"
+                    }
+                  }
+                },
+                "example": {
+                  "qsProjectType": "foundation_and_carcass",
+                  "foundationTypes": [
+                    "raft",
+                    "strip"
+                  ],
+                  "hasSwimmingPool": true,
+                  "poolLocations": [
+                    "substructure",
+                    "external"
+                  ],
+                  "numberOfFloors": 3,
+                  "liftOption": "passenger",
+                  "globalConfiguration": {
+                    "defaultConcreteGrade": "C30/37",
+                    "reinforcementCover": 50,
+                    "defaultRebarSizes": [
+                      12,
+                      16,
+                      20
+                    ],
+                    "defaultBarType": "Y"
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "QS configuration updated — returns the full project document",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean"
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "data": {
+                        "$ref": "#/components/schemas/Project"
+                      }
+                    }
+                  },
+                  "example": {
+                    "success": true,
+                    "message": "QS configuration updated successfully",
+                    "data": {
+                      "_id": "665f4a2b8e4d3c001f2a3b4d",
+                      "name": "Office Tower Phase 1",
+                      "qsProjectType": "foundation_and_carcass",
+                      "foundationTypes": [
+                        "raft",
+                        "strip"
+                      ],
+                      "hasSwimmingPool": true,
+                      "poolLocations": [
+                        "substructure",
+                        "external"
+                      ],
+                      "numberOfFloors": 3,
+                      "liftOption": "passenger",
+                      "globalConfiguration": {
+                        "defaultConcreteGrade": "C30/37",
+                        "reinforcementCover": 50,
+                        "defaultRebarSizes": [
+                          12,
+                          16,
+                          20
+                        ],
+                        "defaultBarType": "Y"
+                      },
+                      "createdAt": "2025-06-01T12:00:00.000Z",
+                      "updatedAt": "2025-06-01T12:05:00.000Z"
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation error — e.g. invalid foundation types for the chosen project type.\nExample: `piling_alone` only allows `[pile]`; sending `[raft]` returns 400.\n",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Invalid foundation types for project type piling_alone. Allowed: pile"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Missing or expired JWT token"
+            },
+            "403": {
+              "description": "Project is archived — no mutations allowed"
+            },
+            "404": {
+              "description": "Project not found or not owned by the user"
+            }
+          }
+        }
+      },
+      "/takeoff/{projectId}/elements/{elementType}": {
+        "put": {
+          "summary": "Step 2 — Bulk upsert takeoff elements of a given type",
+          "description": "**Save the spreadsheet data for one element type tab.**\n\nAccepts an array of elements and upserts them into the project. Elements are\nidentified by the compound key `(projectId + elementType + elementId)`. If an\nelement with the same `elementId` already exists for this type, it is updated;\notherwise it is inserted.\n\n### What happens\n1. Validates each element against shape-specific dimension rules.\n2. Performs a MongoDB `bulkWrite` with upsert operations.\n3. Returns the count of newly inserted vs. updated elements.\n\n### Usage pattern\n- Call this whenever the user saves a tab in the takeoff spreadsheet.\n- The frontend groups elements by `elementType` (one tab per type).\n- Maximum **500 elements** per request.\n- `elementCategory` is auto-derived from `elementType` on the server side.\n\n---\n\n## Payload variations by `elementType`\n\nEvery element accepts the **base fields** below. Additional fields are\nrelevant only for specific element-type families and are ignored by the\ncalculation engine for other types.\n\n### Base fields (all element types)\n| Field             | Type     | Required                              | Notes |\n|-------------------|----------|---------------------------------------|-------|\n| `elementId`       | string   | yes                                   | User label e.g. C1, ES1, GB2 |\n| `shape`           | enum     | yes                                   | `rectangular` \\| `circular` |\n| `count`           | integer  | no (default 1)                        | Repetition multiplier — UI \"No. Thus\" cell |\n| `nr`              | number   | no                                    | Extra multiplier (multiplied with `count`) |\n| `length`          | number   | for `rectangular`                     | metres — also used as \"Length/Radius\" cell on shapes that share it |\n| `width`           | number   | for `rectangular`                     | metres |\n| `depth`           | number   | required wherever a height is needed  | metres |\n| `diameter`        | number   | for `circular`                        | metres |\n| `height`          | number   | for columns, walls, lift shaft        | metres — UI \"Height (m)\" column |\n| `thickness`       | number   | for slabs, walls, lift shaft          | metres — overrides `depth` for slab/wall families |\n| `floorThickness`  | number   | for beams (Floor & Beam › Beam tab)   | metres — UI \"Floor Thickness\" column |\n| `floorLabel`      | string   | when row belongs to a non-default floor | One of `getFloors()` output: `GROUND_FLOOR`, `FLOOR_1`…`FLOOR_N`, `ROOF`, `LIFT_SHAFT`, `EXTERNAL`. Part of the unique key together with `(project, elementType, elementId)` so the **same** `elementId` can repeat per floor. |\n| `areaReference`   | string   | no                                    | Free-text e.g. \"Site A\" |\n| `state`           | enum     | no                                    | `isolated` \\| `continuous` — applies to columns and foundations |\n| `reinforcement`   | array    | no                                    | Bar schedule rows (atomic per-bar) |\n| `layeredReinforcement` | array | no                                  | Layered bar schedule rows (4-box UI mapping — see Reinforcement-tab note below) |\n\n### Reinforcement sub-tab — 4-box convention (Column, Beam, Pad Footing)\nThe Reinforcement sub-tab on **Column**, **Beam**, and **Pad Footing** pages renders 4 small\ninput boxes per cell. Those 4 boxes map 1-to-1 to indices `[0]…[3]` of every array on\na single `layeredReinforcement` entry:\n\n| Box index | Bar group  |\n|-----------|------------|\n| `[0]`     | Bottom-X   |\n| `[1]`     | Bottom-Y   |\n| `[2]`     | Top-X      |\n| `[3]`     | Top-Y      |\n\nAll arrays on the entry (`centerToCenter`, `sizeDia`, `noThus`, `noInEach`, `cutLength`)\nMUST be the same length and aligned by index. Send `0` for empty boxes — never shorten\nthe array. See the `pad_footing`, `column_with_reinforcement`, and\n`beam_with_floor_thickness_and_reinforcement` examples below.\n\n### Element-type families and their extra fields\n\n| Family / `elementType`(s) | Extra fields used | Calculation produced |\n|---|---|---|\n| **Columns / Pads / Pile caps** — `column`, `column_in_foundation`, `column_footing`, `pad_footing`, `pile_cap`, `pile_cap_frames`, `roof_column` | `height`, `state` (`isolated`/`continuous`), `floorLabel`, `diameter` (when `shape: circular`), `layeredReinforcement` (4-box) | concrete volume + formwork |\n| **Beams** — `beam`, `ground_beam`, `lintels`, `roof_beam` | `depth`, `floorThickness`, `floorLabel`, `layeredReinforcement` (4-box) | concrete volume + beam formwork |\n| **Slabs** — `slab`, `raft_foundation`, `oversite_slab`, `ground_floor_bed`, `kitchen_countertop`, `water_slab`, `roof_slab`, `staircase_landing`, `parapet_wall_copping` | `thickness` (overrides `depth`), `floorLabel` (for upper-floor slabs) | concrete volume + slab formwork |\n| **Walls** — `wall`, `shear_wall`, `lift_wall`, `parapet_wall` | `thickness`, `height` (alias for depth), `floorLabel` | concrete volume + wall formwork |\n| **Lift shaft** — `lift_shaft` | `length`, `width`, `height`, `thickness`, `floorLabel: \"LIFT_SHAFT\"` | concrete volume + wall formwork (treated as a vertical enclosure) |\n| **Strip foundation** — `strip_foundation` | base only | concrete volume + beam-style formwork |\n| **Pile** — `pile` | base only (use `diameter` for circular) | concrete volume only |\n| **Excavation (no concrete)** — `excavation_clearing`, `excavation_strip`, `excavation_ground_beam` | base `length`, `width`, `depth`. UI helper inputs (`stripThickness`, `numberOfBranches`, `colBLength`, `colBWidth`, `pitDepth`, `blockworkWidth`, `blockworkHeight`) may be stored for round-tripping but the engine reads only `length`/`width`/`depth` | excavation volume |\n| **DDT / void deductions** — `ddt_pad_pit_in_strip`, `upper_floor_ddt_void`, `ground_floor_bed_void` | base `length`, `width`, `depth` + `floorLabel` (for `upper_floor_ddt_void`). Helper inputs same as excavation family may be saved (`stripThickness`, `numberOfBranches`, `colBLength`, `colBWidth`, `pitDepth`, `blockworkWidth`, `blockworkHeight`, `areaToBeDeducted`) | **negative** concrete volume |\n| **Strip length calculator** — `strip_length_calculator` | helper inputs only — `numberOfBranches`, `lin`, `colBLength`, `colBWidth` (used UI-side to derive `length`); resulting `length`/`width`/`depth` should still be sent | concrete volume + beam formwork |\n| **Filling / floor build-ups** — fields `fillingThickness`, `floorThickness`, `stripThickness` are accepted for substructure rows but ignored by the core calculator | — | — |\n| **Pile counts** — `numberOfPiles` is accepted for pile-related rows | — | — |\n| **Swimming pool / staircases** — `swimming_pool`, `staircase`, `staircase_strings_steps`, `staircase_upper_floors` | base only — fallback rectangular/circular volume | concrete volume + formwork |\n\n> **Note:** All extra fields are persisted as-is on the `TakeoffElement`\n> so the UI can re-hydrate the spreadsheet exactly as the user typed it.\n> The calculation engine, however, only reads the geometric fields\n> documented above for each family. For the **Strip Foundation page →\n> Excavation (Strip) → Ddt Pad_Pit In Strip** sub-tab, the frontend\n> should compute `length`/`width`/`depth` from the visible helper\n> inputs (Strip Thickness, No. of Branches, Col. B Length/Width, Pit\n> Depth, Blockwork Width/Height) before submitting, and may also send\n> the helper inputs themselves so they survive a reload.\n\n### Previous step\n← **Step 1** — Configure QS type (`PATCH /:projectId/qs-config`)\n\n### Next step\n→ **Step 5** — Preview calculation (`POST /:projectId/calculate/preview`)\nor continue adding more element types.\n",
+          "tags": [
+            "Takeoff"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "The project's ObjectId",
+              "example": "665f4a2b8e4d3c001f2a3b4c"
+            },
+            {
+              "in": "path",
+              "name": "elementType",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "column_in_foundation",
+                  "pile_cap",
+                  "ground_beam",
+                  "raft_foundation",
+                  "strip_foundation",
+                  "pile",
+                  "column",
+                  "beam",
+                  "slab",
+                  "staircase",
+                  "staircase_landing",
+                  "staircase_strings_steps",
+                  "staircase_upper_floors",
+                  "wall",
+                  "swimming_pool",
+                  "oversite_slab",
+                  "column_footing",
+                  "pile_cap_frames",
+                  "shear_wall",
+                  "lift_wall",
+                  "lintels",
+                  "roof_column",
+                  "roof_beam",
+                  "kitchen_countertop",
+                  "excavation_clearing",
+                  "excavation_strip",
+                  "ddt_pad_pit_in_strip",
+                  "strip_length_calculator",
+                  "pad_footing",
+                  "ground_floor_bed",
+                  "excavation_ground_beam",
+                  "ground_floor_bed_void",
+                  "water_slab",
+                  "roof_slab",
+                  "upper_floor_ddt_void",
+                  "parapet_wall",
+                  "parapet_wall_copping"
+                ]
+              },
+              "description": "The structural element type for this batch",
+              "example": "column"
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "elements"
+                  ],
+                  "properties": {
+                    "elements": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/TakeoffElementInput"
+                      }
+                    }
+                  }
+                },
+                "examples": {
+                  "column": {
+                    "summary": "elementType=column (rectangular + circular, with reinforcement)",
+                    "value": {
+                      "elements": [
+                        {
+                          "elementId": "C1",
+                          "shape": "rectangular",
+                          "count": 4,
+                          "length": 3,
+                          "width": 0.3,
+                          "depth": 0.3,
+                          "reinforcement": [
+                            {
+                              "barMark": "T1",
+                              "barCount": 4,
+                              "barType": "Y",
+                              "diameter": 16,
+                              "length": 3.5
+                            }
+                          ]
+                        },
+                        {
+                          "elementId": "C2",
+                          "shape": "circular",
+                          "count": 2,
+                          "diameter": 0.45,
+                          "depth": 3
+                        }
+                      ]
+                    }
+                  },
+                  "column_with_reinforcement": {
+                    "summary": "elementType=column — Column › Reinforcement sub-tab (rectangular, 4-box layered)",
+                    "description": "Mirrors the Column page UI: Shape=Rectangular, State=Isolated, Length/Width/Height,\nplus the Reinforcement sub-tab's 4-box cell mapped to `layeredReinforcement[0..3]`\n= Bottom-X / Bottom-Y / Top-X / Top-Y.\n",
+                    "value": {
+                      "elements": [
+                        {
+                          "elementId": "C1",
+                          "shape": "rectangular",
+                          "state": "isolated",
+                          "count": 6,
+                          "length": 0.3,
+                          "width": 0.3,
+                          "height": 3,
+                          "depth": 3,
+                          "floorLabel": "GROUND_FLOOR",
+                          "layeredReinforcement": [
+                            {
+                              "name": "C1",
+                              "centerToCenter": [
+                                150,
+                                150,
+                                200,
+                                200
+                              ],
+                              "sizeDia": [
+                                16,
+                                16,
+                                12,
+                                12
+                              ],
+                              "noThus": [
+                                4,
+                                4,
+                                2,
+                                2
+                              ],
+                              "noInEach": [
+                                6,
+                                6,
+                                4,
+                                4
+                              ],
+                              "cutLength": [
+                                3.2,
+                                3.2,
+                                3,
+                                3
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "column_circular": {
+                    "summary": "elementType=column — Circular column on an upper floor",
+                    "description": "Mirrors the Column page UI when Shape=Circular: only `diameter` and `height`\n(with `floorLabel`) are needed. Use `floorLabel` to disambiguate the same\n`elementId` repeated across floors.\n",
+                    "value": {
+                      "elements": [
+                        {
+                          "elementId": "C3",
+                          "shape": "circular",
+                          "state": "isolated",
+                          "count": 2,
+                          "diameter": 0.45,
+                          "height": 3,
+                          "depth": 3,
+                          "floorLabel": "FLOOR_1"
+                        }
+                      ]
+                    }
+                  },
+                  "ground_beam": {
+                    "summary": "elementType=ground_beam",
+                    "value": {
+                      "elements": [
+                        {
+                          "elementId": "GB1",
+                          "shape": "rectangular",
+                          "count": 2,
+                          "length": 6,
+                          "width": 0.25,
+                          "depth": 0.6,
+                          "reinforcement": [
+                            {
+                              "barMark": "B1",
+                              "barCount": 3,
+                              "barType": "Y",
+                              "diameter": 12,
+                              "length": 6.5
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "beam_with_floor_thickness_and_reinforcement": {
+                    "summary": "elementType=beam — Floor & Beam › Beam tab (with Floor Thickness + 4-box layered)",
+                    "description": "Mirrors the Floor & Beam page › Beam sub-tab: rectangular beam with\nLength/Width/Depth and the **Floor Thickness** column (`floorThickness`).\nReinforcement uses the same 4-box convention as Column/Pad Footing.\n",
+                    "value": {
+                      "elements": [
+                        {
+                          "elementId": "B1",
+                          "shape": "rectangular",
+                          "count": 3,
+                          "length": 6,
+                          "width": 0.25,
+                          "depth": 0.6,
+                          "floorThickness": 0.15,
+                          "floorLabel": "FLOOR_1",
+                          "layeredReinforcement": [
+                            {
+                              "name": "B1",
+                              "centerToCenter": [
+                                150,
+                                150,
+                                200,
+                                200
+                              ],
+                              "sizeDia": [
+                                16,
+                                16,
+                                12,
+                                12
+                              ],
+                              "noThus": [
+                                3,
+                                3,
+                                2,
+                                2
+                              ],
+                              "noInEach": [
+                                4,
+                                4,
+                                3,
+                                3
+                              ],
+                              "cutLength": [
+                                6.5,
+                                6.5,
+                                6.2,
+                                6.2
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "slab_upper_floor": {
+                    "summary": "elementType=slab — Upper Floor sub-tab (uses thickness + floorLabel)",
+                    "description": "Mirrors the Floor & Beam page › Upper Floor sub-tab: a slab on a specific floor.\n`thickness` overrides `depth` for slab families. `floorLabel` is required to\ndistinguish the same slab `elementId` across floors.\n",
+                    "value": {
+                      "elements": [
+                        {
+                          "elementId": "S2",
+                          "shape": "rectangular",
+                          "count": 1,
+                          "length": 12,
+                          "width": 8,
+                          "thickness": 0.2,
+                          "floorLabel": "FLOOR_1"
+                        }
+                      ]
+                    }
+                  },
+                  "lift_shaft": {
+                    "summary": "elementType=lift_shaft (vertical shaft enclosure on LIFT_SHAFT floor)",
+                    "description": "Lift shaft is documented as a vertical enclosure with `length`, `width`,\n`height`, and `thickness`. Use `floorLabel: \"LIFT_SHAFT\"` to attach the row\nto the lift-shaft pseudo-floor returned by `GET /:projectId/floors`.\n",
+                    "value": {
+                      "elements": [
+                        {
+                          "elementId": "LS1",
+                          "shape": "rectangular",
+                          "count": 1,
+                          "length": 2.5,
+                          "width": 2,
+                          "height": 12,
+                          "thickness": 0.225,
+                          "floorLabel": "LIFT_SHAFT"
+                        }
+                      ]
+                    }
+                  },
+                  "slab_or_raft": {
+                    "summary": "elementType=slab / raft_foundation / ground_floor_bed (uses thickness)",
+                    "value": {
+                      "elements": [
+                        {
+                          "elementId": "S1",
+                          "shape": "rectangular",
+                          "count": 1,
+                          "length": 12,
+                          "width": 8,
+                          "thickness": 0.2
+                        }
+                      ]
+                    }
+                  },
+                  "wall": {
+                    "summary": "elementType=wall / shear_wall / lift_wall (uses thickness + height)",
+                    "value": {
+                      "elements": [
+                        {
+                          "elementId": "W1",
+                          "shape": "rectangular",
+                          "count": 1,
+                          "length": 6,
+                          "thickness": 0.225,
+                          "height": 3
+                        }
+                      ]
+                    }
+                  },
+                  "pile": {
+                    "summary": "elementType=pile (circular, no formwork)",
+                    "value": {
+                      "elements": [
+                        {
+                          "elementId": "P1",
+                          "shape": "circular",
+                          "count": 12,
+                          "diameter": 0.6,
+                          "depth": 18,
+                          "numberOfPiles": 12
+                        }
+                      ]
+                    }
+                  },
+                  "strip_foundation": {
+                    "summary": "elementType=strip_foundation (Reinforced Strip Foundation tab)",
+                    "value": {
+                      "elements": [
+                        {
+                          "elementId": "SF1",
+                          "shape": "rectangular",
+                          "count": 1,
+                          "length": 18.05,
+                          "width": 0.6,
+                          "depth": 0.45,
+                          "state": "continuous",
+                          "stripThickness": 0.225,
+                          "reinforcement": [
+                            {
+                              "barMark": "T1",
+                              "barCount": 4,
+                              "barType": "Y",
+                              "diameter": 12,
+                              "length": 18.5
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "excavation_clearing": {
+                    "summary": "elementType=excavation_clearing (Clearing & Topsoil Excavation tab)",
+                    "value": {
+                      "elements": [
+                        {
+                          "elementId": "CL1",
+                          "areaReference": "Site A",
+                          "shape": "rectangular",
+                          "count": 1,
+                          "length": 25,
+                          "width": 18,
+                          "depth": 0.15
+                        },
+                        {
+                          "elementId": "CL2",
+                          "areaReference": "Site B",
+                          "shape": "rectangular",
+                          "count": 1,
+                          "length": 12,
+                          "width": 8,
+                          "depth": 0.15
+                        }
+                      ]
+                    }
+                  },
+                  "excavation_strip": {
+                    "summary": "elementType=excavation_strip — Strip sub-tab",
+                    "value": {
+                      "elements": [
+                        {
+                          "elementId": "ES1",
+                          "shape": "rectangular",
+                          "count": 1,
+                          "length": 18.05,
+                          "width": 0.6,
+                          "depth": 0.9,
+                          "stripThickness": 0.225,
+                          "numberOfBranches": 7
+                        }
+                      ]
+                    }
+                  },
+                  "ddt_pad_pit_in_strip": {
+                    "summary": "elementType=ddt_pad_pit_in_strip — Ddt Pad_Pit In Strip sub-tab (deduction)",
+                    "description": "Helper inputs visible in the UI (Strip Thickness, No. of Branches,\nCol. B Length/Width, Pit Depth, Blockwork Width/Height) are stored\nalongside the geometric fields. The frontend should still compute\nthe resulting `length`, `width`, `depth` for the engine.\n",
+                    "value": {
+                      "elements": [
+                        {
+                          "elementId": "ES1",
+                          "shape": "rectangular",
+                          "count": 1,
+                          "length": 3.935,
+                          "width": 0.28,
+                          "depth": 3.935,
+                          "stripThickness": 1,
+                          "numberOfBranches": 18.05,
+                          "colBLength": 0.28,
+                          "colBWidth": 3.935,
+                          "pitDepth": 3.935,
+                          "blockworkWidth": 3.935,
+                          "blockworkHeight": 3.935
+                        }
+                      ]
+                    }
+                  },
+                  "strip_length_calculator": {
+                    "summary": "elementType=strip_length_calculator — Strip Length Calculator sub-tab",
+                    "value": {
+                      "elements": [
+                        {
+                          "elementId": "SL1",
+                          "shape": "rectangular",
+                          "count": 1,
+                          "length": 18.05,
+                          "width": 0.6,
+                          "depth": 0.45,
+                          "numberOfBranches": 7,
+                          "lin": 18.05,
+                          "colBLength": 0.28,
+                          "colBWidth": 0.28
+                        }
+                      ]
+                    }
+                  },
+                  "pad_footing": {
+                    "summary": "elementType=pad_footing — Pad Footing › Reinforcement tab (layered bar schedule)",
+                    "description": "### Pad Footing › Reinforcement grid → API mapping\nEach row in the UI grid (PD1, PD2, PD3 …) becomes **one element** with **one `layeredReinforcement` entry**.\nEvery cell in that row holds **4 small input boxes** that map 1-to-1 with the 4 bar groups of the cage\n(Bottom-X, Bottom-Y, Top-X, Top-Y).\n\n| UI column header   | API field          | Unit | Notes                                |\n|--------------------|--------------------|------|--------------------------------------|\n| **ID**             | `name` (and `elementId`) | —    | e.g. `PD1`                          |\n| **Center to Center** | `centerToCenter` | mm   | Bar spacing per group                |\n| **Size-Dia (mm)**  | `sizeDia`          | mm   | Bar diameter per group               |\n| **No Thus**        | `noThus`           | —    | Number of bar sets / layers          |\n| **No in Each**     | `noInEach`         | —    | Bars per set                         |\n| **Cut Length (mm)**| `cutLength`        | m    | Cut length per bar group (metres)    |\n\nAll five arrays MUST be the **same length** and indices MUST align — i.e. position `[i]` across every array\ndescribes the **same** bar group. The 4 boxes shown in the UI correspond to indices `[0]…[3]`\n(Bottom-X, Bottom-Y, Top-X, Top-Y). Send `0` for empty boxes; do **not** drop or shorten arrays.\n",
+                    "value": {
+                      "elements": [
+                        {
+                          "elementId": "PD1",
+                          "shape": "rectangular",
+                          "count": 6,
+                          "length": 1.2,
+                          "width": 1.2,
+                          "depth": 0.45,
+                          "layeredReinforcement": [
+                            {
+                              "name": "PD1",
+                              "centerToCenter": [
+                                125,
+                                120,
+                                127,
+                                120
+                              ],
+                              "sizeDia": [
+                                12,
+                                12,
+                                16,
+                                16
+                              ],
+                              "noThus": [
+                                4,
+                                4,
+                                2,
+                                2
+                              ],
+                              "noInEach": [
+                                6,
+                                6,
+                                5,
+                                5
+                              ],
+                              "cutLength": [
+                                3.5,
+                                3.5,
+                                3.2,
+                                3.2
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "elementId": "PD2",
+                          "shape": "rectangular",
+                          "count": 4,
+                          "length": 1.5,
+                          "width": 1.5,
+                          "depth": 0.5,
+                          "layeredReinforcement": [
+                            {
+                              "name": "PD2",
+                              "centerToCenter": [
+                                150,
+                                150,
+                                200,
+                                200
+                              ],
+                              "sizeDia": [
+                                16,
+                                16,
+                                12,
+                                12
+                              ],
+                              "noThus": [
+                                3,
+                                3,
+                                2,
+                                2
+                              ],
+                              "noInEach": [
+                                5,
+                                5,
+                                4,
+                                4
+                              ],
+                              "cutLength": [
+                                4,
+                                4,
+                                3.8,
+                                3.8
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "elementId": "PF1",
+                          "shape": "rectangular",
+                          "count": 6,
+                          "length": 1.2,
+                          "width": 1.2,
+                          "depth": 0.45,
+                          "reinforcement": [
+                            {
+                              "barMark": "T1",
+                              "barCount": 8,
+                              "barType": "Y",
+                              "diameter": 16,
+                              "length": 1.5
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "ground_floor_bed": {
+                    "summary": "elementType=ground_floor_bed — Ground Floor Bed tab",
+                    "value": {
+                      "elements": [
+                        {
+                          "elementId": "GFB1",
+                          "shape": "rectangular",
+                          "count": 1,
+                          "length": 12,
+                          "width": 8,
+                          "thickness": 0.15,
+                          "fillingThickness": 0.3,
+                          "floorThickness": 0.15
+                        }
+                      ]
+                    }
+                  },
+                  "ground_floor_bed_void": {
+                    "summary": "elementType=ground_floor_bed_void — void deduction inside ground floor bed",
+                    "value": {
+                      "elements": [
+                        {
+                          "elementId": "GFV1",
+                          "shape": "rectangular",
+                          "count": 1,
+                          "length": 2,
+                          "width": 1.5,
+                          "depth": 0.15,
+                          "areaToBeDeducted": 3
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Elements upserted — returns counts of new vs. modified",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean"
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "data": {
+                        "type": "object",
+                        "properties": {
+                          "upsertedCount": {
+                            "type": "integer",
+                            "description": "Number of newly inserted elements"
+                          },
+                          "modifiedCount": {
+                            "type": "integer",
+                            "description": "Number of existing elements that were updated"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "example": {
+                    "success": true,
+                    "message": "Takeoff elements upserted successfully",
+                    "data": {
+                      "upsertedCount": 1,
+                      "modifiedCount": 1
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation error — missing required dimensions for shape, invalid elementId, etc.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Validation failed: length, width are required for rectangular shape"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Missing or expired JWT token"
+            },
+            "403": {
+              "description": "Project is archived — no mutations allowed"
+            },
+            "404": {
+              "description": "Project not found or not owned by the user"
+            }
+          }
+        },
+        "get": {
+          "summary": "Step 3 — List saved takeoff elements by type",
+          "description": "**Load saved spreadsheet data for one element type tab.**\n\nReturns all saved takeoff elements of the specified type for the given project,\nsorted by `elementType` and `elementId`. Use this to populate the spreadsheet\nwhen the user opens a tab (e.g. \"Columns\", \"Beams\").\n\n### What happens\n1. Queries all `TakeoffElement` documents matching `projectId` + `elementType`.\n2. Returns them sorted — ready for direct spreadsheet rendering.\n\n### Usage pattern\n- Call on page load / tab switch to hydrate the spreadsheet.\n- If the result is an empty array, the user hasn't added any elements of this type yet.\n\n### Related steps\n- **Step 2** — Bulk upsert (`PUT`) to save changes\n- **Step 4** — Delete (`DELETE`) to remove a single row\n",
+          "tags": [
+            "Takeoff"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "The project's ObjectId",
+              "example": "665f4a2b8e4d3c001f2a3b4c"
+            },
+            {
+              "in": "path",
+              "name": "elementType",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "column_in_foundation",
+                  "pile_cap",
+                  "ground_beam",
+                  "raft_foundation",
+                  "strip_foundation",
+                  "pile",
+                  "column",
+                  "beam",
+                  "slab",
+                  "staircase",
+                  "staircase_landing",
+                  "staircase_strings_steps",
+                  "staircase_upper_floors",
+                  "wall",
+                  "swimming_pool",
+                  "oversite_slab",
+                  "column_footing",
+                  "pile_cap_frames",
+                  "shear_wall",
+                  "lift_wall",
+                  "lintels",
+                  "roof_column",
+                  "roof_beam",
+                  "kitchen_countertop",
+                  "excavation_clearing",
+                  "excavation_strip",
+                  "ddt_pad_pit_in_strip",
+                  "strip_length_calculator",
+                  "pad_footing",
+                  "ground_floor_bed",
+                  "excavation_ground_beam",
+                  "ground_floor_bed_void",
+                  "water_slab",
+                  "roof_slab",
+                  "upper_floor_ddt_void",
+                  "parapet_wall",
+                  "parapet_wall_copping"
+                ]
+              },
+              "description": "The structural element type to retrieve",
+              "example": "column"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Elements retrieved — array may be empty if none exist yet",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean"
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "data": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/components/schemas/TakeoffElement"
+                        }
+                      }
+                    }
+                  },
+                  "example": {
+                    "success": true,
+                    "message": "Takeoff elements fetched successfully",
+                    "data": [
+                      {
+                        "_id": "665f4a2b8e4d3c001f2a3b4c",
+                        "projectId": "665f4a2b8e4d3c001f2a3b4d",
+                        "elementType": "column",
+                        "elementCategory": "superstructure",
+                        "elementId": "C1",
+                        "shape": "rectangular",
+                        "count": 4,
+                        "length": 3,
+                        "width": 0.3,
+                        "depth": 0.3,
+                        "reinforcement": [
+                          {
+                            "barMark": "T1",
+                            "barCount": 4,
+                            "barType": "Y",
+                            "diameter": 16,
+                            "length": 3.5
+                          }
+                        ],
+                        "createdBy": "665f4a2b8e4d3c001f2a0001",
+                        "createdAt": "2025-06-01T12:00:00.000Z",
+                        "updatedAt": "2025-06-01T12:00:00.000Z"
+                      },
+                      {
+                        "_id": "665f4a2b8e4d3c001f2a3b4e",
+                        "projectId": "665f4a2b8e4d3c001f2a3b4d",
+                        "elementType": "column",
+                        "elementCategory": "superstructure",
+                        "elementId": "C2",
+                        "shape": "circular",
+                        "count": 2,
+                        "diameter": 0.45,
+                        "depth": 3,
+                        "reinforcement": [],
+                        "createdBy": "665f4a2b8e4d3c001f2a0001",
+                        "createdAt": "2025-06-01T12:00:00.000Z",
+                        "updatedAt": "2025-06-01T12:00:00.000Z"
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Missing or expired JWT token"
+            },
+            "404": {
+              "description": "Project not found or not owned by the user"
+            }
+          }
+        }
+      },
+      "/takeoff/{projectId}/elements/{elementType}/{elementId}": {
+        "delete": {
+          "summary": "Step 4 — Delete a single takeoff element",
+          "description": "**Remove one row from the spreadsheet.**\n\nDeletes a specific takeoff element identified by the compound key\n`(projectId + elementType + elementId)`. Use when the user deletes a row\nfrom the spreadsheet-style takeoff view.\n\n### What happens\n1. Finds the document by `projectId`, `elementType`, and `elementId`.\n2. Removes it from the database.\n3. Returns `null` in `data` on success.\n\n### Usage pattern\n- Wire to the row \"delete\" button in the spreadsheet UI.\n- After deletion, re-trigger **Step 5** (preview) if live preview is active.\n\n### Related steps\n- **Step 2** — Bulk upsert to save changes\n- **Step 5** — Preview to refresh calculations after deletion\n",
+          "tags": [
+            "Takeoff"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "The project's ObjectId",
+              "example": "665f4a2b8e4d3c001f2a3b4c"
+            },
+            {
+              "in": "path",
+              "name": "elementType",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "column_in_foundation",
+                  "pile_cap",
+                  "ground_beam",
+                  "raft_foundation",
+                  "strip_foundation",
+                  "pile",
+                  "column",
+                  "beam",
+                  "slab",
+                  "staircase",
+                  "staircase_landing",
+                  "staircase_strings_steps",
+                  "staircase_upper_floors",
+                  "wall",
+                  "swimming_pool",
+                  "oversite_slab",
+                  "column_footing",
+                  "pile_cap_frames",
+                  "shear_wall",
+                  "lift_wall",
+                  "lintels",
+                  "roof_column",
+                  "roof_beam",
+                  "kitchen_countertop",
+                  "excavation_clearing",
+                  "excavation_strip",
+                  "ddt_pad_pit_in_strip",
+                  "strip_length_calculator",
+                  "pad_footing",
+                  "ground_floor_bed",
+                  "excavation_ground_beam",
+                  "ground_floor_bed_void",
+                  "water_slab",
+                  "roof_slab",
+                  "upper_floor_ddt_void",
+                  "parapet_wall",
+                  "parapet_wall_copping"
+                ]
+              },
+              "description": "The structural element type",
+              "example": "column"
+            },
+            {
+              "in": "path",
+              "name": "elementId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "The user-defined element identifier (e.g. C1, GB2, S1)",
+              "example": "C1"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Element deleted — `data` is null",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean"
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "data": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "example": {
+                    "success": true,
+                    "message": "Takeoff element deleted successfully",
+                    "data": null
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Missing or expired JWT token"
+            },
+            "403": {
+              "description": "Project is archived — no mutations allowed"
+            },
+            "404": {
+              "description": "Project or element not found"
+            }
+          }
+        }
+      },
+      "/takeoff/{projectId}/calculate/preview": {
+        "post": {
+          "summary": "Step 5 — Preview calculation results (stateless)",
+          "description": "**Show live calculation totals as the user edits the spreadsheet.**\n\nPerforms a **stateless** calculation on the provided elements without\npersisting any results. The payload is self-contained — you do NOT need\nto save elements first. Returns concrete volume, formwork area, and\nrebar weight per element plus grand totals.\n\n### What happens\n1. Receives the elements array from the request body.\n2. Runs the full calculation engine (concrete, formwork, rebar) for\n   every element in the array.\n3. Aggregates per-element results into a summary with grand totals.\n4. Returns the summary — **nothing is persisted**.\n\n### Usage pattern\n- **Debounced live preview**: Call this 300-500 ms after the user stops\n  editing a cell. Send the *entire* elements array currently on screen.\n- Works with unsaved data — no prerequisite API call needed.\n- Re-call after **Step 4** (delete) to refresh totals.\n\n### Previous step\n- **Step 4** — Delete element (if applicable)\n\n### Next step\n- **Step 6** — Commit calculation (user clicks \"Generate BOQ\")\n",
+          "tags": [
+            "Takeoff"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "The project's ObjectId (used for validation only)",
+              "example": "665f4a2b8e4d3c001f2a3b4c"
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "elements"
+                  ],
+                  "properties": {
+                    "elements": {
+                      "type": "array",
+                      "description": "The full list of elements currently visible in the spreadsheet",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "elementId",
+                          "elementType",
+                          "elementCategory",
+                          "shape"
+                        ],
+                        "properties": {
+                          "elementId": {
+                            "type": "string",
+                            "description": "User-defined element label e.g. C1, GB2",
+                            "example": "C1"
+                          },
+                          "elementType": {
+                            "type": "string",
+                            "enum": [
+                              "column_in_foundation",
+                              "pile_cap",
+                              "ground_beam",
+                              "raft_foundation",
+                              "strip_foundation",
+                              "pile",
+                              "column",
+                              "beam",
+                              "slab",
+                              "staircase",
+                              "staircase_landing",
+                              "staircase_strings_steps",
+                              "staircase_upper_floors",
+                              "wall",
+                              "swimming_pool",
+                              "oversite_slab",
+                              "column_footing",
+                              "pile_cap_frames",
+                              "shear_wall",
+                              "lift_wall",
+                              "lintels",
+                              "roof_column",
+                              "roof_beam",
+                              "kitchen_countertop",
+                              "excavation_clearing",
+                              "excavation_strip",
+                              "ddt_pad_pit_in_strip",
+                              "strip_length_calculator",
+                              "pad_footing",
+                              "ground_floor_bed",
+                              "excavation_ground_beam",
+                              "ground_floor_bed_void",
+                              "water_slab",
+                              "roof_slab",
+                              "upper_floor_ddt_void",
+                              "parapet_wall",
+                              "parapet_wall_copping"
+                            ]
+                          },
+                          "elementCategory": {
+                            "type": "string",
+                            "enum": [
+                              "substructure",
+                              "superstructure",
+                              "finishing",
+                              "external"
+                            ]
+                          },
+                          "shape": {
+                            "type": "string",
+                            "enum": [
+                              "rectangular",
+                              "circular"
+                            ]
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "isolated",
+                              "continuous"
+                            ],
+                            "description": "Only relevant for foundations (isolated pad, continuous strip, etc.)"
+                          },
+                          "count": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "default": 1,
+                            "description": "Number of identical elements"
+                          },
+                          "length": {
+                            "type": "number",
+                            "description": "Length in metres (required for rectangular shapes)"
+                          },
+                          "width": {
+                            "type": "number",
+                            "description": "Width in metres (required for rectangular shapes)"
+                          },
+                          "depth": {
+                            "type": "number",
+                            "description": "Depth / height in metres"
+                          },
+                          "diameter": {
+                            "type": "number",
+                            "description": "Diameter in metres (required for circular shapes)"
+                          },
+                          "reinforcement": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/TakeoffReinforcement"
+                            }
+                          },
+                          "layeredReinforcement": {
+                            "type": "array",
+                            "description": "Layered reinforcement entries",
+                            "items": {
+                              "$ref": "#/components/schemas/TakeoffLayeredReinforcement"
+                            }
+                          },
+                          "areaReference": {
+                            "type": "string"
+                          },
+                          "thickness": {
+                            "type": "number"
+                          },
+                          "fillingThickness": {
+                            "type": "number"
+                          },
+                          "floorThickness": {
+                            "type": "number"
+                          },
+                          "stripThickness": {
+                            "type": "number"
+                          },
+                          "numberOfBranches": {
+                            "type": "integer"
+                          },
+                          "colBLength": {
+                            "type": "number"
+                          },
+                          "colBWidth": {
+                            "type": "number"
+                          },
+                          "pitDepth": {
+                            "type": "number"
+                          },
+                          "numberOfPiles": {
+                            "type": "integer"
+                          },
+                          "areaToBeDeducted": {
+                            "type": "number"
+                          },
+                          "blockworkWidth": {
+                            "type": "number"
+                          },
+                          "blockworkHeight": {
+                            "type": "number"
+                          },
+                          "nr": {
+                            "type": "number"
+                          },
+                          "lin": {
+                            "type": "number"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "elements": [
+                    {
+                      "elementId": "C1",
+                      "elementType": "column",
+                      "elementCategory": "superstructure",
+                      "shape": "rectangular",
+                      "count": 4,
+                      "length": 3,
+                      "width": 0.3,
+                      "depth": 0.3,
+                      "reinforcement": [
+                        {
+                          "barMark": "T1",
+                          "barCount": 4,
+                          "barType": "Y",
+                          "diameter": 16,
+                          "length": 3.5
+                        }
+                      ]
+                    },
+                    {
+                      "elementId": "GB1",
+                      "elementType": "ground_beam",
+                      "elementCategory": "substructure",
+                      "shape": "rectangular",
+                      "count": 2,
+                      "length": 6,
+                      "width": 0.25,
+                      "depth": 0.6,
+                      "reinforcement": [
+                        {
+                          "barMark": "B1",
+                          "barCount": 3,
+                          "barType": "Y",
+                          "diameter": 12,
+                          "length": 6.5
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Preview calculation result. `data` contains a `CalculationSummary`\nwith grand totals and a per-element breakdown.\n",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean"
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "data": {
+                        "$ref": "#/components/schemas/CalculationSummary"
+                      }
+                    }
+                  },
+                  "example": {
+                    "success": true,
+                    "message": "Takeoff preview calculated successfully",
+                    "data": {
+                      "totalConcreteVolume": 2.88,
+                      "totalFormworkArea": 18.72,
+                      "totalRebarWeight": 27.65,
+                      "totalRebarWeightTonnes": 0.028,
+                      "elements": [
+                        {
+                          "elementId": "C1",
+                          "elementType": "column",
+                          "elementCategory": "superstructure",
+                          "concreteVolume": 1.08,
+                          "formworkArea": 7.2,
+                          "rebarWeight": 8.68
+                        },
+                        {
+                          "elementId": "GB1",
+                          "elementType": "ground_beam",
+                          "elementCategory": "substructure",
+                          "concreteVolume": 1.8,
+                          "formworkArea": 11.52,
+                          "rebarWeight": 18.97
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation error — e.g. missing required fields, invalid enum, circular shape without diameter"
+            },
+            "401": {
+              "description": "Missing or expired JWT token"
+            },
+            "404": {
+              "description": "Project not found"
+            }
+          }
+        }
+      },
+      "/takeoff/{projectId}/calculate/commit": {
+        "post": {
+          "summary": "Step 6 — Commit calculation and generate BOQ",
+          "description": "**The \"Generate BOQ\" button — final step of the manual takeoff flow.**\n\nFetches **all saved** takeoff elements for the project, runs the full\ncalculation engine, converts results into a structured BOQ (Bill of\nQuantities) grouped by `elementCategory`, and persists it as the\nproject's `boqResult`. This is the terminal action.\n\n### What happens\n1. Loads every saved `TakeoffElement` for this project from the DB.\n2. Runs the calculation engine (concrete, formwork, rebar) on each.\n3. Groups the per-element results into BOQ sections by\n   `elementCategory` (e.g. Substructure, Superstructure).\n4. **Enriches BOQ rows with library pricing** — if the project has\n   linked library items, each row is matched by description + unit\n   and gets a `rate`, computed `amount` (quantity × rate), and a\n   `librarySnapshot` with the matched item's details.\n5. Persists the enriched BOQ as `project.boqResult`.\n6. Returns both the persisted `boqResult` and the raw\n   `CalculationSummary` for display.\n\n### Prerequisites\n- The project must have **at least one saved takeoff element** (via\n  **Step 2** — Bulk Upsert).\n- Ensure elements are up-to-date — unsaved spreadsheet edits will NOT\n  be included. Save first, then commit.\n- For pricing, link **library items** to the project beforehand.\n  Rows whose description + unit match a library item will receive\n  the item's `finalRate`. Unmatched rows keep `rate: 0`.\n\n### Usage pattern\n- Wire to the \"Generate BOQ\" / \"Commit\" button.\n- After commit, redirect the user to the BOQ viewer page.\n\n### Previous step\n- **Step 5** — Preview calculation (optional live feedback)\n",
+          "tags": [
+            "Takeoff"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "The project's ObjectId",
+              "example": "665f4a2b8e4d3c001f2a3b4c"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Calculation committed and BOQ saved. `data` contains:\n- `boqResult` — the persisted BOQ with sections grouped by category\n- `summary` — the raw calculation totals and per-element breakdown\n",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean"
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "data": {
+                        "type": "object",
+                        "properties": {
+                          "boqResult": {
+                            "$ref": "#/components/schemas/BoqResult"
+                          },
+                          "summary": {
+                            "$ref": "#/components/schemas/CalculationSummary"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "example": {
+                    "success": true,
+                    "message": "Takeoff calculation committed successfully",
+                    "data": {
+                      "boqResult": {
+                        "projectType": "residential_building",
+                        "sections": [
+                          {
+                            "title": "Substructure",
+                            "items": [
+                              {
+                                "description": "Ground Beam — GB1 (rectangular, 6.0×0.25×0.6)",
+                                "unit": "m³",
+                                "quantity": 1.8,
+                                "rate": 45000,
+                                "amount": 81000,
+                                "librarySnapshot": {
+                                  "libraryItemId": "665f4a2b8e4d3c001f2a0001",
+                                  "description": "Concrete",
+                                  "unit": "m³",
+                                  "finalRate": 45000
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "title": "Superstructure",
+                            "items": [
+                              {
+                                "description": "Column — C1 (rectangular, 3.0×0.3×0.3)",
+                                "unit": "m³",
+                                "quantity": 1.08,
+                                "rate": 45000,
+                                "amount": 48600,
+                                "librarySnapshot": {
+                                  "libraryItemId": "665f4a2b8e4d3c001f2a0001",
+                                  "description": "Concrete",
+                                  "unit": "m³",
+                                  "finalRate": 45000
+                                }
+                              }
+                            ]
+                          }
+                        ],
+                        "metadata": {
+                          "createdAt": "2025-01-15T10:30:00.000Z",
+                          "source": "manual_takeoff"
+                        }
+                      },
+                      "summary": {
+                        "totalConcreteVolume": 2.88,
+                        "totalFormworkArea": 18.72,
+                        "totalRebarWeight": 27.65,
+                        "totalRebarWeightTonnes": 0.028,
+                        "elements": [
+                          {
+                            "elementId": "C1",
+                            "elementType": "column",
+                            "elementCategory": "superstructure",
+                            "concreteVolume": 1.08,
+                            "formworkArea": 7.2,
+                            "rebarWeight": 8.68
+                          },
+                          {
+                            "elementId": "GB1",
+                            "elementType": "ground_beam",
+                            "elementCategory": "substructure",
+                            "concreteVolume": 1.8,
+                            "formworkArea": 11.52,
+                            "rebarWeight": 18.97
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Missing or expired JWT token"
+            },
+            "403": {
+              "description": "Project is archived — no mutations allowed"
+            },
+            "404": {
+              "description": "Project not found or no takeoff elements exist"
+            }
+          }
+        }
+      },
+      "/api/v1/takeoff/{projectId}/bending-summary/manual": {
+        "get": {
+          "summary": "Get the manually entered bending schedule summary",
+          "description": "Returns the user-entered bending schedule summary stored on the project.\nThis is independent of the computed `bendingSummary` produced by the\ntakeoff calculation pipeline (`/calculate/preview`, `/calculate/commit`).\n",
+          "tags": [
+            "Takeoff"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Manual bending schedule summary (or null if not set)",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "data": {
+                        "$ref": "#/components/schemas/BendingScheduleManualResponse"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Missing or expired JWT token"
+            },
+            "404": {
+              "description": "Project not found"
+            }
+          }
+        },
+        "put": {
+          "summary": "Create or replace the manual bending schedule summary",
+          "description": "Replaces the manually entered bending schedule summary with the supplied rows.\nEach row represents a bar size (e.g. Y8, Y10) and its total weight in kilograms.\nDoes NOT affect the computed `bendingSummary` returned by takeoff calculation endpoints.\n",
+          "tags": [
+            "Takeoff"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BendingScheduleManualInput"
+                },
+                "examples": {
+                  "default": {
+                    "value": {
+                      "rows": [
+                        {
+                          "barSize": "Y8",
+                          "weightKg": 150
+                        },
+                        {
+                          "barSize": "Y10",
+                          "weightKg": 240
+                        },
+                        {
+                          "barSize": "Y12",
+                          "weightKg": 320
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Saved manual bending schedule summary",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "data": {
+                        "$ref": "#/components/schemas/BendingScheduleManualResponse"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation error"
+            },
+            "401": {
+              "description": "Missing or expired JWT token"
+            },
+            "403": {
+              "description": "Project is archived — no mutations allowed"
+            },
+            "404": {
+              "description": "Project not found"
+            }
+          }
+        },
+        "delete": {
+          "summary": "Clear the manual bending schedule summary",
+          "tags": [
+            "Takeoff"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Manual bending schedule cleared"
+            },
+            "401": {
+              "description": "Missing or expired JWT token"
+            },
+            "403": {
+              "description": "Project is archived — no mutations allowed"
+            },
+            "404": {
+              "description": "Project not found"
+            }
+          }
+        }
+      },
+      "/api/v1/takeoff/{projectId}/floors": {
+        "get": {
+          "summary": "List logical floor labels for the project",
+          "description": "Derives the canonical list of floor labels for a project from its QS\nconfiguration. Use this endpoint to populate the **floor selector** in\nthe takeoff workspace UI before the user starts adding elements.\n\n**Flow / steps**\n1. Server loads the project and verifies the caller has access.\n2. Always emits `GROUND_FLOOR`, then `FLOOR_1..FLOOR_N` based on\n   `project.numberOfFloors`, then `ROOF`.\n3. Appends `LIFT_SHAFT` when `project.liftOption` is set (≠ `none`).\n4. Appends `EXTERNAL` when the project has a swimming pool whose\n   location includes `EXTERNAL`.\n\nThe values returned here are the same labels the client should send\nas `floorLabel` on takeoff elements (the unique key includes\n`floorLabel`, so the same `elementId` may exist on multiple floors).\n",
+          "tags": [
+            "Takeoff"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "example": "65f1a2b3c4d5e6f7a8b9c0d1"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Floor labels returned",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "Takeoff floors fetched"
+                      },
+                      "data": {
+                        "type": "object",
+                        "properties": {
+                          "floors": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "example": [
+                              "GROUND_FLOOR",
+                              "FLOOR_1",
+                              "FLOOR_2",
+                              "ROOF",
+                              "LIFT_SHAFT"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Missing or expired JWT token"
+            },
+            "404": {
+              "description": "Project not found"
+            }
+          }
+        }
+      },
+      "/api/v1/takeoff/{projectId}/workspace": {
+        "put": {
+          "summary": "Bulk save the takeoff workspace (multi-element-type upsert)",
+          "description": "Saves the entire takeoff workspace in a single request: a list of\nelement-type *groups*, each with its own array of elements. Designed\nfor **autosave** flows where the client owns the canonical workspace\nstate and pushes the full snapshot.\n\n**Flow / steps**\n1. Server validates the payload (1–50 groups; each group 1–500 elements).\n2. For every group, it delegates to the standard `bulkUpsertElements`\n   path, so all existing `qsProjectType` and structural-scope\n   constraints (e.g., disallowed element types per project type) are\n   enforced unchanged.\n3. Upserts use the compound key\n   `{ projectId, elementType, elementId, floorLabel }` — meaning the\n   same `elementId` can legally repeat across floors.\n4. Returns aggregated counters across all groups.\n\n**Idempotency / overwrite semantics**\nThis endpoint *upserts*; it does not delete elements that are absent\nfrom the payload. To remove an element, call the dedicated DELETE\nendpoint or DELETE-by-type endpoint.\n",
+          "tags": [
+            "Takeoff"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "example": "65f1a2b3c4d5e6f7a8b9c0d1"
+              }
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "groups"
+                  ],
+                  "properties": {
+                    "groups": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 50,
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "elementType",
+                          "elements"
+                        ],
+                        "properties": {
+                          "elementType": {
+                            "type": "string",
+                            "description": "One of the supported takeoff element types",
+                            "example": "column"
+                          },
+                          "elements": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 500,
+                            "items": {
+                              "type": "object",
+                              "description": "Element body (shape depends on elementType)"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "groups": [
+                    {
+                      "elementType": "column",
+                      "elements": [
+                        {
+                          "elementId": "C1",
+                          "floorLabel": "GROUND_FLOOR",
+                          "count": 4,
+                          "length": 0.45,
+                          "width": 0.45,
+                          "height": 3
+                        },
+                        {
+                          "elementId": "C1",
+                          "floorLabel": "FLOOR_1",
+                          "count": 4,
+                          "length": 0.45,
+                          "width": 0.45,
+                          "height": 3
+                        }
+                      ]
+                    },
+                    {
+                      "elementType": "lift_shaft",
+                      "elements": [
+                        {
+                          "elementId": "LS1",
+                          "floorLabel": "LIFT_SHAFT",
+                          "count": 1,
+                          "length": 2.4,
+                          "width": 2,
+                          "height": 12,
+                          "wallThickness": 0.2
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Workspace saved",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "Takeoff workspace saved"
+                      },
+                      "data": {
+                        "type": "object",
+                        "properties": {
+                          "groupCount": {
+                            "type": "integer",
+                            "example": 2
+                          },
+                          "upsertedCount": {
+                            "type": "integer",
+                            "example": 3
+                          },
+                          "modifiedCount": {
+                            "type": "integer",
+                            "example": 0
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation error"
+            },
+            "401": {
+              "description": "Missing or expired JWT token"
+            },
+            "403": {
+              "description": "Project is archived — no mutations allowed"
+            },
+            "404": {
+              "description": "Project not found"
+            }
+          }
+        }
+      },
+      "/api/v1/takeoff/{projectId}/material-schedule": {
+        "get": {
+          "summary": "Aggregated material schedule across all takeoff elements",
+          "description": "Returns a project-wide rollup of every takeoff element grouped by\n`elementType`. Intended for a high-level \"what has been taken off so\nfar\" panel — not a fully-priced BOQ (use the BOQ endpoints for that).\n\n**Flow / steps**\n1. Server verifies project access.\n2. Loads every takeoff element saved for the project.\n3. Buckets them by `elementType`, summing `count` (default `1` when\n   missing) and collecting the distinct `floorLabel` values seen.\n4. Returns the buckets sorted alphabetically by `elementType`.\n",
+          "tags": [
+            "Takeoff"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": {
+                "type": "string",
+                "example": "65f1a2b3c4d5e6f7a8b9c0d1"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Material schedule returned",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "Takeoff material schedule fetched"
+                      },
+                      "data": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "elementType": {
+                              "type": "string",
+                              "example": "column"
+                            },
+                            "elementCategory": {
+                              "type": "string",
+                              "example": "carcass"
+                            },
+                            "totalCount": {
+                              "type": "integer",
+                              "example": 8
+                            },
+                            "floors": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              },
+                              "example": [
+                                "FLOOR_1",
+                                "GROUND_FLOOR"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "example": {
+                    "success": true,
+                    "message": "Takeoff material schedule fetched",
+                    "data": [
+                      {
+                        "elementType": "column",
+                        "elementCategory": "carcass",
+                        "totalCount": 8,
+                        "floors": [
+                          "FLOOR_1",
+                          "GROUND_FLOOR"
+                        ]
+                      },
+                      {
+                        "elementType": "lift_shaft",
+                        "elementCategory": "carcass",
+                        "totalCount": 1,
+                        "floors": [
+                          "LIFT_SHAFT"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Missing or expired JWT token"
+            },
+            "404": {
+              "description": "Project not found"
+            }
+          }
+        }
+      },
+      "/takeoff/meta": {
+        "get": {
+          "summary": "Get all system takeoff and measurement enums",
+          "description": "Exposes static code-defined configuration enums and constraints (shapes, tools, elements, etc.)\ndynamically so the frontend can populate dropdown selections without hardcoding lists.\n",
+          "tags": [
+            "Takeoff"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "System metadata constants fetched successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Takeoff metadata fetched successfully.",
+                    "data": {
+                      "elementShapes": [
+                        "rectangular",
+                        "circular"
+                      ],
+                      "elementTypes": [
+                        "column_in_foundation",
+                        "pile_cap",
+                        "ground_beam"
+                      ],
+                      "measurementTools": [
+                        "count",
+                        "length",
+                        "area",
+                        "polyline",
+                        "rectangle",
+                        "circle",
+                        "bending",
+                        "freehand"
+                      ],
+                      "qsProjectTypes": [
+                        "piling_alone",
+                        "piling_and_substructure"
+                      ],
+                      "foundationTypes": [
+                        "pile",
+                        "raft",
+                        "strip",
+                        "raft_pile_with_basement"
+                      ],
+                      "concreteGrades": [
+                        "grade_15",
+                        "grade_20",
+                        "grade_25",
+                        "grade_30"
+                      ],
+                      "castingMethods": [
+                        "rmc",
+                        "rmc_with_pump",
+                        "traditional"
+                      ],
+                      "formworkTypes": [
+                        "block",
+                        "timber",
+                        "rock"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Missing or expired JWT token"
+            }
+          }
+        }
+      },
+      "/templates": {
+        "get": {
+          "summary": "List BOQ templates",
+          "description": "Returns a paginated list of templates.\n- `type=system` → returns curated system templates visible to all users.\n- `type=organization` → returns company-scoped templates within a validated company context.\n- No `type` filter returns system templates plus organization templates for the caller's validated company scope.\n- Team members who are not the company owner must pass `companyId` to list organization templates.\n\nSupports full-text search across template name and description, as well as tag filtering.\n",
+          "tags": [
+            "Templates"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "query",
+              "name": "page",
+              "schema": {
+                "type": "integer",
+                "default": 1
+              },
+              "description": "Page number for pagination."
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "schema": {
+                "type": "integer",
+                "default": 20,
+                "maximum": 100
+              },
+              "description": "Number of items per page."
+            },
+            {
+              "in": "query",
+              "name": "type",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "system",
+                  "organization"
+                ]
+              },
+              "description": "Filter by template type."
+            },
+            {
+              "in": "query",
+              "name": "companyId",
+              "schema": {
+                "type": "string"
+              },
+              "description": "Company scope for organization templates. Required for team members who are not the company owner."
+            },
+            {
+              "in": "query",
+              "name": "search",
+              "schema": {
+                "type": "string"
+              },
+              "description": "Full-text search across template name and description."
+            },
+            {
+              "in": "query",
+              "name": "tag",
+              "schema": {
+                "type": "string"
+              },
+              "description": "Filter templates containing this tag."
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Templates retrieved successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Templates fetched successfully.",
+                    "data": [
+                      {
+                        "_id": "665f1a2b3c4d5e6f7a8b9c0d",
+                        "name": "Residential Building",
+                        "description": "Standard residential building BOQ template",
+                        "type": "system",
+                        "icon": "🏠",
+                        "boqCount": 42,
+                        "keyFeatures": [
+                          "Foundation",
+                          "Structure",
+                          "MEP"
+                        ],
+                        "tags": [
+                          "residential",
+                          "standard"
+                        ],
+                        "createdAt": "2024-01-15T10:30:00.000Z"
+                      }
+                    ],
+                    "pagination": {
+                      "total": 8,
+                      "page": 1,
+                      "limit": 20,
+                      "pages": 1
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            }
+          }
+        },
+        "post": {
+          "summary": "Create a new BOQ template",
+          "description": "Create a template from a BOQ structure. Organization templates are scoped\nto a company the caller can access. Company owners can omit `companyId` to\nuse their owned company; active team members must pass `companyId`. System\ntemplates can only be created by admins.\n\nThe `boqResult` field contains the full Bill of Quantities structure with\nsections and work items. The `boqCount` is automatically computed from the\nnumber of work items across all sections.\n",
+          "tags": [
+            "Templates"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "boqResult"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "Template display name.",
+                      "example": "Commercial Office Fit-out"
+                    },
+                    "description": {
+                      "type": "string",
+                      "description": "Brief description of the template's purpose.",
+                      "example": "Standard BOQ for commercial office interior fit-out projects"
+                    },
+                    "icon": {
+                      "type": "string",
+                      "description": "Emoji or icon identifier.",
+                      "example": "🏢"
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "system",
+                        "organization"
+                      ],
+                      "default": "organization",
+                      "description": "Template scope — system (global) or organization (company-only)."
+                    },
+                    "imageUrl": {
+                      "type": "string",
+                      "format": "uri",
+                      "description": "Cover image URL for the template card."
+                    },
+                    "companyId": {
+                      "type": "string",
+                      "description": "Required for active team members creating an organization template in company context."
+                    },
+                    "sourceProjectId": {
+                      "type": "string",
+                      "description": "ID of the project this template was derived from (optional)."
+                    },
+                    "boqResult": {
+                      "type": "object",
+                      "required": [
+                        "projectTitle"
+                      ],
+                      "properties": {
+                        "projectTitle": {
+                          "type": "string",
+                          "example": "Office Fit-out BOQ"
+                        },
+                        "sections": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "sectionName": {
+                                "type": "string",
+                                "example": "Demolition Works"
+                              },
+                              "workItems": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "item": {
+                                      "type": "string"
+                                    },
+                                    "unit": {
+                                      "type": "string"
+                                    },
+                                    "quantity": {
+                                      "type": "number",
+                                      "nullable": true
+                                    },
+                                    "rate": {
+                                      "type": "number"
+                                    },
+                                    "total": {
+                                      "type": "number"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "generalNotes": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "estimatedValueMin": {
+                      "type": "number",
+                      "description": "Lower bound of typical project value using this template."
+                    },
+                    "estimatedValueMax": {
+                      "type": "number",
+                      "description": "Upper bound of typical project value using this template."
+                    },
+                    "keyFeatures": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Highlight features of this template (max 20).",
+                      "example": [
+                        "Demolition",
+                        "Partitions",
+                        "MEP",
+                        "Finishes"
+                      ]
+                    },
+                    "tags": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Tags for discovery and filtering (max 30).",
+                      "example": [
+                        "commercial",
+                        "office",
+                        "fit-out"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "Template created successfully."
+            },
+            "400": {
+              "description": "Validation error."
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            }
+          }
+        }
+      },
+      "/templates/{templateId}": {
+        "get": {
+          "summary": "Get a template by ID",
+          "description": "Retrieve a single template's full details including the complete BOQ structure.\nUsers can access system templates and organization templates belonging to a\ncompany where they are the owner or an active team member.\n",
+          "tags": [
+            "Templates"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "templateId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "The template's MongoDB ObjectId."
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Template retrieved successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Template fetched successfully.",
+                    "data": {
+                      "_id": "665f1a2b3c4d5e6f7a8b9c0d",
+                      "name": "Residential Building",
+                      "description": "Standard residential building BOQ template",
+                      "type": "system",
+                      "icon": "🏠",
+                      "boqCount": 42,
+                      "boqResult": {
+                        "projectTitle": "Residential Building BOQ",
+                        "sections": [
+                          {
+                            "sectionName": "Substructure",
+                            "workItems": [
+                              {
+                                "item": "Excavation",
+                                "unit": "m³",
+                                "quantity": null,
+                                "rate": 0,
+                                "total": 0
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      "keyFeatures": [
+                        "Foundation",
+                        "Structure",
+                        "MEP"
+                      ],
+                      "tags": [
+                        "residential",
+                        "standard"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            },
+            "404": {
+              "description": "Template not found."
+            }
+          }
+        },
+        "patch": {
+          "summary": "Update template details",
+          "description": "Update an existing template's metadata or BOQ content.\nOrganization templates can be updated by the company owner and active team members.\nSystem templates can only be updated by admins.\nAt least one field must be provided.\n",
+          "tags": [
+            "Templates"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "templateId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "icon": {
+                      "type": "string"
+                    },
+                    "imageUrl": {
+                      "type": "string",
+                      "format": "uri",
+                      "nullable": true
+                    },
+                    "boqResult": {
+                      "type": "object",
+                      "properties": {
+                        "projectTitle": {
+                          "type": "string"
+                        },
+                        "sections": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          }
+                        },
+                        "generalNotes": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "estimatedValueMin": {
+                      "type": "number"
+                    },
+                    "estimatedValueMax": {
+                      "type": "number"
+                    },
+                    "keyFeatures": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "tags": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Template updated successfully."
+            },
+            "400": {
+              "description": "Validation error (no fields provided or invalid data)."
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            },
+            "403": {
+              "description": "Permission denied — cannot update a template from another company."
+            },
+            "404": {
+              "description": "Template not found."
+            }
+          }
+        },
+        "delete": {
+          "summary": "Delete a template",
+          "description": "Permanently remove a template. Organization templates can be deleted by\nthe company owner and active team members. System templates can only be deleted by admins.\n",
+          "tags": [
+            "Templates"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "templateId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Template deleted successfully."
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            },
+            "403": {
+              "description": "Permission denied."
+            },
+            "404": {
+              "description": "Template not found."
+            }
+          }
+        }
+      },
+      "/templates/{templateId}/use": {
+        "post": {
+          "summary": "Create a project from a template",
+          "description": "Clone the template's BOQ structure into a brand-new project.\nThe project is created with status `draft` and source `template`.\nOptionally provide a custom project name; otherwise the template name is used.\nOrganization templates can only be used by the company owner and active team members\nof the owning company.\n",
+          "tags": [
+            "Templates"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "templateId",
+              "required": true,
+              "schema": {
+                "type": "string"
+              },
+              "description": "ID of the template to use."
+            }
+          ],
+          "requestBody": {
+            "required": false,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "Custom project name (defaults to template name).",
+                      "example": "New Office Project - Phase 1"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "Project created from template successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Project created from template successfully.",
+                    "data": {
+                      "_id": "665f2b3c4d5e6f7a8b9c0d1e",
+                      "name": "New Office Project - Phase 1",
+                      "status": "draft",
+                      "source": "template",
+                      "boqResult": {
+                        "projectTitle": "Office Fit-out BOQ",
+                        "sections": []
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "401": {
+              "$ref": "#/components/responses/Unauthorized"
+            },
+            "404": {
+              "description": "Template not found."
+            }
+          }
+        }
+      },
+      "/uploads": {
+        "post": {
+          "summary": "Upload a file",
+          "description": "Uploads a single file to the configured cloud storage provider (Cloudinary or S3).\nThe file is stored in a subfolder under the application's root folder. On success,\nreturns the uploaded file record including the public URL, cloud provider, cloud ID,\nand metadata (format, dimensions, size). An audit log entry is created. Maximum\nfile size is 50 MB.\n",
+          "tags": [
+            "Uploads"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "multipart/form-data": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "file"
+                  ],
+                  "properties": {
+                    "file": {
+                      "type": "string",
+                      "format": "binary",
+                      "description": "The file to upload (max 50 MB)."
+                    },
+                    "folder": {
+                      "type": "string",
+                      "description": "Optional subfolder name within the app's root folder (default is \"uploads\").",
+                      "example": "avatars"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "File uploaded successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "File uploaded successfully",
+                    "data": {
+                      "_id": "65a1b2c3d4e5f6a7b8c9d0f1",
+                      "originalName": "profile-photo.jpg",
+                      "mimeType": "image/jpeg",
+                      "size": 245760,
+                      "url": "https://res.cloudinary.com/demo/image/upload/v1/quantify-pro-be/avatars/abc123.jpg",
+                      "provider": "cloudinary",
+                      "cloudId": "quantify-pro-be/avatars/abc123",
+                      "uploadedBy": "65a1b2c3d4e5f6a7b8c9d0e1",
+                      "metadata": {
+                        "format": "jpg",
+                        "width": 800,
+                        "height": 600,
+                        "bytes": 245760
+                      },
+                      "createdAt": "2026-02-19T10:30:00.000Z",
+                      "updatedAt": "2026-02-19T10:30:00.000Z"
+                    },
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Bad request — no file was provided in the request.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "No file provided",
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Authentication token is required",
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/uploads/{id}": {
+        "get": {
+          "summary": "Get upload by ID",
+          "description": "Retrieves the metadata and URL of a previously uploaded file by its MongoDB ObjectId.\nThe result is cached for performance. Requires authentication.\n",
+          "tags": [
+            "Uploads"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "id",
+              "required": true,
+              "description": "The 24-character MongoDB ObjectId of the upload.",
+              "schema": {
+                "type": "string",
+                "example": "65a1b2c3d4e5f6a7b8c9d0f1"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Upload fetched successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Upload fetched successfully",
+                    "data": {
+                      "_id": "65a1b2c3d4e5f6a7b8c9d0f1",
+                      "originalName": "profile-photo.jpg",
+                      "mimeType": "image/jpeg",
+                      "size": 245760,
+                      "url": "https://res.cloudinary.com/demo/image/upload/v1/quantify-pro-be/avatars/abc123.jpg",
+                      "provider": "cloudinary",
+                      "cloudId": "quantify-pro-be/avatars/abc123",
+                      "uploadedBy": "65a1b2c3d4e5f6a7b8c9d0e1",
+                      "metadata": {
+                        "format": "jpg",
+                        "width": 800,
+                        "height": 600,
+                        "bytes": 245760
+                      },
+                      "createdAt": "2026-02-19T10:30:00.000Z",
+                      "updatedAt": "2026-02-19T10:30:00.000Z"
+                    },
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token."
+            },
+            "404": {
+              "description": "Upload not found.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Upload not found",
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/uploads/{id}/download": {
+        "get": {
+          "summary": "Download uploaded file",
+          "description": "Downloads the file associated with the given upload ID as an attachment.\nRetrieves the file from the cloud storage provider and streams it directly to the client with the original filename.\n",
+          "tags": [
+            "Uploads"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "id",
+              "required": true,
+              "description": "The 24-character MongoDB ObjectId of the upload.",
+              "schema": {
+                "type": "string",
+                "example": "65a1b2c3d4e5f6a7b8c9d0f1"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "File downloaded successfully.",
+              "content": {
+                "application/octet-stream": {
+                  "schema": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token."
+            },
+            "404": {
+              "description": "Upload not found.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Upload not found",
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/users/me": {
+        "get": {
+          "summary": "Get current authenticated user profile",
+          "description": "Returns the full profile of the currently authenticated user based on the\nJWT token in the Authorization header. Does not require a user ID parameter.\n",
+          "tags": [
+            "Users"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "User profile fetched successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "User fetched successfully",
+                    "data": {
+                      "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                      "firstName": "John",
+                      "lastName": "Doe",
+                      "email": "john.doe@example.com",
+                      "phoneNumber": "+2348012345678",
+                      "role": "user",
+                      "status": "active",
+                      "emailVerified": false,
+                      "authProvider": "local",
+                      "createdAt": "2026-02-19T10:30:00.000Z",
+                      "updatedAt": "2026-02-19T10:30:00.000Z"
+                    },
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Authentication token is required",
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/users": {
+        "get": {
+          "summary": "List all users (admin only)",
+          "description": "Returns a paginated list of all users. Only accessible by users with the `admin` role.\nSupports filtering by role, status, and free-text search (matches first name, last name,\nor email). Results are sorted by most recently created.\n",
+          "tags": [
+            "Users"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "query",
+              "name": "page",
+              "description": "Page number (1-based).",
+              "schema": {
+                "type": "integer",
+                "minimum": 1,
+                "default": 1
+              }
+            },
+            {
+              "in": "query",
+              "name": "limit",
+              "description": "Number of users per page (max 100).",
+              "schema": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100,
+                "default": 20
+              }
+            },
+            {
+              "in": "query",
+              "name": "role",
+              "description": "Filter by user role.",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "admin",
+                  "user",
+                  "company"
+                ]
+              }
+            },
+            {
+              "in": "query",
+              "name": "status",
+              "description": "Filter by user status.",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "inactive",
+                  "suspended"
+                ]
+              }
+            },
+            {
+              "in": "query",
+              "name": "search",
+              "description": "Free-text search across first name, last name, and email.",
+              "schema": {
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Paginated list of users.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Users fetched successfully",
+                    "data": [
+                      {
+                        "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                        "firstName": "John",
+                        "lastName": "Doe",
+                        "email": "john.doe@example.com",
+                        "phoneNumber": "+2348012345678",
+                        "role": "user",
+                        "status": "active",
+                        "emailVerified": true,
+                        "authProvider": "local",
+                        "createdAt": "2026-01-15T08:00:00.000Z",
+                        "updatedAt": "2026-02-19T10:30:00.000Z"
+                      },
+                      {
+                        "_id": "65a1b2c3d4e5f6a7b8c9d0e2",
+                        "firstName": "Jane",
+                        "lastName": "Smith",
+                        "email": "jane@acme.com",
+                        "phoneNumber": "+2348098765432",
+                        "role": "company",
+                        "status": "active",
+                        "companyName": "Acme Inc",
+                        "emailVerified": true,
+                        "authProvider": "local",
+                        "createdAt": "2026-01-20T12:00:00.000Z",
+                        "updatedAt": "2026-02-18T09:00:00.000Z"
+                      }
+                    ],
+                    "pagination": {
+                      "total": 42,
+                      "page": 1,
+                      "limit": 20,
+                      "pages": 3
+                    },
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Authentication token is required",
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "403": {
+              "description": "Forbidden — user does not have admin privileges.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "You do not have permission to perform this action",
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/users/me/professional-details": {
+        "get": {
+          "summary": "Get professional details",
+          "description": "Returns the authenticated user's professional profile including professional title,\ncertifications, years of experience, industry specialization, and specialized skills.\n",
+          "tags": [
+            "Users"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Professional details fetched successfully.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "Professional details fetched successfully"
+                      },
+                      "data": {
+                        "type": "object",
+                        "properties": {
+                          "professionalTitle": {
+                            "type": "string",
+                            "nullable": true,
+                            "example": "Quantity Surveyor"
+                          },
+                          "certifications": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "name": {
+                                  "type": "string",
+                                  "example": "RICS"
+                                },
+                                "membershipNumber": {
+                                  "type": "string",
+                                  "example": "6822451"
+                                }
+                              }
+                            }
+                          },
+                          "yearsOfExperience": {
+                            "type": "integer",
+                            "nullable": true,
+                            "example": 12
+                          },
+                          "industrySpecialization": {
+                            "type": "string",
+                            "nullable": true,
+                            "example": "Residential Construction"
+                          },
+                          "specializedSkills": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "example": [
+                              "Cost Estimation",
+                              "Bill of Quantities (BOQ)",
+                              "BIM Coordination"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "example": {
+                    "success": true,
+                    "message": "Professional details fetched successfully",
+                    "data": {
+                      "professionalTitle": "Quantity Surveyor",
+                      "certifications": [
+                        {
+                          "name": "RICS",
+                          "membershipNumber": "6822451"
+                        },
+                        {
+                          "name": "NIQS",
+                          "membershipNumber": "1234"
+                        }
+                      ],
+                      "yearsOfExperience": 12,
+                      "industrySpecialization": "Residential Construction",
+                      "specializedSkills": [
+                        "Cost Estimation",
+                        "Bill of Quantities (BOQ)"
+                      ]
+                    },
+                    "timestamp": "2026-03-21T10:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Authentication token is required",
+                    "timestamp": "2026-03-21T10:00:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "put": {
+          "summary": "Update professional details",
+          "description": "Updates the authenticated user's professional profile including certifications,\nyears of experience, industry specialization, and specialized skills.\nEach call replaces the entire set of values for the provided fields.\nAn audit log entry is created for every successful update.\n",
+          "tags": [
+            "Users"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "certifications": {
+                      "type": "array",
+                      "description": "Professional certifications (replaces existing list).",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "name"
+                        ],
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "example": "RICS"
+                          },
+                          "membershipNumber": {
+                            "type": "string",
+                            "example": "6822451"
+                          }
+                        }
+                      }
+                    },
+                    "yearsOfExperience": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 70,
+                      "example": 12
+                    },
+                    "industrySpecialization": {
+                      "type": "string",
+                      "maxLength": 100,
+                      "example": "Residential Construction"
+                    },
+                    "specializedSkills": {
+                      "type": "array",
+                      "description": "List of skill tags (replaces existing list).",
+                      "items": {
+                        "type": "string"
+                      },
+                      "example": [
+                        "Cost Estimation",
+                        "Bill of Quantities (BOQ)",
+                        "BIM Coordination"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Professional details updated successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Professional details updated successfully",
+                    "data": {
+                      "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                      "firstName": "John",
+                      "lastName": "Doe",
+                      "email": "john.doe@example.com",
+                      "professionalTitle": "Quantity Surveyor",
+                      "certifications": [
+                        {
+                          "name": "RICS",
+                          "membershipNumber": "6822451"
+                        },
+                        {
+                          "name": "NIQS",
+                          "membershipNumber": "1234"
+                        }
+                      ],
+                      "yearsOfExperience": 12,
+                      "industrySpecialization": "Residential Construction",
+                      "specializedSkills": [
+                        "Cost Estimation",
+                        "Bill of Quantities (BOQ)"
+                      ]
+                    },
+                    "timestamp": "2026-03-21T10:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation failed.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Validation failed",
+                    "errors": [
+                      {
+                        "field": "yearsOfExperience",
+                        "message": "Number must be less than or equal to 70"
+                      }
+                    ],
+                    "timestamp": "2026-03-21T10:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token."
+            }
+          }
+        }
+      },
+      "/users/me/security-preferences": {
+        "get": {
+          "summary": "Get security preferences",
+          "description": "Returns the authenticated user's current security preference settings:\n- `emailAlertsEnabled` — whether the user receives email notifications when a\n  new login session is detected (device, browser, location, IP, and timestamp\n  details are included in the alert email).\n- `sessionTimeoutEnabled` — whether the user's sessions automatically expire\n  after 30 minutes of inactivity. When enabled, each API request extends the\n  session with a sliding window; when the timeout is reached, the session is\n  marked as logged out and the user must re-authenticate.\n\nBoth default to `true` for new accounts.\n",
+          "tags": [
+            "Users"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Security preferences fetched successfully.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "example": true
+                      },
+                      "message": {
+                        "type": "string",
+                        "example": "Security preferences fetched successfully"
+                      },
+                      "data": {
+                        "type": "object",
+                        "properties": {
+                          "emailAlertsEnabled": {
+                            "type": "boolean",
+                            "description": "When true, a \"New Login Detected\" email is sent to the user\non every successful login. The email includes device name,\nbrowser, OS, approximate location (via GeoIP), IP address,\nand login timestamp.\n",
+                            "example": true
+                          },
+                          "sessionTimeoutEnabled": {
+                            "type": "boolean",
+                            "description": "When true, each session is given a 30-minute idle timeout.\nEvery authenticated API request resets the timer (sliding window).\nWhen the session expires, the user receives a 401 response\nwith message \"Session expired due to inactivity\" and must log in again.\n",
+                            "example": true
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "example": {
+                    "success": true,
+                    "message": "Security preferences fetched successfully",
+                    "data": {
+                      "emailAlertsEnabled": true,
+                      "sessionTimeoutEnabled": true
+                    },
+                    "timestamp": "2026-03-21T10:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Authentication token is required",
+                    "timestamp": "2026-03-21T10:00:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "put": {
+          "summary": "Update security preferences",
+          "description": "Toggles security-related preferences for the authenticated user:\n- `emailAlertsEnabled` — when enabled, a \"New Login Detected\" email is sent on\n  every successful login with details including device, browser, OS, location\n  (GeoIP), IP address, and timestamp.\n- `sessionTimeoutEnabled` — when enabled, sessions are given a 30-minute idle\n  timeout with a sliding window that resets on each authenticated API request.\n  When the timeout expires, the session is marked as logged out and the user\n  receives a 401 \"Session expired due to inactivity\" response.\n\nBoth fields default to `true` for new accounts. Changes take effect immediately.\n",
+          "tags": [
+            "Users"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "emailAlertsEnabled": {
+                      "type": "boolean",
+                      "description": "Whether to send email alerts on new logins.",
+                      "example": true
+                    },
+                    "sessionTimeoutEnabled": {
+                      "type": "boolean",
+                      "description": "Whether to auto-expire idle sessions.",
+                      "example": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "Security preferences updated successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "Security preferences updated successfully",
+                    "data": {
+                      "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                      "firstName": "John",
+                      "lastName": "Doe",
+                      "email": "john.doe@example.com",
+                      "emailAlertsEnabled": true,
+                      "sessionTimeoutEnabled": false
+                    },
+                    "timestamp": "2026-03-21T10:00:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation failed."
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token."
+            }
+          }
+        }
+      },
+      "/users/{id}": {
+        "get": {
+          "summary": "Get user by ID",
+          "description": "Returns the full profile of a specific user by their MongoDB ObjectId.\nRequires authentication. Any authenticated user can fetch any user profile.\n",
+          "tags": [
+            "Users"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "id",
+              "required": true,
+              "description": "The 24-character MongoDB ObjectId of the user.",
+              "schema": {
+                "type": "string",
+                "example": "65a1b2c3d4e5f6a7b8c9d0e1"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "User fetched successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "User fetched successfully",
+                    "data": {
+                      "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                      "firstName": "John",
+                      "lastName": "Doe",
+                      "email": "john.doe@example.com",
+                      "phoneNumber": "+2348012345678",
+                      "role": "user",
+                      "status": "active",
+                      "emailVerified": true,
+                      "authProvider": "local",
+                      "createdAt": "2026-01-15T08:00:00.000Z",
+                      "updatedAt": "2026-02-19T10:30:00.000Z"
+                    },
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token."
+            },
+            "404": {
+              "description": "User not found.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "User not found",
+                    "timestamp": "2026-02-19T10:30:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "put": {
+          "summary": "Update user profile",
+          "description": "Updates one or more fields of a user's profile. All fields in the request body\nare optional — only the provided fields will be updated. An audit log entry is\ncreated for every successful update. Cached user data is invalidated.\n",
+          "tags": [
+            "Users"
+          ],
+          "security": [
+            {
+              "bearerAuth": []
+            }
+          ],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "id",
+              "required": true,
+              "description": "The 24-character MongoDB ObjectId of the user to update.",
+              "schema": {
+                "type": "string",
+                "example": "65a1b2c3d4e5f6a7b8c9d0e1"
+              }
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateUserInput"
+                },
+                "example": {
+                  "firstName": "Jonathan",
+                  "email": "jonathan.doe@example.com"
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "User updated successfully.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": true,
+                    "message": "User updated successfully",
+                    "data": {
+                      "_id": "65a1b2c3d4e5f6a7b8c9d0e1",
+                      "firstName": "Jonathan",
+                      "lastName": "Doe",
+                      "email": "jonathan.doe@example.com",
+                      "phoneNumber": "+2348012345678",
+                      "role": "user",
+                      "status": "active",
+                      "emailVerified": true,
+                      "authProvider": "local",
+                      "createdAt": "2026-01-15T08:00:00.000Z",
+                      "updatedAt": "2026-02-19T10:35:00.000Z"
+                    },
+                    "timestamp": "2026-02-19T10:35:00.000Z"
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Validation failed.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "Validation failed",
+                    "errors": [
+                      {
+                        "field": "email",
+                        "message": "Invalid email address"
+                      }
+                    ],
+                    "timestamp": "2026-02-19T10:35:00.000Z"
+                  }
+                }
+              }
+            },
+            "401": {
+              "description": "Unauthorized — missing or invalid JWT token."
+            },
+            "404": {
+              "description": "User not found.",
+              "content": {
+                "application/json": {
+                  "example": {
+                    "success": false,
+                    "message": "User not found",
+                    "timestamp": "2026-02-19T10:35:00.000Z"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "customOptions": {
+    "persistAuthorization": true,
+    "tagsSorter": "alpha",
+    "operationsSorter": "alpha",
+    "docExpansion": "none",
+    "tryItOutEnabled": true
+  }
+};
+  url = options.swaggerUrl || url
+  var urls = options.swaggerUrls
+  var customOptions = options.customOptions
+  var spec1 = options.swaggerDoc
+  var swaggerOptions = {
+    spec: spec1,
+    url: url,
+    urls: urls,
+    dom_id: '#swagger-ui',
+    deepLinking: true,
+    presets: [
+      SwaggerUIBundle.presets.apis,
+      SwaggerUIStandalonePreset
+    ],
+    plugins: [
+      SwaggerUIBundle.plugins.DownloadUrl
+    ],
+    layout: "StandaloneLayout"
+  }
+  for (var attrname in customOptions) {
+    swaggerOptions[attrname] = customOptions[attrname];
+  }
+  var ui = SwaggerUIBundle(swaggerOptions)
+
+  if (customOptions.oauth) {
+    ui.initOAuth(customOptions.oauth)
+  }
+
+  if (customOptions.preauthorizeApiKey) {
+    const key = customOptions.preauthorizeApiKey.authDefinitionKey;
+    const value = customOptions.preauthorizeApiKey.apiKeyValue;
+    if (!!key && !!value) {
+      const pid = setInterval(() => {
+        const authorized = ui.preauthorizeApiKey(key, value);
+        if(!!authorized) clearInterval(pid);
+      }, 500)
+
+    }
+  }
+
+  if (customOptions.authAction) {
+    ui.authActions.authorize(customOptions.authAction)
+  }
+
+  window.ui = ui
+}

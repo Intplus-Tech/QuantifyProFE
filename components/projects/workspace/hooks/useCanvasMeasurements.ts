@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useShapeHistory } from "./useShapeHistory";
 import type { Measurement, MPoint, PageMeasurements } from "../components/types";
 
@@ -28,6 +28,30 @@ function loadPage(drawingId: string, page: number): PageMeasurements {
 
 function makeKey(drawingId: string | null, page: number) {
   return `${drawingId ?? "none"}-${page}`;
+}
+
+/**
+ * Removes marks by id directly from a page's localStorage entry, for a page
+ * that isn't the currently active one (so there's no live hook/state to
+ * update through). Used when deleting a measurement variant that lives on a
+ * different drawing/page than the one on screen right now.
+ */
+export function removeMeasurementsFromStorage(
+  drawingId: string,
+  page: number,
+  ids: string[],
+): void {
+  if (typeof window === "undefined" || ids.length === 0) return;
+  const idSet = new Set(ids);
+  const data = loadPage(drawingId, page);
+  if (!data.measurements.some((m) => idSet.has(m.id))) return;
+  const next: PageMeasurements = {
+    ...data,
+    measurements: data.measurements.filter((m) => !idSet.has(m.id)),
+  };
+  try {
+    localStorage.setItem(storageKey(drawingId, page), JSON.stringify(next));
+  } catch {}
 }
 
 export function useCanvasMeasurements(drawingId: string | null, page: number) {
@@ -83,16 +107,34 @@ export function useCanvasMeasurements(drawingId: string | null, page: number) {
     }));
   }
 
+  function removeMeasurements(ids: string[]) {
+    if (ids.length === 0) return;
+    const idSet = new Set(ids);
+    push((cur) => ({
+      ...cur,
+      measurements: cur.measurements.filter((m) => !idSet.has(m.id)),
+    }));
+  }
+
   function clearMeasurements() {
     push((cur) => ({ ...cur, measurements: [] }));
   }
+
+  // Bulk-replace all state (used when re-hydrating from backend). Stable because
+  // `reset` is a useCallback from useShapeHistory with no deps.
+  const resetWithData = useCallback(
+    (data: PageMeasurements) => reset(data),
+    [reset],
+  );
 
   return {
     state,
     setCalibration,
     addMeasurement,
     removeMeasurement,
+    removeMeasurements,
     clearMeasurements,
+    resetWithData,
     undo,
     redo,
     canUndo,

@@ -111,9 +111,14 @@ export interface MeasurementCanvasProps {
   distanceUnit: string;
   activeColor: string;
   measurements: Measurement[];
+  /** Mark IDs to draw with a highlight glow — set by clicking a Live Measurements row */
+  highlightedIds?: ReadonlySet<string>;
   nextCountIndex: number;
   /** Changes whenever the active file or page changes — resets any in-progress drawing */
   pageKey: string;
+  /** True while the drawing is being click-dragged to pan — overrides the tool
+   *  cursor with "grabbing" so the hand icon shows even mid-drag with a tool active. */
+  isPanning?: boolean;
   /** Fires when calibration points change. ptCount = 0|1|2 */
   onCalibrationUpdate: (
     basePxDist: number | null,
@@ -135,8 +140,10 @@ export function MeasurementCanvas({
   distanceUnit,
   activeColor,
   measurements,
+  highlightedIds,
   nextCountIndex,
   pageKey,
+  isPanning = false,
   onCalibrationUpdate,
   onMeasurementAdd,
   onLiveLength,
@@ -306,6 +313,14 @@ export function MeasurementCanvas({
         setInProgress([]);
         onLiveLength?.(null);
         const pixLen = polylineLen(pts);
+        // TEMP diagnostic — remove once the pixel-to-real-unit bug is found.
+        console.log("[MEASUREMENT]", {
+          pdfZoom: pdfScale,
+          basePixelLength: pixLen,
+          scaleFactor,
+          resultingRealLength: pixLen / scaleFactor,
+          unit: distanceUnit,
+        });
         onMeasurementAdd({
           id: crypto.randomUUID(),
           type: "length",
@@ -385,7 +400,13 @@ export function MeasurementCanvas({
       ref={containerRef}
       className="absolute inset-0"
       style={{
-        cursor: snapToClose ? "pointer" : isInteractive ? "crosshair" : "default",
+        cursor: isPanning
+          ? "grabbing"
+          : snapToClose
+            ? "pointer"
+            : isInteractive
+              ? "crosshair"
+              : "default",
         pointerEvents: isInteractive ? "all" : "none",
       }}
     >
@@ -405,10 +426,22 @@ export function MeasurementCanvas({
             {/* ── Completed measurements ─────────────────────────────────── */}
             {scaleFactor &&
               measurements.map((m) => {
+                const isHighlighted = highlightedIds?.has(m.id) ?? false;
+
                 if (m.type === "length") {
                   const c = centroid(m.points);
                   return (
                     <Group key={m.id}>
+                      {isHighlighted && (
+                        <Line
+                          points={flat(m.points)}
+                          stroke="#facc15"
+                          strokeWidth={SW * 3}
+                          opacity={0.55}
+                          lineCap="round"
+                          lineJoin="round"
+                        />
+                      )}
                       <Line
                         points={flat(m.points)}
                         stroke={m.color}
@@ -434,6 +467,17 @@ export function MeasurementCanvas({
                   const c = centroid(m.points);
                   return (
                     <Group key={m.id}>
+                      {isHighlighted && (
+                        <Line
+                          points={flat(m.points)}
+                          closed
+                          stroke="#facc15"
+                          strokeWidth={SW * 3}
+                          opacity={0.55}
+                          lineCap="round"
+                          lineJoin="round"
+                        />
+                      )}
                       <Line
                         points={flat(m.points)}
                         closed
@@ -460,6 +504,15 @@ export function MeasurementCanvas({
                 if (m.type === "count") {
                   return (
                     <Group key={m.id}>
+                      {isHighlighted && (
+                        <Circle
+                          x={m.point.x}
+                          y={m.point.y}
+                          radius={CR * 1.8}
+                          fill="#facc15"
+                          opacity={0.5}
+                        />
+                      )}
                       <Circle
                         x={m.point.x}
                         y={m.point.y}

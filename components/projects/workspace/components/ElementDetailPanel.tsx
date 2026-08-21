@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { X, Plus } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Minus, Plus, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -11,71 +11,150 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { ELEMENT_CONFIGS, BAR_SIZE_OPTIONS } from "./constants";
+import { ELEMENT_CONFIGS, BAR_SIZE_OPTIONS, PALETTE, PALETTE_LABELS } from "./constants";
 import type { RebarBar } from "./types";
+import type { VariantRebar, WsConcreteMeasurement } from "../workspaceSession";
 
-export function ElementDetailPanel({
-  measure = "Pile",
-  showRebarTab = false,
-  activeMeasureTool = null,
-  liveCount = 0,
-  liveLength = 0,
-  liveArea = 0,
-  distanceUnit = "Meters",
-  hasMeasurements = false,
-  onClose,
-  onAssignElement,
-  onApplyAndContinue,
-  onSaveMeasurement,
-  onResetMeasurements,
-}: {
+// ─── Prop types ───────────────────────────────────────────────────────────────
+
+export interface SaveMeasurementPayload {
+  tag: string;
+  concreteFields: Record<string, string>;
+  rebar: VariantRebar | null;
+  canvas: {
+    tool: "count" | "length" | "area";
+    count: number;
+    length: number;
+    area: number;
+    unit: string;
+  };
+}
+
+interface ElementDetailPanelProps {
   measure?: string;
+  /** Only meaningful when the category's tool is "choice" (Stud Column / Columns). */
+  measureChoice?: "count" | "area" | null;
   showRebarTab?: boolean;
   activeMeasureTool?: "length" | "area" | "count" | null;
   liveCount?: number;
   liveLength?: number;
   liveArea?: number;
+  /** Length drawn on canvas while the Rebar tab is active — fills "read" bar depths. */
+  liveRebarLength?: number | null;
   distanceUnit?: string;
-  /** True once at least one measurement has been placed on the canvas */
   hasMeasurements?: boolean;
+  activeColor?: string;
+  onColorChange?: (color: string) => void;
   onClose: () => void;
   onAssignElement: () => void;
   onApplyAndContinue: () => void;
-  onSaveMeasurement?: (data: Record<string, string>) => void;
-  /** Called after Apply & Continue — clears the canvas for the next element */
+  onSaveMeasurement?: (payload: SaveMeasurementPayload) => void;
+  onFormChange?: (payload: SaveMeasurementPayload) => void;
   onResetMeasurements?: () => void;
-}) {
-  const cfg = ELEMENT_CONFIGS[measure] ?? ELEMENT_CONFIGS["Pile"];
+  onTabChange?: (tab: "concrete" | "rebar") => void;
+  /** Pointer handlers from the parent's drag logic — spread onto the header to make it a drag handle. */
+  dragHandleProps?: React.HTMLAttributes<HTMLDivElement>;
+  /** Only meaningful when the category's config has blockworkSides === true. */
+  blockworkSide?: "external" | "internal";
+  onBlockworkSideChange?: (side: "external" | "internal") => void;
+  /** Set when a Live Measurements row is clicked — overrides the Measured
+   *  display with that saved variant's own value instead of the live round. */
+  selectedVariant?: WsConcreteMeasurement | null;
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
+export function ElementDetailPanel({
+  measure = "Piles",
+  measureChoice = null,
+  showRebarTab = false,
+  activeMeasureTool = null,
+  liveCount = 0,
+  liveLength = 0,
+  liveArea = 0,
+  liveRebarLength = null,
+  distanceUnit = "Meters",
+  hasMeasurements = false,
+  activeColor,
+  onColorChange,
+  onClose,
+  onAssignElement,
+  onApplyAndContinue,
+  onSaveMeasurement,
+  onFormChange,
+  onResetMeasurements,
+  onTabChange,
+  dragHandleProps,
+  blockworkSide = "external",
+  onBlockworkSideChange,
+  selectedVariant = null,
+}: ElementDetailPanelProps) {
+  const displayTool = selectedVariant ? selectedVariant.canvas.tool : activeMeasureTool;
+  const displayCount = selectedVariant ? selectedVariant.canvas.count : liveCount;
+  const displayLength = selectedVariant ? selectedVariant.canvas.length : liveLength;
+  const displayArea = selectedVariant ? selectedVariant.canvas.area : liveArea;
+  const cfg = ELEMENT_CONFIGS[measure] ?? ELEMENT_CONFIGS["Piles"];
+  const isBlockwork = cfg.blockworkSides === true;
+  const rows =
+    cfg.tool === "choice" && cfg.rowsByChoice
+      ? cfg.rowsByChoice[measureChoice ?? "count"]
+      : cfg.rows;
   const [activeTab, setActiveTab] = useState<"concrete" | "rebar">("concrete");
   const [savedFeedback, setSavedFeedback] = useState(false);
+  const blockworkLabel =
+    blockworkSide === "external" ? "External Blockwork" : "Internal Blockwork";
 
-  const [fieldValues, setFieldValues] = useState<Record<string, string>>(() => {
+  // ── Concrete form ───────────────────────────────────────────────────────────
+
+  const buildDefaultFields = (m: string, choice: "count" | "area" | null): Record<string, string> => {
+    const c = ELEMENT_CONFIGS[m] ?? ELEMENT_CONFIGS["Piles"];
+    const r = c.tool === "choice" && c.rowsByChoice ? c.rowsByChoice[choice ?? "count"] : c.rows;
     const init: Record<string, string> = { tag: "" };
-    cfg.rows.forEach((row) => row.fields.forEach((f) => { init[f.key] = f.defaultValue; }));
+    r.forEach((row) => row.fields.forEach((f) => { init[f.key] = f.defaultValue; }));
     return init;
-  });
+  };
+
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>(
+    () => buildDefaultFields(measure, measureChoice),
+  );
 
   useEffect(() => {
-    const newCfg = ELEMENT_CONFIGS[measure] ?? ELEMENT_CONFIGS["Pile"];
-    const init: Record<string, string> = { tag: "" };
-    newCfg.rows.forEach((row) => row.fields.forEach((f) => { init[f.key] = f.defaultValue; }));
-    setFieldValues(init);
-  }, [measure]);
+    setFieldValues(buildDefaultFields(measure, measureChoice));
+  }, [measure, measureChoice]);
 
   function setField(key: string, value: string) {
     setFieldValues((prev) => ({ ...prev, [key]: value }));
   }
 
+  // ── Rebar form ──────────────────────────────────────────────────────────────
+
   const [rebarMethod, setRebarMethod] = useState<"read" | "manual">("manual");
   const [mainBars, setMainBars] = useState<RebarBar[]>([
-    { id: "1", size: "Y16", count: "4", depth: "0.45" },
+    { id: "1", size: "Y16", count: "0", depth: "0" },
   ]);
   const [additionBars, setAdditionBars] = useState<RebarBar[]>([
-    { id: "1", size: "Y16", count: "4", depth: "0.45" },
+    { id: "1", size: "Y16", count: "0", depth: "0" },
   ]);
   const [inclStirrupsLocal, setInclStirrupsLocal] = useState(true);
   const [stirrupSize, setStirrupSize] = useState("Y8");
-  const [stirrupSpacing, setStirrupSpacing] = useState("150");
+  const [stirrupSpacing, setStirrupSpacing] = useState("0");
+
+  // "Read from drawing": one length drawn on canvas fills every bar row's depth.
+  useEffect(() => {
+    if (rebarMethod !== "read" || liveRebarLength == null) return;
+    const depth = liveRebarLength.toFixed(2);
+    setMainBars((prev) => prev.map((b) => ({ ...b, depth })));
+    setAdditionBars((prev) => prev.map((b) => ({ ...b, depth })));
+  }, [liveRebarLength, rebarMethod]);
+
+  function resetRebarToDefaults() {
+    setRebarMethod("manual");
+    setMainBars([{ id: "1", size: "Y16", count: "0", depth: "0" }]);
+    setAdditionBars([{ id: "1", size: "Y16", count: "0", depth: "0" }]);
+    setInclStirrupsLocal(true);
+    setStirrupSize("Y8");
+    setStirrupSpacing("0");
+  }
 
   function updateBar(
     arr: RebarBar[],
@@ -87,93 +166,306 @@ export function ElementDetailPanel({
     setArr(arr.map((b) => (b.id === id ? { ...b, [field]: value } : b)));
   }
 
+  function addMainBar() {
+    setMainBars((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), size: "Y16", count: "0", depth: "0" },
+    ]);
+  }
+
+  function removeMainBar(id: string) {
+    setMainBars((prev) => (prev.length > 1 ? prev.filter((b) => b.id !== id) : prev));
+  }
+
+  function addAdditionBar() {
+    setAdditionBars((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), size: "Y16", count: "0", depth: "0" },
+    ]);
+  }
+
+  function removeAdditionBar(id: string) {
+    setAdditionBars((prev) => (prev.length > 1 ? prev.filter((b) => b.id !== id) : prev));
+  }
+
+  // ── Selected Live Measurements row → prefill tag/rebar too ────────────────────
+  // Snapshots whatever the user was mid-drafting for the *current* round the
+  // first time a row gets selected, shows that row's own saved data instead,
+  // then restores the draft when the row is deselected — so viewing a past
+  // variant's tag/rebar can never lose or corrupt the in-progress round.
+  const draftSnapshotRef = useRef<{
+    fieldValues: Record<string, string>;
+    rebarMethod: "read" | "manual";
+    mainBars: RebarBar[];
+    additionBars: RebarBar[];
+    inclStirrupsLocal: boolean;
+    stirrupSize: string;
+    stirrupSpacing: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (selectedVariant) {
+      if (draftSnapshotRef.current === null) {
+        draftSnapshotRef.current = {
+          fieldValues,
+          rebarMethod,
+          mainBars,
+          additionBars,
+          inclStirrupsLocal,
+          stirrupSize,
+          stirrupSpacing,
+        };
+      }
+      setFieldValues(selectedVariant.concreteFields);
+      if (selectedVariant.rebar) {
+        setRebarMethod(selectedVariant.rebar.method);
+        setMainBars(selectedVariant.rebar.mainBars);
+        setAdditionBars(selectedVariant.rebar.additionBars);
+        setInclStirrupsLocal(selectedVariant.rebar.includeStirups);
+        setStirrupSize(selectedVariant.rebar.stirrupSize);
+        setStirrupSpacing(selectedVariant.rebar.stirrupSpacing);
+      }
+    } else if (draftSnapshotRef.current) {
+      const draft = draftSnapshotRef.current;
+      draftSnapshotRef.current = null;
+      setFieldValues(draft.fieldValues);
+      setRebarMethod(draft.rebarMethod);
+      setMainBars(draft.mainBars);
+      setAdditionBars(draft.additionBars);
+      setInclStirrupsLocal(draft.inclStirrupsLocal);
+      setStirrupSize(draft.stirrupSize);
+      setStirrupSpacing(draft.stirrupSpacing);
+    }
+    // Only re-run when the selected row itself changes — not on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedVariant?.id]);
+
+  // ── Validation ──────────────────────────────────────────────────────────────
+
+  const concreteFormFilled =
+    fieldValues.tag.trim() !== "" ||
+    rows.some((row) =>
+      row.fields.some((f) => {
+        if (f.type === "select") return false;
+        const v = fieldValues[f.key] ?? "";
+        return v !== "" && v !== "0";
+      }),
+    );
+
+  const rebarFormFilled =
+    !showRebarTab ||
+    rebarMethod === "read" ||
+    mainBars.some((b) => {
+      const n = parseFloat(b.count);
+      return !isNaN(n) && n > 0;
+    });
+
+  // A selected Live Measurements row is itself a real, already-drawn measurement —
+  // don't gate on the live round's own marks (hasMeasurements) while viewing one,
+  // just on whatever inputs are actually required being filled.
+  const canSubmit =
+    (hasMeasurements || !!selectedVariant) && concreteFormFilled && rebarFormFilled;
+
+  // ── Debounced form auto-save ─────────────────────────────────────────────────
+  // Fires 700 ms after any form field changes so the parent can persist the
+  // current form state without waiting for an explicit "Apply & Continue".
+  // Canvas measurement values (liveCount/liveLength/liveArea) are excluded from
+  // the deps — those are handled by the canvas-mark auto-save in the parent.
+  const onFormChangeRef = useRef(onFormChange);
+  useEffect(() => { onFormChangeRef.current = onFormChange; });
+
+  useEffect(() => {
+    // While viewing a selected Live Measurements row, the fields hold that
+    // row's saved data, not the live round's draft — don't let it overwrite
+    // the actual in-progress round's auto-save.
+    if (!onFormChangeRef.current || selectedVariant) return;
+    const timer = setTimeout(() => {
+      const { tag = "", ...restFields } = fieldValues;
+      const rebarPayload: VariantRebar | null = showRebarTab
+        ? {
+            method: rebarMethod,
+            mainBars: mainBars.map((b) => ({ id: b.id, size: b.size, count: b.count, depth: b.depth })),
+            additionBars: additionBars.map((b) => ({ id: b.id, size: b.size, count: b.count, depth: b.depth })),
+            includeStirups: inclStirrupsLocal,
+            stirrupSize,
+            stirrupSpacing,
+          }
+        : null;
+      const tool: "count" | "length" | "area" = activeMeasureTool ?? "count";
+      onFormChangeRef.current?.({
+        tag,
+        concreteFields: { tag, ...restFields },
+        rebar: rebarPayload,
+        canvas: { tool, count: liveCount, length: liveLength, area: liveArea, unit: distanceUnit ?? "Meters" },
+      });
+    }, 700);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fieldValues, mainBars, additionBars, inclStirrupsLocal, stirrupSize, stirrupSpacing, rebarMethod, showRebarTab]);
+
+
+  // ── Apply & Continue ────────────────────────────────────────────────────────
+
   function handleApply() {
-    onSaveMeasurement?.({ ...fieldValues });
+    // Capture all data BEFORE any state reset
+    const { tag = "", ...restFields } = fieldValues;
+
+    const rebarPayload: VariantRebar | null = showRebarTab
+      ? {
+          method: rebarMethod,
+          mainBars: mainBars.map((b) => ({ id: b.id, size: b.size, count: b.count, depth: b.depth })),
+          additionBars: additionBars.map((b) => ({ id: b.id, size: b.size, count: b.count, depth: b.depth })),
+          includeStirups: inclStirrupsLocal,
+          stirrupSize,
+          stirrupSpacing,
+        }
+      : null;
+
+    const tool: "count" | "length" | "area" = activeMeasureTool ?? "count";
+
+    onSaveMeasurement?.({
+      tag,
+      concreteFields: { tag, ...restFields },
+      rebar: rebarPayload,
+      canvas: {
+        tool,
+        count: liveCount,
+        length: liveLength,
+        area: liveArea,
+        unit: distanceUnit,
+      },
+    });
+
     onApplyAndContinue();
 
-    // Reset the form fields to defaults for the next entry
-    const newCfg = ELEMENT_CONFIGS[measure] ?? ELEMENT_CONFIGS["Pile"];
-    const reset: Record<string, string> = { tag: "" };
-    newCfg.rows.forEach((row) => row.fields.forEach((f) => { reset[f.key] = f.defaultValue; }));
-    setFieldValues(reset);
+    // Reset both forms to defaults for the next variant
+    setFieldValues(buildDefaultFields(measure, measureChoice));
+    resetRebarToDefaults();
+    setActiveTab("concrete");
+    onTabChange?.("concrete");
 
     setSavedFeedback(true);
     setTimeout(() => setSavedFeedback(false), 2000);
   }
 
+  // ── Render ──────────────────────────────────────────────────────────────────
+
   return (
-    <div className="w-[290px] shrink-0 bg-white border-l border-slate-200 flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 shrink-0">
-        <span className="text-sm font-bold text-slate-800 uppercase tracking-wider">{measure}</span>
+    <div className="w-full h-full bg-white flex flex-col overflow-hidden">
+      {/* Header — also the drag handle when floating */}
+      <div
+        {...dragHandleProps}
+        style={{ touchAction: "none", ...dragHandleProps?.style }}
+        className="flex items-center justify-between px-4 py-3 border-b border-slate-200 shrink-0 cursor-grab active:cursor-grabbing"
+      >
+        <span className="text-sm font-bold text-slate-800 uppercase tracking-wider">
+          {isBlockwork ? blockworkLabel : measure}
+        </span>
         <button
           onClick={onClose}
+          onPointerDown={(e) => e.stopPropagation()}
+          title="Minimize"
           className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
         >
-          <X className="w-3.5 h-3.5" />
+          <Minus className="w-3.5 h-3.5" />
         </button>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs — Blockwork gets External/Internal instead of Concrete/Rebar; each
+          switch is an independent element, not a view of the same data. */}
       <div className="flex shrink-0 border-b border-slate-200">
-        {(showRebarTab ? (["concrete", "rebar"] as const) : (["concrete"] as const)).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`flex-1 py-2.5 text-[11px] font-bold uppercase tracking-wider transition-colors ${
-              activeTab === tab ? "text-amber-600 border-b-2 border-amber-500" : "text-slate-400 hover:text-slate-600"
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
+        {isBlockwork
+          ? (["external", "internal"] as const).map((side) => (
+              <button
+                key={side}
+                onClick={() => onBlockworkSideChange?.(side)}
+                className={`flex-1 py-2.5 text-[11px] font-bold uppercase tracking-wider transition-colors ${
+                  blockworkSide === side
+                    ? "text-amber-600 border-b-2 border-amber-500"
+                    : "text-slate-400 hover:text-slate-600"
+                }`}
+              >
+                {side === "external" ? "External" : "Internal"}
+              </button>
+            ))
+          : (showRebarTab ? (["concrete", "rebar"] as const) : (["concrete"] as const)).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => { setActiveTab(tab); onTabChange?.(tab); }}
+                className={`flex-1 py-2.5 text-[11px] font-bold uppercase tracking-wider transition-colors ${
+                  activeTab === tab
+                    ? "text-amber-600 border-b-2 border-amber-500"
+                    : "text-slate-400 hover:text-slate-600"
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
       </div>
 
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {activeTab === "concrete" ? (
+        {activeTab === "concrete" || isBlockwork ? (
           <>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{cfg.sectionHeader}</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+              {isBlockwork ? "BLOCKWORK" : cfg.sectionHeader}
+            </p>
 
             <div className="space-y-1">
               <label className="text-[11px] text-slate-500">{cfg.tagLabel}</label>
               <Input
                 value={fieldValues.tag ?? ""}
                 onChange={(e) => setField("tag", e.target.value)}
-                placeholder={cfg.tagPlaceholder}
+                placeholder={
+                  isBlockwork
+                    ? blockworkSide === "external" ? "e.g. EXT-01" : "e.g. INT-01"
+                    : cfg.tagPlaceholder
+                }
                 className="h-8 text-sm"
               />
             </div>
 
             <div className="space-y-1">
-              <label className="text-[11px] text-slate-500">{cfg.measureLabel}</label>
-              {activeMeasureTool ? (
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-[11px] text-slate-500">{cfg.measureLabel}</label>
+                {selectedVariant && (
+                  <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 border border-blue-200 rounded-full px-2 py-0.5 whitespace-nowrap">
+                    Viewing: {selectedVariant.tag || selectedVariant.measureType}
+                  </span>
+                )}
+              </div>
+              {displayTool ? (
                 <div className="flex items-baseline gap-1.5">
-                  <p className="text-2xl font-bold text-amber-600 tabular-nums">
-                    {activeMeasureTool === "count" && liveCount}
-                    {activeMeasureTool === "length" && liveLength.toFixed(2)}
-                    {activeMeasureTool === "area" && liveArea.toFixed(2)}
+                  <p className={`text-2xl font-bold tabular-nums ${selectedVariant ? "text-blue-600" : "text-amber-600"}`}>
+                    {displayTool === "count" && displayCount}
+                    {displayTool === "length" && displayLength.toFixed(2)}
+                    {displayTool === "area" && displayArea.toFixed(2)}
                   </p>
                   <span className="text-sm text-slate-500">
-                    {activeMeasureTool === "count" && "placed"}
-                    {activeMeasureTool === "length" && distanceUnit}
-                    {activeMeasureTool === "area" && (distanceUnit === "Meters" ? "m²" : `${distanceUnit}²`)}
+                    {displayTool === "count" && "placed"}
+                    {displayTool === "length" && distanceUnit}
+                    {displayTool === "area" &&
+                      (distanceUnit === "Meters" ? "m²" : `${distanceUnit}²`)}
                   </span>
                 </div>
               ) : (
                 <p className="text-base font-bold text-slate-800">
                   {cfg.mockMeasureValue}
                   {cfg.measureUnit && (
-                    <span className="text-sm font-normal text-slate-500 ml-1">{cfg.measureUnit}</span>
+                    <span className="text-sm font-normal text-slate-500 ml-1">
+                      {cfg.measureUnit}
+                    </span>
                   )}
                 </p>
               )}
             </div>
 
-            {cfg.rows.map((row, i) => (
+            {rows.map((row, i) => (
               <div key={i} className="space-y-2">
                 {row.sectionLabel && (
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{row.sectionLabel}</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                    {row.sectionLabel}
+                  </p>
                 )}
                 <div className={row.fields.length === 2 ? "grid grid-cols-2 gap-3" : ""}>
                   {row.fields.map((field) => (
@@ -184,9 +476,13 @@ export function ElementDetailPanel({
                           value={fieldValues[field.key] ?? field.defaultValue}
                           onValueChange={(v) => setField(field.key, v)}
                         >
-                          <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                          <SelectTrigger className="h-8 text-sm">
+                            <SelectValue />
+                          </SelectTrigger>
                           <SelectContent>
-                            {field.options?.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                            {field.options?.map((o) => (
+                              <SelectItem key={o} value={o}>{o}</SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       ) : (
@@ -203,27 +499,59 @@ export function ElementDetailPanel({
             ))}
 
             <div className="space-y-1">
-              <label className="text-[11px] text-slate-500">Color</label>
-              <div className="h-8 rounded-lg overflow-hidden border border-slate-200 bg-green-400 cursor-pointer" />
+              <label className="text-[11px] text-slate-500">Measurement Color</label>
+              <div className="flex gap-1.5 flex-wrap py-1">
+                {PALETTE.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => onColorChange?.(c)}
+                    title={PALETTE_LABELS[c] ?? c}
+                    className={`w-6 h-6 rounded-full border-2 transition-all ${
+                      (activeColor ?? PALETTE[0]) === c
+                        ? "border-white ring-2 ring-slate-400 scale-110"
+                        : "border-transparent hover:scale-110"
+                    }`}
+                    style={{ backgroundColor: c }}
+                  />
+                ))}
+              </div>
             </div>
           </>
         ) : (
           <>
             <div className="flex items-center justify-between">
-              <span className="text-[11px] text-slate-500">Pile: Bored Pile - 750mm</span>
-              <span className="text-[11px] text-amber-600 font-semibold">Concrete Volume: 0.81 m³</span>
+              <span className="text-[11px] text-slate-500">
+                {measure}: {fieldValues.tag || "—"}
+              </span>
             </div>
 
             <div className="space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Rebar Input Method</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                Rebar Input Method
+              </p>
               <p className="text-[11px] text-slate-600">How would you like to add rebar details?</p>
               <div className="space-y-1.5">
                 {(["read", "manual"] as const).map((m) => (
-                  <button key={m} onClick={() => setRebarMethod(m)} className="w-full flex items-center gap-2 text-left">
-                    <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center shrink-0 ${rebarMethod === m ? "border-amber-500" : "border-slate-300"}`}>
-                      {rebarMethod === m && <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />}
+                  <button
+                    key={m}
+                    onClick={() => setRebarMethod(m)}
+                    className="w-full flex items-center gap-2 text-left"
+                  >
+                    <div
+                      className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                        rebarMethod === m ? "border-amber-500" : "border-slate-300"
+                      }`}
+                    >
+                      {rebarMethod === m && (
+                        <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                      )}
                     </div>
-                    <span className={`text-[11px] ${rebarMethod === m ? "text-amber-600 font-semibold" : "text-slate-500"}`}>
+                    <span
+                      className={`text-[11px] ${
+                        rebarMethod === m ? "text-amber-600 font-semibold" : "text-slate-500"
+                      }`}
+                    >
                       {m === "read"
                         ? "Read from drawing (click on rebar details on the page)"
                         : "Enter manually (I know the rebar specifications)"}
@@ -234,65 +562,143 @@ export function ElementDetailPanel({
             </div>
 
             <div className="space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Main Bars</p>
-              <p className="text-[10px] text-slate-400 uppercase tracking-wider">Rebars:</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                Main Bars
+              </p>
               {mainBars.map((bar) => (
-                <div key={bar.id} className="space-y-2">
+                <div
+                  key={bar.id}
+                  className="space-y-2 pb-2 border-b border-slate-100 last:border-0 last:pb-0"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-slate-400 font-medium">Bar entry</span>
+                    {mainBars.length > 1 && (
+                      <button
+                        onClick={() => removeMainBar(bar.id)}
+                        className="w-5 h-5 flex items-center justify-center rounded text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1">
                       <label className="text-[10px] text-slate-400">Bars Size:</label>
-                      <Select value={bar.size} onValueChange={(v) => updateBar(mainBars, setMainBars, bar.id, "size", v)}>
+                      <Select
+                        value={bar.size}
+                        onValueChange={(v) => updateBar(mainBars, setMainBars, bar.id, "size", v)}
+                      >
                         <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          {BAR_SIZE_OPTIONS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                          {BAR_SIZE_OPTIONS.map((s) => (
+                            <SelectItem key={s} value={s}>{s}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-1">
                       <label className="text-[10px] text-slate-400">Number of bars:</label>
-                      <Input value={bar.count} onChange={(e) => updateBar(mainBars, setMainBars, bar.id, "count", e.target.value)} className="h-7 text-xs" />
+                      <Input
+                        value={bar.count}
+                        onChange={(e) => updateBar(mainBars, setMainBars, bar.id, "count", e.target.value)}
+                        className="h-7 text-xs"
+                      />
                     </div>
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] text-slate-400">Rebar Depth (m)</label>
-                    <Input value={bar.depth} onChange={(e) => updateBar(mainBars, setMainBars, bar.id, "depth", e.target.value)} className="h-7 text-xs" />
+                    <Input
+                      value={bar.depth}
+                      onChange={(e) => updateBar(mainBars, setMainBars, bar.id, "depth", e.target.value)}
+                      className="h-7 text-xs"
+                    />
                   </div>
                 </div>
               ))}
+              {rebarMethod === "manual" && (
+                <button
+                  onClick={addMainBar}
+                  className="text-amber-600 hover:text-amber-700 text-[11px] font-semibold flex items-center gap-1"
+                >
+                  <Plus className="w-3 h-3" /> Add Bar
+                </button>
+              )}
             </div>
 
             <div className="space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Addition Bars:</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                Addition Bars:
+              </p>
               {additionBars.map((bar) => (
-                <div key={bar.id} className="space-y-2">
+                <div
+                  key={bar.id}
+                  className="space-y-2 pb-2 border-b border-slate-100 last:border-0 last:pb-0"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-slate-400 font-medium">Bar entry</span>
+                    {additionBars.length > 1 && (
+                      <button
+                        onClick={() => removeAdditionBar(bar.id)}
+                        className="w-5 h-5 flex items-center justify-center rounded text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1">
                       <label className="text-[10px] text-slate-400">Bars Size:</label>
-                      <Select value={bar.size} onValueChange={(v) => updateBar(additionBars, setAdditionBars, bar.id, "size", v)}>
+                      <Select
+                        value={bar.size}
+                        onValueChange={(v) =>
+                          updateBar(additionBars, setAdditionBars, bar.id, "size", v)
+                        }
+                      >
                         <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          {BAR_SIZE_OPTIONS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                          {BAR_SIZE_OPTIONS.map((s) => (
+                            <SelectItem key={s} value={s}>{s}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-1">
                       <label className="text-[10px] text-slate-400">Number of bars:</label>
-                      <Input value={bar.count} onChange={(e) => updateBar(additionBars, setAdditionBars, bar.id, "count", e.target.value)} className="h-7 text-xs" />
+                      <Input
+                        value={bar.count}
+                        onChange={(e) =>
+                          updateBar(additionBars, setAdditionBars, bar.id, "count", e.target.value)
+                        }
+                        className="h-7 text-xs"
+                      />
                     </div>
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] text-slate-400">Rebar Depth (m)</label>
-                    <Input value={bar.depth} onChange={(e) => updateBar(additionBars, setAdditionBars, bar.id, "depth", e.target.value)} className="h-7 text-xs" />
+                    <Input
+                      value={bar.depth}
+                      onChange={(e) =>
+                        updateBar(additionBars, setAdditionBars, bar.id, "depth", e.target.value)
+                      }
+                      className="h-7 text-xs"
+                    />
                   </div>
                 </div>
               ))}
-              <button className="text-amber-600 hover:text-amber-700 text-[11px] font-semibold flex items-center gap-1">
-                <Plus className="w-3 h-3" /> Add Bar
-              </button>
+              {rebarMethod === "manual" && (
+                <button
+                  onClick={addAdditionBar}
+                  className="text-amber-600 hover:text-amber-700 text-[11px] font-semibold flex items-center gap-1"
+                >
+                  <Plus className="w-3 h-3" /> Add Bar
+                </button>
+              )}
             </div>
 
             <div className="space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Stirrups (Links/Ties)</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                Stirrups (Links/Ties)
+              </p>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
@@ -309,21 +715,42 @@ export function ElementDetailPanel({
                     <Select value={stirrupSize} onValueChange={setStirrupSize}>
                       <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {BAR_SIZE_OPTIONS.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                        {BAR_SIZE_OPTIONS.map((s) => (
+                          <SelectItem key={s} value={s}>{s}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] text-slate-400">Spacing (mm c/c):</label>
-                    <Input value={stirrupSpacing} onChange={(e) => setStirrupSpacing(e.target.value)} className="h-7 text-xs" />
+                    <Input
+                      value={stirrupSpacing}
+                      onChange={(e) => setStirrupSpacing(e.target.value)}
+                      className="h-7 text-xs"
+                    />
                   </div>
                 </div>
               )}
             </div>
 
             <div className="space-y-1">
-              <label className="text-[11px] text-slate-500">Color</label>
-              <div className="h-8 rounded-lg overflow-hidden border border-slate-200 bg-blue-500 cursor-pointer" />
+              <label className="text-[11px] text-slate-500">Measurement Color</label>
+              <div className="flex gap-1.5 flex-wrap py-1">
+                {PALETTE.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => onColorChange?.(c)}
+                    title={PALETTE_LABELS[c] ?? c}
+                    className={`w-6 h-6 rounded-full border-2 transition-all ${
+                      (activeColor ?? PALETTE[0]) === c
+                        ? "border-white ring-2 ring-slate-400 scale-110"
+                        : "border-transparent hover:scale-110"
+                    }`}
+                    style={{ backgroundColor: c }}
+                  />
+                ))}
+              </div>
             </div>
           </>
         )}
@@ -331,17 +758,23 @@ export function ElementDetailPanel({
 
       {/* Footer */}
       <div className="shrink-0 border-t border-slate-200 p-3 space-y-2">
-        {!hasMeasurements && (
+        {!canSubmit && (
           <p className="text-center text-[10px] text-slate-400 leading-snug">
-            Take a measurement on the drawing to enable these actions.
+            {!hasMeasurements
+              ? "Take a measurement on the drawing to enable these actions."
+              : !concreteFormFilled
+                ? "Fill in the Concrete tab details to continue."
+                : "Fill in the Rebar tab details to continue."}
           </p>
         )}
         <div className="flex gap-2">
           <Button
             onClick={handleApply}
-            disabled={!hasMeasurements}
+            disabled={!canSubmit}
             className={`flex-1 text-xs py-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-              savedFeedback ? "bg-green-500 hover:bg-green-500 text-white" : "bg-amber-500 hover:bg-amber-600 text-white"
+              savedFeedback
+                ? "bg-green-500 hover:bg-green-500 text-white"
+                : "bg-amber-500 hover:bg-amber-600 text-white"
             }`}
           >
             {savedFeedback ? "✓ Saved" : "Apply & Continue"}
@@ -349,7 +782,7 @@ export function ElementDetailPanel({
           <Button
             variant="outline"
             onClick={onAssignElement}
-            disabled={!hasMeasurements}
+            disabled={!canSubmit}
             className="flex-1 text-xs py-2 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             + Assign Element

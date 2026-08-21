@@ -172,6 +172,7 @@ export const uploads = {
   upload: "/uploads",
   uploadFile: "uploads/{id}",
   getUploads: (id: string) => `/uploads/${id}`,
+  downloadUpload: (id: string) => `/uploads/${id}/download`,
 };
 
 export const pdfBoq = {
@@ -221,6 +222,20 @@ export const aiTakeoff = {
     `${AI_TAKEOFF_PREFIX}/ai-takeoff/sessions/${sessionId}/elements/review`,
   finish: (sessionId: string) =>
     `${AI_TAKEOFF_PREFIX}/ai-takeoff/sessions/${sessionId}/finish`,
+export const measurementSessions = {
+  // Project-scoped
+  create: (projectId: string) => `/projects/${projectId}/measurement-sessions`,
+  listByProject: (projectId: string) => `/projects/${projectId}/measurement-sessions`,
+  // Session-scoped
+  get: (sessionId: string) => `/measurement-sessions/${sessionId}`,
+  delete: (sessionId: string) => `/measurement-sessions/${sessionId}`,
+  updateCanvas: (sessionId: string) => `/measurement-sessions/${sessionId}/canvas`,
+  listElements: (sessionId: string) => `/measurement-sessions/${sessionId}/elements`,
+  upsertElement: (sessionId: string) => `/measurement-sessions/${sessionId}/elements`,
+  deleteElement: (sessionId: string, clientId: string) =>
+    `/measurement-sessions/${sessionId}/elements/${clientId}`,
+  finalize: (sessionId: string) => `/measurement-sessions/${sessionId}/finalize`,
+  updateStatus: (sessionId: string) => `/measurement-sessions/${sessionId}/status`,
 };
 
 export const dashboard = {
@@ -257,4 +272,5 @@ export const ApiEndpoints = {
   dashboard,
   manual,
   aiTakeoff,
+  measurementSessions,
 };

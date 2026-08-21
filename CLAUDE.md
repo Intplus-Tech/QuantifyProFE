@@ -71,7 +71,9 @@ Currency, Project Type, Project Phase, Duration (months), Description.
 
 ### Step 2 — Drawing References (`StepDrawings.tsx`)
 - Drag-and-drop via `react-dropzone`
-- **Max 10 files, 20 MB each**
+- **Max 10 files, 200 MB each** (client-side cap — but PDFs/images still route through the
+  backend's `/uploads` endpoint, which hard-caps at 50 MB; only CAD/BIM formats routed through
+  `/bim/upload` support up to 200 MB. See "Known Issues" below.)
 - Accepted formats: `.pdf` `.jpg` `.jpeg` `.png` `.rvt` `.ifc` `.nwd` `.skp` `.fbx` `.obj` `.dwg` `.dxf` `.dgn`
 - Per-file state machine: `queued → uploading (%) → processing → complete | error`
 - Upload is **simulated** — see swap point below
@@ -615,6 +617,8 @@ export function MultiFormatViewer({ url }: { url: string }) {
 | `StepScope`, `StepFinishing`, `StepMetrics` still exist | `components/projects/manual/` | Removed from wizard flow but files not deleted — safe to clean up |
 | `app/layout.tsx` has a modification | `app/` | Review before next push |
 | Drawing upload is simulated | `StepDrawings.tsx` | Swap point clearly marked with TODO comment |
+| View BOQ finalize — exact failure mode unknown | `ProjectWorkspaceView.tsx` | Button now shows specific error toasts (404/400/5xx); user needs to report which one appears |
+| Client-side upload cap (200 MB) exceeds what PDFs/images can actually clear | `StepDrawings.tsx` | All files (PDF, image, CAD/BIM) upload through the generic `/uploads` endpoint, which the backend hard-caps at 50 MB. A 50–200 MB PDF/image will pass the dropzone check and then fail at upload time. Only CAD/BIM formats get true 200 MB support, and only via the separate `/bim/upload` endpoint (APS translation flow), which `StepDrawings.tsx` doesn't call. |
 
 ---
 
@@ -628,6 +632,213 @@ export function MultiFormatViewer({ url }: { url: string }) {
 | `auth/integration` | Auth flow integration (merged) | ✅ |
 
 Latest commit on `feat/2-step-wizard-canvas-workspace`: `feat: count tool flow, element panel, assign element modal chain` (`738e845`)
+
+---
+
+---
+
+## Session — Workspace Fixes & Auto-Save (2026-07-18 → 2026-07-20)
+
+### 1. Source Dropdown on Manual Project Creation
+
+Added a `source` field to the manual project creation form (Step 2).
+
+- `PROJECT_SOURCES` constant in `components/projects/manual/constants.ts` — values: `manual`, `manual-drawn`, `pdf_boq`, `bim`, `template`
+- `source: string` added to `Step2Data` interface (`components/projects/manual/types.ts`)
+- `source: z.string().optional()` added to zod schema in `StepProjectDetails.tsx`
+- `CreateManualProjectPayload.source` widened from `"manual"` literal to `string` (`types/manualProject.ts`)
+- Transformer: `source: step2.source || "manual"` (`manualWizardTransformers.ts`)
+
+---
+
+### 2. Drawing Hydration Fix (document not showing in workspace)
+
+**Root cause:** `backendProject.drawings` is empty for freshly-created projects. `DrawingHydrator` was never rendering.
+
+**Fix:** `apiHydrateIds` in `ProjectWorkspaceView.tsx` now merges `backendProject.drawings` AND `savedSession.drawings` (from localStorage written by the wizard before navigation):
+
+```typescript
+const apiHydrateIds = useMemo(() => {
+  const ids = new Set<string>(backendProject?.drawings ?? []);
+  for (const d of savedSession.drawings ?? []) ids.add(d.id);
+  return Array.from(ids);
+}, [backendProject?.drawings, savedSession.drawings]);
+```
+
+`drawingsOpen` panel also auto-opens when `savedSession.drawings` is non-empty.
+
+---
+
+### 3. Color Picker Fix (Fix #2)
+
+**Root cause:** Radix `<Select>` + `<SelectItem>` with `<div>` children causes a div-inside-span DOM nesting violation that prevents click events from registering.
+
+**Fix:** Replaced both color pickers (Concrete tab and Rebar tab) in `ElementDetailPanel.tsx` with inline clickable `<button>` circles — no more Radix Select involved:
+
+```tsx
+<div className="flex gap-1.5 flex-wrap py-1">
+  {PALETTE.map((c) => (
+    <button
+      key={c} type="button" onClick={() => onColorChange?.(c)}
+      title={PALETTE_LABELS[c] ?? c}
+      className={`w-6 h-6 rounded-full border-2 transition-all ${
+        (activeColor ?? PALETTE[0]) === c
+          ? "border-white ring-2 ring-slate-400 scale-110"
+          : "border-transparent hover:scale-110"
+      }`}
+      style={{ backgroundColor: c }}
+    />
+  ))}
+</div>
+```
+
+`PALETTE_LABELS` constant added to `components/projects/workspace/components/constants.ts` maps hex → human-readable name.
+
+---
+
+### 4. Cross-Page Element Visibility (Fix #1)
+
+**Root cause:** Phase 2 hydration only loaded elements from the *current* active session. Switching pages wiped the Elements tab.
+
+**Architecture change:** Phase 2 is now split into two:
+
+**Phase 2 (unchanged in role):** Per-session canvas/calibration restore only (scale factor, canvas marks, known distance). Runs once per `activeSessionId`.
+
+**Global element loader (new):** Runs once when `backendProject._id` first resolves. Fetches ALL project sessions in parallel via `fetchProjectSessions` + `fetchSessionById`, then merges ALL `_snapshot`-bearing elements across every session into a single global `elements` state. The Elements tab now shows work from every page simultaneously.
+
+```typescript
+const projectElementsLoaded = useRef(false);
+useEffect(() => {
+  if (projectElementsLoaded.current || !backendProject?._id) return;
+  projectElementsLoaded.current = true;
+  async function loadAllElements() {
+    const sessionsResult = await fetchProjectSessions(projectId);
+    // ... fetch all sessions in parallel, merge assigned + pending elements
+  }
+  loadAllElements();
+}, [backendProject?._id, projectId]);
+```
+
+---
+
+### 5. Undo/Redo Disabled State + Keyboard Shortcuts (Fix #3)
+
+- Undo/Redo buttons in TOOLS bar are now `disabled` when `measurementHook.canUndo` / `canRedo` is false. Styling: `disabled:opacity-40 disabled:cursor-not-allowed`.
+- Keyboard shortcuts added: `Cmd/Ctrl+Z` = undo, `Cmd/Ctrl+Shift+Z` or `Ctrl+Y` = redo. Wired via `useEffect` + `window.addEventListener("keydown", ...)`.
+
+---
+
+### 6. Skip BBS/Scale Prompts on Page Navigation (Fix #4)
+
+**Problem:** Navigating to another page and clicking a tool triggered the full BBS → Scale Setup modal chain again, as if starting from scratch.
+
+**Fix:** `handleToolClick` now checks `scaleFlowActive` first. If scale is already configured (from any previous page or session restore), clicking a tool directly activates it:
+
+```typescript
+function handleToolClick(id: ToolId) {
+  if (id === "undo") { measurementHook.undo(); return; }
+  if (id === "redo") { measurementHook.redo(); return; }
+  if (scaleFlowActive) {
+    setActiveTool(id);
+    setCountModeActive(id === "count");
+    setPendingTool(null);
+    return;
+  }
+  setPendingTool(id);
+  setBbsModalStep("question");
+}
+```
+
+`scaleFlowActive` persists across page navigation (component-level state, only reset by `handleResetScale`).
+
+---
+
+### 7. Apply Scale ≠ Lock Scale
+
+**Problem:** Clicking "Apply Scale" immediately locked the scale (`setScaleLocked(true)` was called inside `handleApplyScale`), bypassing the explicit "Lock Scale" toggle.
+
+**Fix:** Removed `setScaleLocked(true)` and `scaleLocked: true` from `handleApplyScale`. The user must now explicitly toggle Lock Scale after confirming they are happy with the calibration.
+
+Status header in the calibration bar now changes dynamically:
+- Before apply: red dot + "CALIBRATION REQUIRED"
+- After apply, before lock: amber dot + "SCALE APPLIED — Lock when ready"
+- After lock: separate "Ready to measure" bar (unchanged)
+
+---
+
+### 8. Auto-Save (Continuous Variant Persistence)
+
+**Problem:** The `concreteMeasurements` array (fed to `CreateNewElementModal`) was only populated when the user explicitly clicked "Apply & Continue". If they skipped that step and clicked "+ Assign Element", the modal showed empty.
+
+**Solution:** Auto-save fires on every canvas mark and on every form field change.
+
+#### Architecture
+
+**`currentVariantId` ref** — stable UUID for the current measurement round. Used as `clientId` when upserting to backend so repeated saves are idempotent. Cycles (new UUID) when "Apply & Continue" is explicitly clicked.
+
+**`handleAutoSave(formPayload?)`** in `ProjectWorkspaceView.tsx`:
+- Builds a `WsConcreteMeasurement` using `currentVariantId.current` as ID
+- Upserts/updates the entry in `concreteMeasurements` (no duplicates)
+- Calls `upsertPendingVariant` to persist to backend
+- Updates `autoSaveStatus`: `idle → saving → saved → idle`
+
+**Canvas mark trigger:** `useEffect` on `measurementHook.state.measurements.length` — fires `handleAutoSave()` whenever a new mark is placed.
+
+**Form field trigger:** `onFormChange` prop added to `ElementDetailPanel`. A `useEffect` inside the panel watches all form state (tag, concrete fields, rebar bars, stirrups) and fires `onFormChange` with a 700 ms debounce.
+
+**"Apply & Continue" integration:** Now uses `currentVariantId.current` (same ID as auto-saves) to update the existing entry in place, then cycles to a new UUID. No duplicates ever appear.
+
+#### Navbar autosave indicator
+
+```tsx
+{autoSaveStatus === "saving" ? (
+  <span className="flex items-center gap-1 text-[10px] text-amber-500">
+    <div className="w-2.5 h-2.5 border border-amber-400 border-t-transparent rounded-full animate-spin" />
+    Saving...
+  </span>
+) : (
+  <span className="flex items-center gap-1 text-[10px] text-slate-400">
+    <Save className="w-3 h-3" /> Auto-saved just now
+  </span>
+)}
+```
+
+#### localStorage fixes
+
+- `concreteMeasurements: []` removed from the on-mount localStorage wipe so pending measurements survive page refresh.
+- Global element loader falls back to `loadSession(projectId).concreteMeasurements` if backend returns no pending variants.
+
+#### Assign Element guard
+
+If `concreteMeasurements` is somehow still empty when "+ Assign Element" is clicked (no drawings yet), a toast fires: "Take a measurement on the drawing first."
+
+---
+
+### 9. View BOQ — Error Visibility
+
+**Problem:** Clicking "View BOQ" did nothing visible.
+
+**Fix:** `handleViewBoq` now:
+- Shows a warning toast if `activeSessionId` is null ("No active session")
+- On API failure, shows a specific toast: 404 = "Session not found", 400 = "Cannot finalize: ensure at least one measurement is saved", otherwise shows the HTTP status code
+- Navigation to `/boq` only happens on API success
+
+**Status:** Root cause of the actual failure still unknown — user needs to check DevTools Network tab for the HTTP status on `POST /measurement-sessions/:id/finalize`.
+
+---
+
+### Key Files Modified This Session
+
+| File | What changed |
+|---|---|
+| `components/projects/manual/types.ts` | Added `source: string` to `Step2Data` |
+| `components/projects/manual/constants.ts` | Added `PROJECT_SOURCES`, `source: ""` default |
+| `components/projects/manual/StepProjectDetails.tsx` | Source dropdown with Radix Select |
+| `components/projects/manual/manualWizardTransformers.ts` | `source: step2.source \|\| "manual"` |
+| `types/manualProject.ts` | Widened `source` to `string` |
+| `components/projects/workspace/ProjectWorkspaceView.tsx` | Major — all session, auto-save, hydration, BBS/scale fixes |
+| `components/projects/workspace/components/ElementDetailPanel.tsx` | Color swatch grid, `onFormChange` prop, debounced form auto-save |
+| `components/projects/workspace/components/constants.ts` | Added `PALETTE_LABELS` |
 
 ---
 

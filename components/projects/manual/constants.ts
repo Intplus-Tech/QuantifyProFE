@@ -126,6 +126,14 @@ export const PROJECT_PHASES = [
   "Construction",
 ];
 
+export const PROJECT_SOURCES = [
+  { value: "manual", label: "Manual Entry" },
+  { value: "manual-drawn", label: "Manual (Drawn)" },
+  { value: "pdf_boq", label: "PDF BOQ" },
+  { value: "bim", label: "BIM / 3D Model" },
+  { value: "template", label: "Template" },
+];
+
 export const SCOPE_PROJECT_TYPES = [
   "Piling Alone",
   "Piling & Substructure",
@@ -281,6 +289,7 @@ export function defaultStep2(): Step2Data {
   return {
     projectName: "", clientName: "", projectRef: "", streetAddress: "",
     currency: "", projectType: "", projectPhase: "", durationMonths: "", description: "",
+    source: "",
   };
 }
 

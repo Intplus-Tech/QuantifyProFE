@@ -24,7 +24,7 @@ export interface ManualProject extends Project {
 export interface CreateManualProjectPayload {
   name: string;
   description?: string;
-  source: "manual";
+  source: string;
   processingMode: "manual";
   projectCode?: string;
   projectType?: string;
@@ -37,6 +37,7 @@ export interface CreateManualProjectPayload {
   companyId?: string;
   scopeCategories?: string[];
   drawingType?: string[];
+  drawings?: string[];
 }
 
 export type CreateManualProjectResponse = ApiResponse<Project>;

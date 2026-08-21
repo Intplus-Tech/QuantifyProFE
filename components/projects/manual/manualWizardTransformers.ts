@@ -59,12 +59,13 @@ function toProjectType(uiValue: string): string {
 }
 
 export function buildCreateProjectPayload(
-  step2: Step2Data
+  step2: Step2Data,
+  drawingIds?: string[],
 ): CreateManualProjectPayload {
   return {
     name: step2.projectName,
     description: step2.description || undefined,
-    source: "manual",                                                       // required by API
+    source: step2.source || "manual",
     processingMode: "manual",
     projectCode: step2.projectRef || undefined,
     projectType: step2.projectType ? toProjectType(step2.projectType) : undefined,
@@ -73,6 +74,7 @@ export function buildCreateProjectPayload(
     duration: step2.durationMonths ? Number(step2.durationMonths) : undefined,
     currency: step2.currency || undefined,
     clientName: step2.clientName || undefined,
+    drawings: drawingIds?.length ? drawingIds : undefined,
   };
 }
 

@@ -15,11 +15,12 @@ import {
 import { DrawingFileList } from "./DrawingFileList";
 import { DrawingPreviewPanel } from "./DrawingPreviewPanel";
 import { useState } from "react";
+import { useUploadFileMutation } from "@/store/api/uploadApi";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const MAX_FILES = 10;
-const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB
+const MAX_SIZE_BYTES = 200 * 1024 * 1024; // 200 MB
 
 const ACCEPTED_TYPES: Record<string, string[]> = {
   "application/pdf": [".pdf"],
@@ -42,29 +43,6 @@ function getExt(name: string): string {
   return dot >= 0 ? name.slice(dot).toLowerCase() : "";
 }
 
-// ── Simulated upload (plug-and-play when real API is ready) ──────────────────
-//
-// TODO: Replace the body of this function with a real API call:
-//   const { url } = await uploadDrawingFile(file, { onProgress });
-//   return url;
-//
-async function simulateUpload(
-  file: File,
-  onProgress: (p: number) => void,
-): Promise<{ url: string }> {
-  console.log("[DrawingUpload] Starting upload →", { name: file.name, size: file.size, type: file.type });
-
-  for (let p = 10; p <= 90; p += 20) {
-    await new Promise((r) => setTimeout(r, 200));
-    onProgress(p);
-  }
-  await new Promise((r) => setTimeout(r, 500)); // simulate processing
-  onProgress(100);
-
-  const url = `https://cdn.placeholder.example/drawings/${encodeURIComponent(file.name)}`;
-  console.log("[DrawingUpload] Complete →", { name: file.name, url });
-  return { url };
-}
 
 // ── Component ────────────────────────────────────────────────────────────────
 
@@ -79,6 +57,8 @@ export function StepDrawings({ onBack, onSaveAndProceed, isSaving }: StepDrawing
   const drawings = useAppSelector((state) => state.manualWizard.drawings);
   const [selectedId, setSelectedId] = useState<string | null>(drawings[0]?.id ?? null);
 
+  const [uploadFile] = useUploadFileMutation();
+
   const selectedFile = drawings.find((d) => d.id === selectedId) ?? null;
 
   const processFile = useCallback(
@@ -87,40 +67,48 @@ export function StepDrawings({ onBack, onSaveAndProceed, isSaving }: StepDrawing
       const category = EXT_TO_CATEGORY[ext] ?? "pdf";
       const id = crypto.randomUUID();
 
-      // Create blob URL for image/PDF immediate preview
       const previewUrl =
         category === "pdf" || category === "image"
           ? URL.createObjectURL(file)
           : undefined;
 
-      const entry = {
+      dispatch(addDrawing({
         id,
         name: file.name,
         size: file.size,
         extension: ext,
         category,
-        status: "uploading" as const,
+        status: "uploading",
         progress: 0,
         previewUrl,
-      };
-
-      dispatch(addDrawing(entry));
+      }));
       setSelectedId(id);
 
       try {
-        const { url } = await simulateUpload(file, (progress) => {
-          dispatch(updateDrawing({ id, progress, status: "uploading" }));
-        });
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const result = await uploadFile({
+          formData,
+          onUploadProgress: (event) => {
+            if (event.total) {
+              const pct = Math.round((event.loaded / event.total) * 100);
+              dispatch(updateDrawing({ id, progress: pct, status: "uploading" }));
+            }
+          },
+        }).unwrap();
+
+        const uploadedFileId = result.data._id;
 
         dispatch(updateDrawing({ id, status: "processing", progress: 100 }));
-        await new Promise((r) => setTimeout(r, 600));
-        dispatch(updateDrawing({ id, status: "complete", uploadedUrl: url }));
+        await new Promise((r) => setTimeout(r, 400));
+        dispatch(updateDrawing({ id, status: "complete", uploadedFileId, uploadedUrl: result.data.url }));
       } catch {
         dispatch(updateDrawing({ id, status: "error", error: "Upload failed. Please retry." }));
         toast.error(`Failed to upload "${file.name}"`);
       }
     },
-    [dispatch],
+    [dispatch, uploadFile],
   );
 
   const onDrop = useCallback(
@@ -202,7 +190,7 @@ export function StepDrawings({ onBack, onSaveAndProceed, isSaving }: StepDrawing
               <p className="text-xs text-muted-foreground mt-1">
                 PDF, JPG, PNG, DWG, DXF, RVT, IFC, NWD, SKP…
               </p>
-              <p className="text-xs text-muted-foreground">Up to {MAX_FILES} files · 20 MB each</p>
+              <p className="text-xs text-muted-foreground">Up to {MAX_FILES} files · 200 MB each</p>
             </div>
           </div>
 
