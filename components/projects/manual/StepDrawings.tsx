@@ -20,7 +20,7 @@ import { useUploadFileMutation } from "@/store/api/uploadApi";
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const MAX_FILES = 10;
-const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB
+const MAX_SIZE_BYTES = 200 * 1024 * 1024; // 200 MB
 
 const ACCEPTED_TYPES: Record<string, string[]> = {
   "application/pdf": [".pdf"],
@@ -190,7 +190,7 @@ export function StepDrawings({ onBack, onSaveAndProceed, isSaving }: StepDrawing
               <p className="text-xs text-muted-foreground mt-1">
                 PDF, JPG, PNG, DWG, DXF, RVT, IFC, NWD, SKP…
               </p>
-              <p className="text-xs text-muted-foreground">Up to {MAX_FILES} files · 20 MB each</p>
+              <p className="text-xs text-muted-foreground">Up to {MAX_FILES} files · 200 MB each</p>
             </div>
           </div>
 

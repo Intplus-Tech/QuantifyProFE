@@ -315,7 +315,7 @@ function rebarToReinforcement(
       const match = b.size.match(/^([A-Z])(\d+)$/);
       return {
         barMark: b.id,
-        barCount: parseInt(b.count, 10) || 0,
+        barCount: Number.parseInt(b.count, 10) || 0,
         barType: match?.[1] ?? "Y",
         diameter: parseInt(match?.[2] ?? "16", 10),
         length: Math.round((parseFloat(b.depth) / 1000) * 1000) / 1000, // mm → m
@@ -516,7 +516,9 @@ export function ProjectWorkspaceView({
   // Whether the calibration/scale bar at the bottom is visible — auto-hides a
   // couple seconds after locking, brought back via the "Edit Calibration" button.
   const [showCalibrationBar, setShowCalibrationBar] = useState(true);
-  const calibrationBarHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const calibrationBarHideTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
 
   const [showElementPanel, setShowElementPanel] = useState(false);
   const [concreteMeasurements, setConcreteMeasurements] = useState<
@@ -582,6 +584,11 @@ export function ProjectWorkspaceView({
     () => savedSession.elementPanelCollapsed ?? false,
   );
   const canvasAreaRef = useRef<HTMLDivElement>(null);
+  // Mirrors DrawingCanvas's internal pan-drag state so the measurement overlay
+  // (rendered here, on top of it) can also show a "grabbing" cursor while
+  // panning — otherwise the active tool's crosshair cursor never changes,
+  // even mid-drag, since the overlay owns cursor styling over its own area.
+  const [isPanningDrawing, setIsPanningDrawing] = useState(false);
   const elementPanelRef = useRef<HTMLDivElement>(null);
   const panelDragState = useRef<{
     startX: number;
@@ -595,8 +602,11 @@ export function ProjectWorkspaceView({
   const [expandedCategories, setExpandedCategories] = useState<string[]>([]);
   // Elements — populated by Phase 2 hydration from backend, never from localStorage
   const [elements, setElements] = useState<CreatedElement[]>([]);
-  const [deleteElementTarget, setDeleteElementTarget] = useState<CreatedElement | null>(null);
-  const [deletingElementId, setDeletingElementId] = useState<string | null>(null);
+  const [deleteElementTarget, setDeleteElementTarget] =
+    useState<CreatedElement | null>(null);
+  const [deletingElementId, setDeletingElementId] = useState<string | null>(
+    null,
+  );
 
   // ── Calibration points (received from canvas during calibration) ─────────────
   const [calibPtCount, setCalibPtCount] = useState<0 | 1 | 2>(0);
@@ -660,7 +670,9 @@ export function ProjectWorkspaceView({
   }
 
   // ── Click a Live Measurements row to bring its value + geometry back up ──────
-  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(
+    null,
+  );
 
   const selectedVariant = useMemo(() => {
     if (!selectedVariantId) return null;
@@ -689,12 +701,14 @@ export function ProjectWorkspaceView({
     const ids = variant.canvas.measurementIds;
     if (ids.length === 0) return;
     const drawing = drawings.find(
-      (d) => d.uploadedFileId === variant.drawingId || d.id === variant.drawingId,
+      (d) =>
+        d.uploadedFileId === variant.drawingId || d.id === variant.drawingId,
     );
     const localDrawingId = drawing?.id ?? variant.drawingId;
     if (!localDrawingId) return;
     const isActivePage =
-      localDrawingId === selectedDrawingId && variant.pageNumber === selectedPage;
+      localDrawingId === selectedDrawingId &&
+      variant.pageNumber === selectedPage;
     if (isActivePage) {
       measurementHook.removeMeasurements(ids);
     } else {
@@ -721,7 +735,10 @@ export function ProjectWorkspaceView({
       const next = prev.map((el) => {
         if (!el.variants.some((v) => v.id === variant.id)) return el;
         changed = true;
-        return { ...el, variants: el.variants.filter((v) => v.id !== variant.id) };
+        return {
+          ...el,
+          variants: el.variants.filter((v) => v.id !== variant.id),
+        };
       });
       if (!changed) return prev;
       saveSession(projectId, { createdElements: next });
@@ -910,7 +927,9 @@ export function ProjectWorkspaceView({
     // Only treat it as genuinely calibrated when the calibration inputs that Apply
     // Scale actually sends (knownDistance + pixelDistance) are both present too.
     const isGenuinelyCalibrated =
-      !!backendScale && !!calibration?.knownDistance && !!calibration?.pixelDistance;
+      !!backendScale &&
+      !!calibration?.knownDistance &&
+      !!calibration?.pixelDistance;
 
     if (isGenuinelyCalibrated) {
       setGlobalScaleFactor(backendScale);
@@ -951,7 +970,10 @@ export function ProjectWorkspaceView({
         measurementHook.resetWithData({
           scaleFactor: isGenuinelyCalibrated ? backendScale : null,
           calibPts: null,
-          measurements: [...measurementHook.state.measurements, ...newFromBackend],
+          measurements: [
+            ...measurementHook.state.measurements,
+            ...newFromBackend,
+          ],
         });
       }
       // These marks belong to already-saved elements from a prior round —
@@ -996,8 +1018,10 @@ export function ProjectWorkspaceView({
       knownDistance: parseFloat(saved.knownDistance) || 0,
       pixelDistance: measurementHook.state.calibPts
         ? Math.hypot(
-            measurementHook.state.calibPts[1].x - measurementHook.state.calibPts[0].x,
-            measurementHook.state.calibPts[1].y - measurementHook.state.calibPts[0].y,
+            measurementHook.state.calibPts[1].x -
+              measurementHook.state.calibPts[0].x,
+            measurementHook.state.calibPts[1].y -
+              measurementHook.state.calibPts[0].y,
           )
         : 0,
       unit: toBackendDistanceUnit(saved.distanceUnit),
@@ -1064,8 +1088,7 @@ export function ProjectWorkspaceView({
                 id: eid,
                 name: elementName,
                 category: (attrs.elementCategory as string) ?? "Substructure",
-                categoryFolder:
-                  (attrs.categoryFolder as string) ?? elementName,
+                categoryFolder: (attrs.categoryFolder as string) ?? elementName,
                 measurementUnit: (attrs.measurementUnit as string) ?? "items",
                 variants: [],
                 sessionId: sid,
@@ -2007,7 +2030,10 @@ export function ProjectWorkspaceView({
 
     // Group by canvas tool — geometry type (and therefore what's valid to send)
     // depends on the tool, so each group becomes its own bundled request.
-    const groups = new Map<"count" | "length" | "area", WsConcreteMeasurement[]>();
+    const groups = new Map<
+      "count" | "length" | "area",
+      WsConcreteMeasurement[]
+    >();
     for (const variant of variants) {
       const list = groups.get(variant.canvas.tool) ?? [];
       list.push(variant);
@@ -2081,7 +2107,12 @@ export function ProjectWorkspaceView({
       if (pointGroups.length === 0) continue;
 
       const geometry: MeasurementGeometry = {
-        type: tool === "count" ? "multipoint" : tool === "length" ? "polyline" : "polygon",
+        type:
+          tool === "count"
+            ? "multipoint"
+            : tool === "length"
+              ? "polyline"
+              : "polygon",
         points: pointGroups.flat(),
         page,
       };
@@ -2108,7 +2139,6 @@ export function ProjectWorkspaceView({
       });
     }
   }
-
 
   // ── Session conflict resolution (409 on session create) ──────────────────────
 
@@ -2558,7 +2588,9 @@ export function ProjectWorkspaceView({
                     </TooltipTrigger>
                     <TooltipContent side="bottom" sideOffset={6}>
                       <p className="font-semibold text-xs">Deselect Tool</p>
-                      <p className="text-[10px] opacity-75 mt-0.5">Stop drawing with the active tool</p>
+                      <p className="text-[10px] opacity-75 mt-0.5">
+                        Stop drawing with the active tool
+                      </p>
                     </TooltipContent>
                   </Tooltip>
                 </div>
@@ -2697,7 +2729,9 @@ export function ProjectWorkspaceView({
                                           <div className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
                                           <span className="text-[12px] text-slate-500">
                                             {el.variants.length} variant
-                                            {el.variants.length !== 1 ? "s" : ""}
+                                            {el.variants.length !== 1
+                                              ? "s"
+                                              : ""}
                                           </span>
                                         </div>
                                       </button>
@@ -2979,6 +3013,7 @@ export function ProjectWorkspaceView({
                   !(scaleFlowActive && !scaleLocked) &&
                   (!activeTool || activeTool === "text")
                 }
+                onPanningChange={setIsPanningDrawing}
                 onPageCountResolved={handlePageCountResolved}
                 measurementOverlay={
                   <MeasurementCanvas
@@ -2992,6 +3027,7 @@ export function ProjectWorkspaceView({
                     highlightedIds={highlightedMarkIds}
                     nextCountIndex={nextCountIndex}
                     pageKey={`${selectedDrawingId ?? "none"}-${selectedPage}`}
+                    isPanning={isPanningDrawing}
                     onCalibrationUpdate={handleCalibrationUpdate}
                     onMeasurementAdd={handleMeasurementAdd}
                     onLiveLength={setLiveDrawingLength}
@@ -3435,20 +3471,25 @@ export function ProjectWorkspaceView({
 
         <AlertDialog
           open={!!deleteElementTarget}
-          onOpenChange={(v) => { if (!v) setDeleteElementTarget(null); }}
+          onOpenChange={(v) => {
+            if (!v) setDeleteElementTarget(null);
+          }}
         >
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Delete element?</AlertDialogTitle>
               <AlertDialogDescription>
-                This will permanently delete &quot;{deleteElementTarget?.name}&quot; and all{" "}
-                {deleteElementTarget?.variants.length ?? 0} of its measurement variant
-                {deleteElementTarget?.variants.length !== 1 ? "s" : ""} from the project. This
-                cannot be undone.
+                This will permanently delete &quot;{deleteElementTarget?.name}
+                &quot; and all {deleteElementTarget?.variants.length ?? 0} of
+                its measurement variant
+                {deleteElementTarget?.variants.length !== 1 ? "s" : ""} from the
+                project. This cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel disabled={!!deletingElementId}>Cancel</AlertDialogCancel>
+              <AlertDialogCancel disabled={!!deletingElementId}>
+                Cancel
+              </AlertDialogCancel>
               <AlertDialogAction
                 onClick={(e) => {
                   e.preventDefault();
