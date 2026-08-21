@@ -188,6 +188,58 @@ export function ElementDetailPanel({
     setAdditionBars((prev) => (prev.length > 1 ? prev.filter((b) => b.id !== id) : prev));
   }
 
+  // ── Selected Live Measurements row → prefill tag/rebar too ────────────────────
+  // Snapshots whatever the user was mid-drafting for the *current* round the
+  // first time a row gets selected, shows that row's own saved data instead,
+  // then restores the draft when the row is deselected — so viewing a past
+  // variant's tag/rebar can never lose or corrupt the in-progress round.
+  const draftSnapshotRef = useRef<{
+    fieldValues: Record<string, string>;
+    rebarMethod: "read" | "manual";
+    mainBars: RebarBar[];
+    additionBars: RebarBar[];
+    inclStirrupsLocal: boolean;
+    stirrupSize: string;
+    stirrupSpacing: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (selectedVariant) {
+      if (draftSnapshotRef.current === null) {
+        draftSnapshotRef.current = {
+          fieldValues,
+          rebarMethod,
+          mainBars,
+          additionBars,
+          inclStirrupsLocal,
+          stirrupSize,
+          stirrupSpacing,
+        };
+      }
+      setFieldValues(selectedVariant.concreteFields);
+      if (selectedVariant.rebar) {
+        setRebarMethod(selectedVariant.rebar.method);
+        setMainBars(selectedVariant.rebar.mainBars);
+        setAdditionBars(selectedVariant.rebar.additionBars);
+        setInclStirrupsLocal(selectedVariant.rebar.includeStirups);
+        setStirrupSize(selectedVariant.rebar.stirrupSize);
+        setStirrupSpacing(selectedVariant.rebar.stirrupSpacing);
+      }
+    } else if (draftSnapshotRef.current) {
+      const draft = draftSnapshotRef.current;
+      draftSnapshotRef.current = null;
+      setFieldValues(draft.fieldValues);
+      setRebarMethod(draft.rebarMethod);
+      setMainBars(draft.mainBars);
+      setAdditionBars(draft.additionBars);
+      setInclStirrupsLocal(draft.inclStirrupsLocal);
+      setStirrupSize(draft.stirrupSize);
+      setStirrupSpacing(draft.stirrupSpacing);
+    }
+    // Only re-run when the selected row itself changes — not on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedVariant?.id]);
+
   // ── Validation ──────────────────────────────────────────────────────────────
 
   const concreteFormFilled =
@@ -208,7 +260,11 @@ export function ElementDetailPanel({
       return !isNaN(n) && n > 0;
     });
 
-  const canSubmit = hasMeasurements && concreteFormFilled && rebarFormFilled;
+  // A selected Live Measurements row is itself a real, already-drawn measurement —
+  // don't gate on the live round's own marks (hasMeasurements) while viewing one,
+  // just on whatever inputs are actually required being filled.
+  const canSubmit =
+    (hasMeasurements || !!selectedVariant) && concreteFormFilled && rebarFormFilled;
 
   // ── Debounced form auto-save ─────────────────────────────────────────────────
   // Fires 700 ms after any form field changes so the parent can persist the
@@ -219,7 +275,10 @@ export function ElementDetailPanel({
   useEffect(() => { onFormChangeRef.current = onFormChange; });
 
   useEffect(() => {
-    if (!onFormChangeRef.current) return;
+    // While viewing a selected Live Measurements row, the fields hold that
+    // row's saved data, not the live round's draft — don't let it overwrite
+    // the actual in-progress round's auto-save.
+    if (!onFormChangeRef.current || selectedVariant) return;
     const timer = setTimeout(() => {
       const { tag = "", ...restFields } = fieldValues;
       const rebarPayload: VariantRebar | null = showRebarTab
