@@ -36,11 +36,15 @@ import {
   removeAiDrawing,
   setActiveAiDrawing,
   setAiDrawingPageCount,
+  setAiUploadedFileId,
   updateAiDrawing,
   type AiDrawing,
 } from "@/store/slices/aiFlowSlice";
+import { useUploadAiFileMutation } from "@/store/api/aiTakeoffApi";
 import type { RootState } from "@/store";
+import { apiMessage, describeApiError } from "@/utils/apiError";
 import { AiFlowCard, AiFlowShell } from "./AiFlowShell";
+import { useAiTakeoff } from "./useAiTakeoff";
 
 const AiPdfPreview = dynamic(
   () => import("./AiPdfPreview").then((m) => ({ default: m.AiPdfPreview })),
@@ -67,24 +71,6 @@ const truncate = (name: string, head = 16) => {
   return stem.length <= head ? name : `${stem.slice(0, head)}... ${ext}`;
 };
 
-/**
- * TODO: Replace with the real upload endpoint when it is available:
- *   const { url } = await uploadDrawingFile(file, { onProgress });
- * Everything downstream (Redux state, progress, status badges, preview) is
- * already wired and needs no change.
- */
-async function simulateUpload(
-  file: File,
-  onProgress: (progress: number) => void,
-): Promise<{ url: string }> {
-  const steps = 12;
-  for (let i = 1; i <= steps; i++) {
-    await new Promise((r) => setTimeout(r, 90 + Math.random() * 110));
-    onProgress(Math.round((i / steps) * 100));
-  }
-  return { url: URL.createObjectURL(file) };
-}
-
 export function DrawingReferencesView({
   basePath = "/projects",
   projectId,
@@ -94,7 +80,11 @@ export function DrawingReferencesView({
 }) {
   const router = useRouter();
   const dispatch = useDispatch();
-  const { drawings, activeDrawingId } = useSelector((state: RootState) => state.aiFlow);
+  const { drawings, activeDrawingId, session, details } = useSelector(
+    (state: RootState) => state.aiFlow,
+  );
+  const [uploadFile] = useUploadAiFileMutation();
+  const { openSession, isOpeningSession } = useAiTakeoff();
 
   // `zoom` is a multiplier on top of the fit-to-panel scale, so the default
   // view (zoom = 1) always fits exactly and never produces a scrollbar.
@@ -134,6 +124,9 @@ export function DrawingReferencesView({
 
   const onDrop = useCallback(
     async (files: File[]) => {
+      let uploadedCount = 0;
+      let lastMessage = "";
+
       for (const file of files) {
         const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const extension = `.${file.name.split(".").pop()?.toLowerCase() ?? ""}`;
@@ -151,29 +144,56 @@ export function DrawingReferencesView({
 
         try {
           dispatch(updateAiDrawing({ id, changes: { status: "uploading" } }));
-          const { url } = await simulateUpload(file, (progress) =>
-            dispatch(updateAiDrawing({ id, changes: { progress } })),
+
+          // POST /uploads — real progress comes from the axios upload event.
+          const uploaded = await uploadFile({
+            file,
+            folder: "ai-takeoff",
+            onUploadProgress: (event) => {
+              const total = event.total ?? file.size;
+              if (!total) return;
+              dispatch(
+                updateAiDrawing({
+                  id,
+                  changes: { progress: Math.round((event.loaded / total) * 100) },
+                }),
+              );
+            },
+          }).unwrap();
+
+          dispatch(
+            updateAiDrawing({ id, changes: { status: "processing", progress: 100 } }),
           );
-          dispatch(updateAiDrawing({ id, changes: { status: "processing", progress: 100 } }));
-          await new Promise((r) => setTimeout(r, 600));
           dispatch(
             updateAiDrawing({
               id,
-              changes: { status: "complete", uploadedUrl: url },
+              changes: {
+                status: "complete",
+                uploadedUrl: uploaded.data.url,
+                uploadedFileId: uploaded.data._id,
+              },
             }),
           );
-        } catch {
+          dispatch(setAiUploadedFileId(uploaded.data._id));
+          uploadedCount += 1;
+          lastMessage = apiMessage(uploaded, "File uploaded successfully");
+        } catch (error) {
+          const message = describeApiError(error, "Upload failed");
           dispatch(
-            updateAiDrawing({
-              id,
-              changes: { status: "error", error: "Upload failed" },
-            }),
+            updateAiDrawing({ id, changes: { status: "error", error: message } }),
           );
-          toast.error(`Could not upload ${file.name}`);
+          toast.error(`Could not upload ${file.name}`, { description: message });
         }
       }
+
+      // One toast per drop — each row already carries its own status badge.
+      if (uploadedCount > 0) {
+        toast.success(lastMessage, {
+          description: `${uploadedCount} drawing${uploadedCount === 1 ? "" : "s"} uploaded`,
+        });
+      }
     },
-    [dispatch],
+    [dispatch, uploadFile],
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -190,11 +210,30 @@ export function DrawingReferencesView({
   const readyToProcess =
     drawings.length > 0 && drawings.every((d) => d.status === "complete");
 
-  const handleStart = () => {
+  /**
+   * Opens the takeoff session against the uploaded drawing, then moves on.
+   * `projectId` is the route's draft id until project creation is wired
+   * server-side; the session call needs a real project, so it is skipped when
+   * there isn't one and the flow continues to the canvas either way.
+   */
+  const handleStart = async () => {
     if (!readyToProcess) {
       toast.warning("Wait for every drawing to finish uploading.");
       return;
     }
+
+    const uploadedFileId =
+      active?.uploadedFileId ?? drawings.find((d) => d.uploadedFileId)?.uploadedFileId;
+    const serverProjectId = session.projectId;
+
+    if (serverProjectId && uploadedFileId) {
+      try {
+        await openSession(serverProjectId, uploadedFileId, details.projectTitle);
+      } catch {
+        return; // openSession has already surfaced the error
+      }
+    }
+
     router.push(`${basePath}/ai/${projectId}/extract`);
   };
 
@@ -224,9 +263,9 @@ export function DrawingReferencesView({
           <Button
             className="h-10 gap-2"
             onClick={handleStart}
-            disabled={!readyToProcess}
+            disabled={!readyToProcess || isOpeningSession}
           >
-            Start Processing
+            {isOpeningSession ? "Opening session…" : "Start Processing"}
             <ArrowRight className="h-4 w-4" />
           </Button>
         }

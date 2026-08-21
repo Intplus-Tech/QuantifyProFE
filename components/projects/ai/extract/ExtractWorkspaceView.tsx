@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { LayoutList, X } from "lucide-react";
 import {
   advanceExtraction,
+  completeExtraction,
   cancelExtraction,
   resetExtraction,
   setActivePage,
@@ -19,7 +20,10 @@ import { ExtractCanvas } from "./ExtractCanvas";
 import { MeasureSelectPanel } from "./MeasureSelectPanel";
 import { ExtractionProgressPanel } from "./ExtractionProgressPanel";
 import { QuickEditModal } from "./QuickEditModal";
+import { isValidObjectId } from "@/utils/apiError";
 import { StatusBadge } from "../shared/ReportPrimitives";
+import { useAiTakeoff } from "../useAiTakeoff";
+import { PageScaleControl } from "./PageScaleControl";
 import type { ExtractedElement } from "../types";
 
 const STEP_DURATION_MS = 1800;
@@ -45,7 +49,14 @@ export function ExtractWorkspaceView({
     hasExtracted,
     groups,
     projectMeta,
+    session,
   } = useSelector((state: RootState) => state.aiFlow);
+
+
+  const { analyseCurrentPage, ensureSession, reviewDetections, isAnalysing } =
+    useAiTakeoff();
+  /** With a server session the job drives progress; otherwise the mock ticker does. */
+  const live = !!session.sessionId;
 
   const [stepProgress, setStepProgress] = useState(0);
   const [showElements, setShowElements] = useState(false);
@@ -61,7 +72,7 @@ export function ExtractWorkspaceView({
   const reportHref = `${basePath}/ai/${projectId}/report`;
 
   useEffect(() => {
-    if (extractionPhase !== "running") return;
+    if (extractionPhase !== "running" || live) return;
 
     let elapsed = 0;
     const id = setInterval(() => {
@@ -76,7 +87,13 @@ export function ExtractWorkspaceView({
     }, TICK_MS);
 
     return () => clearInterval(id);
-  }, [extractionPhase, dispatch]);
+  }, [extractionPhase, dispatch, live]);
+
+  // A live run ends when the polled job clears itself (completed or failed).
+  useEffect(() => {
+    if (!live || extractionPhase !== "running" || session.activeJobId) return;
+    dispatch(completeExtraction());
+  }, [live, extractionPhase, session.activeJobId, dispatch]);
 
   const pageElements: ExtractedElement[] = useMemo(
     () =>
@@ -92,9 +109,32 @@ export function ExtractWorkspaceView({
   const running = extractionPhase === "running";
   const complete = extractionPhase === "complete";
 
-  const handleExtract = () => {
+  const handleExtract = async () => {
     if (selected.length === 0) return;
     setStepProgress(0);
+
+    // A reload loses the in-memory session, so try to resume before deciding
+    // this is a demo run. Never silently fall back to the mock when the route
+    // carries a real project — that looks like success and calls nothing.
+    const sessionId = live ? session.sessionId : await ensureSession(projectId);
+
+    if (!sessionId) {
+      if (isValidObjectId(projectId)) {
+        toast.error("No AI takeoff session", {
+          description:
+            "The session for this drawing could not be resumed. Go back to Drawing References and press Start Processing.",
+        });
+        return;
+      }
+      // No server project at all — this is the mock walkthrough.
+      dispatch(startExtraction());
+      return;
+    }
+
+    // POST /ai-takeoff/sessions/:id/pages, then poll the returned job.
+    const jobId = await analyseCurrentPage(activePage);
+    if (!jobId) return;
+
     dispatch(startExtraction());
   };
 
@@ -183,6 +223,8 @@ export function ExtractWorkspaceView({
                 dispatch(toggleMeasureType({ page: activePage, measureTypeId }))
               }
               onExtract={handleExtract}
+              busy={isAnalysing}
+              error={session.lastError}
             />
           ) : (
             <ExtractionProgressPanel

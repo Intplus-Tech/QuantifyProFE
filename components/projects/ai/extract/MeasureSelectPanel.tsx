@@ -20,10 +20,13 @@ import {
   TrendingUp,
   Triangle,
   Waves,
+  TriangleAlert,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MEASURE_TYPES } from "../mock-data";
+import { isMeasureSupported } from "../api-mappers";
+import { PageScaleControl } from "./PageScaleControl";
 import type { MeasureGroup, MeasureType } from "../types";
 
 const ICONS: Record<string, LucideIcon> = {
@@ -56,10 +59,14 @@ export function MeasureSelectPanel({
   selected,
   onToggle,
   onExtract,
+  busy = false,
+  error = null,
 }: {
   selected: string[];
   onToggle: (measureTypeId: string) => void;
   onExtract: () => void;
+  busy?: boolean;
+  error?: string | null;
 }) {
   const groups: MeasureGroup[] = ["foundations", "superstructure"];
 
@@ -88,6 +95,7 @@ export function MeasureSelectPanel({
                   key={measure.id}
                   measure={measure}
                   selected={selected.includes(measure.id)}
+                  supported={isMeasureSupported(measure.id)}
                   onToggle={() => onToggle(measure.id)}
                 />
               ))}
@@ -96,14 +104,28 @@ export function MeasureSelectPanel({
         ))}
       </div>
 
+      <PageScaleControl />
+
+      {error && (
+        <div className="shrink-0 border-t border-red-100 bg-red-50 px-4 py-2.5">
+          <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-red-700">
+            <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" />
+            <span>
+              <span className="font-medium">Last run failed. </span>
+              {error}
+            </span>
+          </p>
+        </div>
+      )}
+
       <div className="shrink-0 border-t border-[#d9eef1] p-3">
         <Button
           className="h-12 w-full gap-2 text-sm"
-          disabled={selected.length === 0}
+          disabled={selected.length === 0 || busy}
           onClick={onExtract}
         >
-          Extract Selected ({selected.length})
-          <ArrowRight className="h-4 w-4" />
+          {busy ? "Extracting…" : `Extract Selected (${selected.length})`}
+          {!busy && <ArrowRight className="h-4 w-4" />}
         </Button>
       </div>
     </div>
@@ -113,13 +135,32 @@ export function MeasureSelectPanel({
 function MeasureTile({
   measure,
   selected,
+  supported,
   onToggle,
 }: {
   measure: MeasureType;
   selected: boolean;
+  supported: boolean;
   onToggle: () => void;
 }) {
   const Icon = ICONS[measure.icon] ?? Square;
+
+  if (!supported) {
+    // No member of the API's elementType enum corresponds to this tile, so it
+    // is shown but not selectable rather than failing at request time.
+    return (
+      <div
+        aria-disabled
+        title="Not yet supported by the AI detector"
+        className="flex cursor-not-allowed flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-2 py-3 opacity-50"
+      >
+        <Icon className="h-4 w-4 text-slate-400" />
+        <span className="text-center font-mono text-[9px] font-semibold uppercase leading-tight tracking-wide text-slate-400">
+          {measure.label}
+        </span>
+      </div>
+    );
+  }
 
   return (
     <button

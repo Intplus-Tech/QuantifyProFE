@@ -3,6 +3,7 @@
 import AuthGuard from "@/components/layout/AuthGuard";
 import { usePathname } from "next/navigation";
 import { useGetProjectByIdQuery } from "@/store/api/projectsApi";
+import { isValidObjectId } from "@/utils/apiError";
 
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { Sidebar } from "@/components/dashboard/Sidebar";
@@ -15,10 +16,17 @@ export default function SoloLayout({
 }) {
   const pathname = usePathname();
   const segments = pathname.split("/").filter(Boolean);
+
+  // /projects/ai/... is the AI flow, not a project called "ai".
+  const isAiFlow = segments[0] === "projects" && segments[1] === "ai";
+
+  // Only treat the segment as a project id when it actually is one. Matching on
+  // "anything that isn't 'new'" made /projects/ai/new fetch GET /projects/ai.
   const projectId =
-    segments[0] === "projects" && Boolean(segments[1]) && segments[1] !== "new"
+    segments[0] === "projects" && !isAiFlow && isValidObjectId(segments[1])
       ? segments[1]
       : "";
+
   const { data: projectResponse } = useGetProjectByIdQuery(projectId, {
     skip: !projectId,
   });
@@ -28,6 +36,15 @@ export default function SoloLayout({
 
   // The BOQ document is full-screen — it renders outside the dashboard chrome
   const isBoqDocument = Boolean(projectId) && segments[2] === "boq";
+
+  // The AI screens carry their own chrome and size to the viewport.
+  if (isAiFlow) {
+    return (
+      <AuthGuard>
+        <main className="min-h-screen bg-[#f5f7fa]">{children}</main>
+      </AuthGuard>
+    );
+  }
 
   if (isBoqDocument) {
     return (
