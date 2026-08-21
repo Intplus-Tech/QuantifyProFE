@@ -1,8 +1,12 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
+import { toast } from "sonner";
 import {
+  removeConcreteRow,
+  removeFormworkMaterialRow,
+  removeRebarRow,
   updateConcreteRow,
   updateFormworkMaterialRow,
   updateRebarRow,
@@ -16,10 +20,11 @@ import {
   wastageAmount,
   withWastage,
 } from "../calc";
-import { EditableCell } from "../shared/EditableCell";
+import { EditableCell, EditableTextCell } from "../shared/EditableCell";
 import { exportToExcel, exportToPdf, type ExportSheet } from "../shared/export";
 import {
   ExportButtons,
+  RowActions,
   SectionCard,
   SummaryTiles,
   td,
@@ -41,6 +46,11 @@ export function MaterialScheduleView() {
     boqSections,
     projectMeta,
   } = useSelector((state: RootState) => state.aiFlow);
+
+  // Only one row across the whole page is editable at a time.
+  const [editingRowId, setEditingRowId] = useState<string | null>(null);
+  const toggleEdit = (id: string) =>
+    setEditingRowId((current) => (current === id ? null : id));
 
   const totals = useMemo(() => {
     const concrete = concreteSchedule.reduce((s, r) => s + r.qty, 0);
@@ -156,55 +166,94 @@ export function MaterialScheduleView() {
               <th className={`${th} text-right`}>Total (m³)</th>
               <th className={`${th} text-right`}>Unit Cost</th>
               <th className={`${th} text-right`}>Total Cost (₦)</th>
+              <th className={`${th} text-center`}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {concreteSchedule.map((row) => (
-              <tr key={row.id} className={trCls}>
-                <td className={`${td} font-medium`}>{row.description}</td>
-                <td className={td}>{row.grade}</td>
-                <td className={tdNum}>
-                  <EditableCell
-                    value={row.qty}
-                    ariaLabel={`${row.description} quantity`}
-                    onCommit={(qty) =>
-                      dispatch(updateConcreteRow({ id: row.id, changes: { qty: qty ?? 0 } }))
-                    }
-                  />
-                </td>
-                <td className={tdNum}>
-                  <span className="text-slate-500">
-                    {fmt(wastageAmount(row.qty, row.wastagePct))}
-                    <span className="ml-1 text-[9px] text-slate-400">
-                      ({row.wastagePct}%)
+            {concreteSchedule.map((row) => {
+              const editing = editingRowId === row.id;
+              return (
+                <tr
+                  key={row.id}
+                  className={`${trCls} ${editing ? "bg-amber-50/40" : ""}`}
+                >
+                  <td className={`${td} font-medium`}>
+                    <EditableTextCell
+                      value={row.description}
+                      editable={editing}
+                      ariaLabel={`${row.description} description`}
+                      onCommit={(description) =>
+                        dispatch(updateConcreteRow({ id: row.id, changes: { description } }))
+                      }
+                    />
+                  </td>
+                  <td className={td}>
+                    <EditableTextCell
+                      value={row.grade}
+                      editable={editing}
+                      ariaLabel={`${row.description} grade`}
+                      onCommit={(grade) =>
+                        dispatch(updateConcreteRow({ id: row.id, changes: { grade } }))
+                      }
+                    />
+                  </td>
+                  <td className={tdNum}>
+                    <EditableCell
+                      value={row.qty}
+                      editable={editing}
+                      ariaLabel={`${row.description} quantity`}
+                      onCommit={(qty) =>
+                        dispatch(updateConcreteRow({ id: row.id, changes: { qty: qty ?? 0 } }))
+                      }
+                    />
+                  </td>
+                  <td className={tdNum}>
+                    <span className="text-slate-500">
+                      {fmt(wastageAmount(row.qty, row.wastagePct))}
+                      <span className="ml-1 text-[9px] text-slate-400">
+                        ({row.wastagePct}%)
+                      </span>
                     </span>
-                  </span>
-                </td>
-                <td className={`${tdNum} font-medium`}>
-                  {fmt(withWastage(row.qty, row.wastagePct))}
-                </td>
-                <td className={tdNum}>
-                  <EditableCell
-                    value={row.unitCost}
-                    prefix="₦"
-                    dp={0}
-                    ariaLabel={`${row.description} unit cost`}
-                    onCommit={(unitCost) =>
-                      dispatch(updateConcreteRow({ id: row.id, changes: { unitCost } }))
-                    }
-                  />
-                </td>
-                <td className={`${tdNum} font-medium`}>{fmt(concreteRowTotal(row))}</td>
-              </tr>
-            ))}
+                  </td>
+                  <td className={`${tdNum} font-medium`}>
+                    {fmt(withWastage(row.qty, row.wastagePct))}
+                  </td>
+                  <td className={tdNum}>
+                    <EditableCell
+                      value={row.unitCost}
+                      prefix="₦"
+                      dp={0}
+                      ariaLabel={`${row.description} unit cost`}
+                      onCommit={(unitCost) =>
+                        dispatch(updateConcreteRow({ id: row.id, changes: { unitCost } }))
+                      }
+                    />
+                  </td>
+                  <td className={`${tdNum} font-medium`}>{fmt(concreteRowTotal(row))}</td>
+                  <td className={`${td} text-center`}>
+                    <RowActions
+                      editing={editing}
+                      label={row.description}
+                      onToggleEdit={() => toggleEdit(row.id)}
+                      onDelete={() => {
+                        if (editing) setEditingRowId(null);
+                        dispatch(removeConcreteRow(row.id));
+                        toast.success(`${row.description} removed`);
+                      }}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
             <tr className={totalRowCls}>
               <td className={td}>Total</td>
-              <td className={td}>—</td>
+              <td className={td}>--</td>
               <td className={tdNum}>{fmt(totals.concrete)}</td>
               <td className={tdNum}>{fmt(totals.concreteWastage)}</td>
               <td className={tdNum}>{fmt(totals.concreteTotal)}</td>
-              <td className={tdNum}>—</td>
+              <td className={tdNum}>--</td>
               <td className={`${tdNum} text-amber-600`}>{fmt(totals.concreteCost)}</td>
+              <td className={`${td} text-center`}>--</td>
             </tr>
           </tbody>
         </table>
@@ -222,57 +271,87 @@ export function MaterialScheduleView() {
               <th className={`${th} text-right`}>Tons</th>
               <th className={`${th} text-right`}>Unit Cost</th>
               <th className={`${th} text-right`}>Total Cost (₦)</th>
+              <th className={`${th} text-center`}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {rebarSchedule.map((row) => (
-              <tr key={row.id} className={trCls}>
-                <td className={`${td} font-medium`}>{row.barSize}</td>
-                <td className={tdNum}>
-                  <EditableCell
-                    value={row.qty}
-                    ariaLabel={`${row.barSize} quantity`}
-                    onCommit={(qty) =>
-                      dispatch(updateRebarRow({ id: row.id, changes: { qty: qty ?? 0 } }))
-                    }
-                  />
-                </td>
-                <td className={tdNum}>
-                  <span className="text-slate-500">
-                    {fmt(wastageAmount(row.qty, row.wastagePct))}
-                    <span className="ml-1 text-[9px] text-slate-400">
-                      ({row.wastagePct}%)
+            {rebarSchedule.map((row) => {
+              const editing = editingRowId === row.id;
+              return (
+                <tr
+                  key={row.id}
+                  className={`${trCls} ${editing ? "bg-amber-50/40" : ""}`}
+                >
+                  <td className={`${td} font-medium`}>
+                    <EditableTextCell
+                      value={row.barSize}
+                      editable={editing}
+                      ariaLabel={`${row.barSize} bar size`}
+                      onCommit={(barSize) =>
+                        dispatch(updateRebarRow({ id: row.id, changes: { barSize } }))
+                      }
+                    />
+                  </td>
+                  <td className={tdNum}>
+                    <EditableCell
+                      value={row.qty}
+                      editable={editing}
+                      ariaLabel={`${row.barSize} quantity`}
+                      onCommit={(qty) =>
+                        dispatch(updateRebarRow({ id: row.id, changes: { qty: qty ?? 0 } }))
+                      }
+                    />
+                  </td>
+                  <td className={tdNum}>
+                    <span className="text-slate-500">
+                      {fmt(wastageAmount(row.qty, row.wastagePct))}
+                      <span className="ml-1 text-[9px] text-slate-400">
+                        ({row.wastagePct}%)
+                      </span>
                     </span>
-                  </span>
-                </td>
-                <td className={`${tdNum} font-medium`}>
-                  {fmt(withWastage(row.qty, row.wastagePct))}
-                </td>
-                <td className={tdNum}>
-                  {fmt(withWastage(row.qty, row.wastagePct) / 1000)}
-                </td>
-                <td className={tdNum}>
-                  <EditableCell
-                    value={row.unitCost}
-                    prefix="₦"
-                    dp={0}
-                    ariaLabel={`${row.barSize} unit cost`}
-                    onCommit={(unitCost) =>
-                      dispatch(updateRebarRow({ id: row.id, changes: { unitCost } }))
-                    }
-                  />
-                </td>
-                <td className={`${tdNum} font-medium`}>{fmt(rebarRowTotal(row))}</td>
-              </tr>
-            ))}
+                  </td>
+                  <td className={`${tdNum} font-medium`}>
+                    {fmt(withWastage(row.qty, row.wastagePct))}
+                  </td>
+                  <td className={tdNum}>
+                    {fmt(withWastage(row.qty, row.wastagePct) / 1000)}
+                  </td>
+                  <td className={tdNum}>
+                    <EditableCell
+                      value={row.unitCost}
+                      prefix="₦"
+                      dp={0}
+                      ariaLabel={`${row.barSize} unit cost`}
+                      onCommit={(unitCost) =>
+                        dispatch(updateRebarRow({ id: row.id, changes: { unitCost } }))
+                      }
+                    />
+                  </td>
+                  <td className={`${tdNum} font-medium`}>{fmt(rebarRowTotal(row))}</td>
+                  <td className={`${td} text-center`}>
+                    <RowActions
+                      editing={editing}
+                      label={row.barSize}
+                      onToggleEdit={() => toggleEdit(row.id)}
+                      onDelete={() => {
+                        if (editing) setEditingRowId(null);
+                        dispatch(removeRebarRow(row.id));
+                        toast.success(`${row.barSize} removed`);
+                      }}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
             <tr className={totalRowCls}>
               <td className={td}>Total</td>
               <td className={tdNum}>{fmt(totals.rebar)}</td>
               <td className={tdNum}>{fmt(totals.rebarWastage)}</td>
               <td className={tdNum}>{fmt(totals.rebarTotal)}</td>
               <td className={tdNum}>{fmt(totals.rebarTotal / 1000)}</td>
-              <td className={tdNum}>—</td>
+              <td className={tdNum}>--</td>
               <td className={`${tdNum} text-amber-600`}>{fmt(totals.rebarCost)}</td>
+              <td className={`${td} text-center`}>--</td>
             </tr>
           </tbody>
         </table>
@@ -289,58 +368,98 @@ export function MaterialScheduleView() {
               <th className={`${th} text-right`}>Area (m²)</th>
               <th className={`${th} text-right`}>Unit Cost</th>
               <th className={`${th} text-right`}>Total Cost (₦)</th>
+              <th className={`${th} text-center`}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {formworkMaterial.map((row) => (
-              <tr key={row.id} className={trCls}>
-                <td className={`${td} font-medium`}>{row.element}</td>
-                <td className={tdNum}>
-                  <EditableCell
-                    value={row.qty}
-                    ariaLabel={`${row.element} quantity`}
-                    onCommit={(qty) =>
-                      dispatch(
-                        updateFormworkMaterialRow({ id: row.id, changes: { qty: qty ?? 0 } }),
-                      )
-                    }
-                  />
-                </td>
-                <td className={td}>{row.type}</td>
-                <td className={tdNum}>
-                  <EditableCell
-                    value={row.area}
-                    ariaLabel={`${row.element} area`}
-                    onCommit={(area) =>
-                      dispatch(
-                        updateFormworkMaterialRow({ id: row.id, changes: { area: area ?? 0 } }),
-                      )
-                    }
-                  />
-                </td>
-                <td className={tdNum}>
-                  <EditableCell
-                    value={row.unitCost}
-                    prefix="₦"
-                    dp={0}
-                    ariaLabel={`${row.element} unit cost`}
-                    onCommit={(unitCost) =>
-                      dispatch(updateFormworkMaterialRow({ id: row.id, changes: { unitCost } }))
-                    }
-                  />
-                </td>
-                <td className={`${tdNum} font-medium`}>{fmt(formworkRowTotal(row))}</td>
-              </tr>
-            ))}
+            {formworkMaterial.map((row) => {
+              const editing = editingRowId === row.id;
+              return (
+                <tr
+                  key={row.id}
+                  className={`${trCls} ${editing ? "bg-amber-50/40" : ""}`}
+                >
+                  <td className={`${td} font-medium`}>
+                    <EditableTextCell
+                      value={row.element}
+                      editable={editing}
+                      ariaLabel={`${row.element} element`}
+                      onCommit={(element) =>
+                        dispatch(updateFormworkMaterialRow({ id: row.id, changes: { element } }))
+                      }
+                    />
+                  </td>
+                  <td className={tdNum}>
+                    <EditableCell
+                      value={row.qty}
+                      editable={editing}
+                      ariaLabel={`${row.element} quantity`}
+                      onCommit={(qty) =>
+                        dispatch(
+                          updateFormworkMaterialRow({ id: row.id, changes: { qty: qty ?? 0 } }),
+                        )
+                      }
+                    />
+                  </td>
+                  <td className={td}>
+                    <EditableTextCell
+                      value={row.type}
+                      editable={editing}
+                      ariaLabel={`${row.element} type`}
+                      onCommit={(type) =>
+                        dispatch(updateFormworkMaterialRow({ id: row.id, changes: { type } }))
+                      }
+                    />
+                  </td>
+                  <td className={tdNum}>
+                    <EditableCell
+                      value={row.area}
+                      editable={editing}
+                      ariaLabel={`${row.element} area`}
+                      onCommit={(area) =>
+                        dispatch(
+                          updateFormworkMaterialRow({ id: row.id, changes: { area: area ?? 0 } }),
+                        )
+                      }
+                    />
+                  </td>
+                  <td className={tdNum}>
+                    <EditableCell
+                      value={row.unitCost}
+                      prefix="₦"
+                      dp={0}
+                      ariaLabel={`${row.element} unit cost`}
+                      onCommit={(unitCost) =>
+                        dispatch(updateFormworkMaterialRow({ id: row.id, changes: { unitCost } }))
+                      }
+                    />
+                  </td>
+                  <td className={`${tdNum} font-medium`}>{fmt(formworkRowTotal(row))}</td>
+                  <td className={`${td} text-center`}>
+                    <RowActions
+                      editing={editing}
+                      label={row.element}
+                      onToggleEdit={() => toggleEdit(row.id)}
+                      onDelete={() => {
+                        if (editing) setEditingRowId(null);
+                        dispatch(removeFormworkMaterialRow(row.id));
+                        toast.success(`${row.element} removed`);
+                      }}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
             <tr className={totalRowCls}>
               <td className={td}>Total</td>
               <td className={tdNum}>
                 {fmt(formworkMaterial.reduce((s, r) => s + r.qty, 0))}
               </td>
-              <td className={td}>—</td>
+              <td className={td}>--</td>
               <td className={tdNum}>{fmt(totals.formwork)}</td>
-              <td className={tdNum}>—</td>
+              <td className={tdNum}>--</td>
               <td className={`${tdNum} text-amber-600`}>{fmt(totals.formworkCost)}</td>
+              <td className={`${td} text-center`}>--</td>
             </tr>
           </tbody>
         </table>

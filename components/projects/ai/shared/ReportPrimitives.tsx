@@ -1,7 +1,15 @@
 "use client";
 
 import { ReactNode, useState } from "react";
-import { ChevronDown, ChevronRight, FileSpreadsheet, FileText } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  FileSpreadsheet,
+  FileText,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export function ReportPageHeader({
@@ -158,6 +166,49 @@ export function StatusBadge({
     >
       {status === "review" && "⚠ "}
       {label}
+    </span>
+  );
+}
+
+/**
+ * Per-row edit/delete controls rendered in the trailing ACTIONS column.
+ * Editing unlocks the row's fields; only one row is editable at a time.
+ */
+export function RowActions({
+  editing,
+  onToggleEdit,
+  onDelete,
+  label,
+}: {
+  editing: boolean;
+  onToggleEdit: () => void;
+  onDelete: () => void;
+  label: string;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <button
+        type="button"
+        aria-label={editing ? `Done editing ${label}` : `Edit ${label}`}
+        title={editing ? "Done" : "Edit"}
+        onClick={onToggleEdit}
+        className={`rounded p-1 transition-colors ${
+          editing
+            ? "bg-amber-100 text-amber-700"
+            : "text-slate-400 hover:bg-amber-50 hover:text-amber-600"
+        }`}
+      >
+        {editing ? <Check className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
+      </button>
+      <button
+        type="button"
+        aria-label={`Delete ${label}`}
+        title="Delete row"
+        onClick={onDelete}
+        className="rounded p-1 text-red-400 transition-colors hover:bg-red-50 hover:text-red-600"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
     </span>
   );
 }

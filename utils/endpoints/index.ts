@@ -18,6 +18,8 @@ export const user = {
 };
 
 export const Credits = {
+  creditPricing: "/credits/pricing",
+  /** @deprecated misspelling kept so existing imports keep working */
   creditPricind: "/credits/pricing",
   creditBalance: "/credits/balance",
   creditHistory: "/credits/history",
@@ -190,6 +192,36 @@ export const multiBoq = {
   createProject: (jobId: string) => `/boq/multi-jobs/${jobId}/create-project`,
 };
 
+/**
+ * AI Takeoff — page-by-page AI measurement.
+ *
+ * NOTE ON THE PREFIX: the OpenAPI document declares these seven paths as
+ * `/api/v1/ai-takeoff/...` while its own `servers` entry is already
+ * `https://.../api/v1`, and the other 133 paths in the same document are
+ * written relative (`/uploads`, `/auth/login`). Taken literally the AI paths
+ * would resolve to `/api/v1/api/v1/...`, so they are treated as relative here,
+ * consistent with every other endpoint in this file.
+ *
+ * The live server runs auth ahead of routing and answers 401 for both spellings,
+ * so this could not be settled by probing. If the backend confirms the doubled
+ * prefix is real, change AI_TAKEOFF_PREFIX below and nothing else moves.
+ */
+const AI_TAKEOFF_PREFIX = "";
+
+export const aiTakeoff = {
+  createSession: (projectId: string) =>
+    `${AI_TAKEOFF_PREFIX}/projects/${projectId}/ai-takeoff/sessions`,
+  getSession: (sessionId: string) =>
+    `${AI_TAKEOFF_PREFIX}/ai-takeoff/sessions/${sessionId}`,
+  analysePage: (sessionId: string) =>
+    `${AI_TAKEOFF_PREFIX}/ai-takeoff/sessions/${sessionId}/pages`,
+  sessionJobs: (sessionId: string) =>
+    `${AI_TAKEOFF_PREFIX}/ai-takeoff/sessions/${sessionId}/jobs`,
+  job: (jobId: string) => `${AI_TAKEOFF_PREFIX}/ai-takeoff/jobs/${jobId}`,
+  reviewElements: (sessionId: string) =>
+    `${AI_TAKEOFF_PREFIX}/ai-takeoff/sessions/${sessionId}/elements/review`,
+  finish: (sessionId: string) =>
+    `${AI_TAKEOFF_PREFIX}/ai-takeoff/sessions/${sessionId}/finish`,
 export const measurementSessions = {
   // Project-scoped
   create: (projectId: string) => `/projects/${projectId}/measurement-sessions`,
@@ -239,5 +271,6 @@ export const ApiEndpoints = {
   template,
   dashboard,
   manual,
+  aiTakeoff,
   measurementSessions,
 };

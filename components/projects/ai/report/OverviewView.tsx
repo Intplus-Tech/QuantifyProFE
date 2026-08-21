@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { SlidersHorizontal } from "lucide-react";
+import { Ban, Check, SlidersHorizontal } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -15,6 +16,7 @@ import type { RootState } from "@/store";
 import { computeElementQuantities, fmt } from "../calc";
 import { SOIL_TYPES } from "../mock-data";
 import { QuickEditModal } from "../extract/QuickEditModal";
+import { useAiTakeoff } from "../useAiTakeoff";
 import {
   SectionCard,
   StatusBadge,
@@ -54,9 +56,46 @@ export function OverviewView() {
   );
 
   const [quickEditId, setQuickEditId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const { session, reviewDetections, isReviewing, jobs } = useAiTakeoff();
+
+  // Newest completed job's observations about the page as a whole.
+  const lastNotes = [...jobs]
+    .reverse()
+    .find((job) => job.status === "completed" && job.notes)?.notes;
 
   const quickEditElement =
     groups.flatMap((g) => g.elements).find((e) => e.id === quickEditId) ?? null;
+
+  const toggleOne = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const toggleGroup = (elements: ExtractedElement[], checked: boolean) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const element of elements) {
+        if (checked) next.add(element.id);
+        else next.delete(element.id);
+      }
+      return next;
+    });
+
+  /**
+   * Step 6 of the takeoff flow — bulk accept/reject.
+   * The ids are the elements' clientIds, which is what the review endpoint keys on.
+   */
+  const submitReview = async (status: "accepted" | "rejected") => {
+    const clientIds = [...selected];
+    if (clientIds.length === 0) return;
+    await reviewDetections(clientIds, status);
+    setSelected(new Set());
+  };
 
   const totals = useMemo(() => {
     let concrete = 0;
@@ -176,6 +215,56 @@ export function OverviewView() {
         </div>
       </section>
 
+      {/* Bulk review — only meaningful against a live session */}
+      {session.sessionId && selected.size > 0 && (
+        <div className="sticky top-2 z-10 flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50/95 px-4 py-2.5 backdrop-blur">
+          <p className="text-xs font-medium text-amber-900">
+            {selected.size} element{selected.size === 1 ? "" : "s"} selected
+          </p>
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 border-red-200 text-[11px] text-red-600 hover:bg-red-50"
+              disabled={isReviewing}
+              onClick={() => submitReview("rejected")}
+            >
+              <Ban className="h-3.5 w-3.5" />
+              Reject
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 gap-1.5 text-[11px]"
+              disabled={isReviewing}
+              onClick={() => submitReview("accepted")}
+            >
+              <Check className="h-3.5 w-3.5" />
+              {isReviewing ? "Saving…" : "Accept"}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Nothing detected yet — surface what the model actually reported */}
+      {session.sessionId && groups.length === 0 && (
+        <div className="rounded-lg border border-[#dbeef1] bg-white px-5 py-6 text-center">
+          <p className="text-sm font-medium text-slate-700">
+            No elements extracted yet
+          </p>
+          {lastNotes ? (
+            <p className="mx-auto mt-2 max-w-2xl text-xs leading-relaxed text-slate-500">
+              <span className="font-medium text-slate-600">Model notes: </span>
+              {lastNotes}
+            </p>
+          ) : (
+            <p className="mt-2 text-xs text-slate-500">
+              Go back to the drawing, pick a page with the relevant plan or
+              schedule, choose the element types and run Extract.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Element groups */}
       {groups.map((group) => (
         <SectionCard
@@ -183,9 +272,21 @@ export function OverviewView() {
           title={group.title}
           count={`(${group.elements.length} DETECTED ACROSS ${group.pageRange})`}
         >
-          <table className="w-full min-w-[820px]">
+          <table className="w-full min-w-[880px]">
             <thead className={theadCls}>
               <tr>
+                <th className={`${th} w-8`}>
+                  <input
+                    type="checkbox"
+                    aria-label={`Select all in ${group.title}`}
+                    className="h-3.5 w-3.5 accent-amber-500"
+                    checked={
+                      group.elements.length > 0 &&
+                      group.elements.every((e) => selected.has(e.id))
+                    }
+                    onChange={(event) => toggleGroup(group.elements, event.target.checked)}
+                  />
+                </th>
                 <th className={th}>ID</th>
                 <th className={th}>Grid</th>
                 <th className={th}>Dimensions (L×W×D)</th>
@@ -200,6 +301,8 @@ export function OverviewView() {
                 <ElementRow
                   key={element.id}
                   element={element}
+                  selected={selected.has(element.id)}
+                  onSelect={() => toggleOne(element.id)}
                   onOpen={() => setQuickEditId(element.id)}
                 />
               ))}
@@ -222,9 +325,13 @@ export function OverviewView() {
 
 function ElementRow({
   element,
+  selected,
+  onSelect,
   onOpen,
 }: {
   element: ExtractedElement;
+  selected: boolean;
+  onSelect: () => void;
   onOpen: () => void;
 }) {
   const globalParameters = useSelector(
@@ -253,6 +360,15 @@ function ElementRow({
             : ""
       }`}
     >
+      <td className={td} onClick={(event) => event.stopPropagation()}>
+        <input
+          type="checkbox"
+          aria-label={`Select ${element.id}`}
+          className="h-3.5 w-3.5 accent-amber-500"
+          checked={selected}
+          onChange={onSelect}
+        />
+      </td>
       <td className={`${td} font-mono font-semibold`}>{element.id}</td>
       <td className={td}>{element.grid}</td>
       <td className={`${td} tabular-nums`}>{dims}</td>

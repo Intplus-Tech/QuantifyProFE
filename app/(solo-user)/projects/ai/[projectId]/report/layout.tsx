@@ -1,4 +1,5 @@
 import { ReportShell } from "@/components/projects/ai/report/ReportShell";
+import { AiProjectGuard } from "@/components/projects/ai/AiProjectGuard";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -8,8 +9,10 @@ interface LayoutProps {
 export default async function AiReportLayout({ children, params }: LayoutProps) {
   const { projectId } = await params;
   return (
-    <ReportShell projectId={projectId} basePath="/projects">
-      {children}
-    </ReportShell>
+    <AiProjectGuard projectId={projectId} basePath="/projects">
+      <ReportShell projectId={projectId} basePath="/projects">
+        {children}
+      </ReportShell>
+    </AiProjectGuard>
   );
 }

@@ -1,4 +1,5 @@
 import { DrawingReferencesView } from "@/components/projects/ai/DrawingReferencesView";
+import { AiProjectGuard } from "@/components/projects/ai/AiProjectGuard";
 
 interface PageProps {
   params: Promise<{ projectId: string }>;
@@ -6,5 +7,9 @@ interface PageProps {
 
 export default async function AiDrawingsPage({ params }: PageProps) {
   const { projectId } = await params;
-  return <DrawingReferencesView projectId={projectId} basePath="/projects" />;
+  return (
+    <AiProjectGuard projectId={projectId} basePath="/projects">
+      <DrawingReferencesView projectId={projectId} basePath="/projects" />
+    </AiProjectGuard>
+  );
 }

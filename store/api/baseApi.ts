@@ -20,6 +20,9 @@ export const baseApi = createApi({
     "Dashboard",
     "Projects",
     "Library",
+    "AiTakeoffSession",
+    "AiTakeoffJob",
+    "Credits",
   ],
   endpoints: () => ({}),
 });

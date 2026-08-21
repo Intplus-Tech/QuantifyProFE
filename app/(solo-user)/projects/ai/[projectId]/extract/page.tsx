@@ -1,4 +1,5 @@
 import { ExtractWorkspaceView } from "@/components/projects/ai/extract/ExtractWorkspaceView";
+import { AiProjectGuard } from "@/components/projects/ai/AiProjectGuard";
 
 interface PageProps {
   params: Promise<{ projectId: string }>;
@@ -6,5 +7,9 @@ interface PageProps {
 
 export default async function AiExtractPage({ params }: PageProps) {
   const { projectId } = await params;
-  return <ExtractWorkspaceView projectId={projectId} basePath="/projects" />;
+  return (
+    <AiProjectGuard projectId={projectId} basePath="/projects">
+      <ExtractWorkspaceView projectId={projectId} basePath="/projects" />
+    </AiProjectGuard>
+  );
 }

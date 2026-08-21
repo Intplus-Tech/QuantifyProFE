@@ -6,6 +6,9 @@ import { getToken } from "@/utils/tokenManager";
 export interface ApiError {
   status: number | "NETWORK_ERROR";
   data: unknown;
+  /** request that failed, so a validation error can be traced to its endpoint */
+  url?: string;
+  method?: string;
 }
 
 export interface RequestArgs {
@@ -47,11 +50,21 @@ export const axiosBaseQuery = (
       if (axios.isCancel(error)) throw error;
 
       const { response, message } = error as AxiosError;
+      const fullUrl = `${baseUrl}${url}`;
+
+      if (process.env.NODE_ENV !== "production") {
+        console.error(
+          `[api] ${method} ${fullUrl} → ${response?.status ?? "NETWORK_ERROR"}`,
+          response?.data ?? message,
+        );
+      }
 
       return {
         error: {
           status: response?.status ?? "NETWORK_ERROR",
           data: response?.data ?? message,
+          url: fullUrl,
+          method: String(method),
         },
       };
     }

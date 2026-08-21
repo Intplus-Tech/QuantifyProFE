@@ -18,7 +18,11 @@ import projectWorkspaceReducer, {
   saveProjectWorkspaceState,
 } from "./slices/projectWorkspaceSlice";
 import takeoffReducer from "./slices/takeoffSlice";
-import aiFlowReducer from "./slices/aiFlowSlice";
+import aiFlowReducer, {
+  hydrateAiFlow,
+  loadPersistedAiFlow,
+  saveAiFlowState,
+} from "./slices/aiFlowSlice";
 
 // Import API slices to ensure they are registered
 import "./api/authApi";
@@ -32,6 +36,7 @@ import "./api/plansApi";
 import "./api/clientsApi";
 import "./api/projectsApi";
 import "./api/manualProjectApi";
+import "./api/aiTakeoffApi";
 import "./api/measurementSessionApi";
 
 const persistedProjectWorkspace = loadPersistedProjectWorkspaceState();
@@ -45,6 +50,20 @@ const projectWorkspacePersistenceMiddleware = (storeApi: any) => (next: any) => 
     hydrateWorkspaceProjects.match(action)
   ) {
     saveProjectWorkspaceState(storeApi.getState().projectWorkspace);
+  }
+
+  return result;
+};
+
+const persistedAiFlow = loadPersistedAiFlow();
+
+// The AI takeoff session lives on the server; losing its ids to a page reload
+// would silently drop the flow back to mock data, so it is persisted.
+const aiFlowPersistenceMiddleware = (storeApi: any) => (next: any) => (action: any) => {
+  const result = next(action);
+
+  if (typeof action?.type === "string" && action.type.startsWith("aiFlow/")) {
+    saveAiFlowState(storeApi.getState().aiFlow);
   }
 
   return result;
@@ -72,8 +91,18 @@ export const store = configureStore({
     aiFlow: aiFlowReducer,
   },
   middleware: (getDefaultMiddleware: any) =>
-    getDefaultMiddleware().concat(baseApi.middleware, projectWorkspacePersistenceMiddleware),
+    getDefaultMiddleware().concat(
+      baseApi.middleware,
+      projectWorkspacePersistenceMiddleware,
+      aiFlowPersistenceMiddleware,
+    ),
 });
+
+// Restore the AI takeoff session after the store exists, so the reducer keeps
+// its normal typing instead of being threaded through preloadedState.
+if (persistedAiFlow) {
+  store.dispatch(hydrateAiFlow(persistedAiFlow));
+}
 
 setupListeners(store.dispatch);
 

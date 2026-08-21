@@ -16,10 +16,26 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { toast } from "sonner";
 import { useGetClientsQuery } from "@/store/api/clientsApi";
-import { setAiDetails } from "@/store/slices/aiFlowSlice";
+import { useCreateProjectMutation } from "@/store/api/projectsApi";
+import { setAiDetails, setAiProjectId } from "@/store/slices/aiFlowSlice";
+import { apiMessage, describeApiError, isValidObjectId } from "@/utils/apiError";
 import type { RootState } from "@/store";
 import { AiFlowCard, AiFlowShell } from "./AiFlowShell";
+
+/** UI label → backend enum, matching the manual wizard's mapping. */
+function toProjectType(uiValue: string): string {
+  const map: Record<string, string> = {
+    Residential: "residential",
+    Commercial: "commercial",
+    Infrastructure: "infrastructure",
+    Industrial: "industrial",
+    "Mixed Use": "mixed_use",
+    Institutional: "institutional",
+  };
+  return map[uiValue] ?? uiValue.toLowerCase().replace(/[\s-]+/g, "_");
+}
 
 const PROJECT_TYPES = [
   "Residential",
@@ -53,7 +69,9 @@ export function AiProjectDetailsView({ basePath = "/projects" }: { basePath?: st
   const router = useRouter();
   const dispatch = useDispatch();
   const details = useSelector((state: RootState) => state.aiFlow.details);
+  const currentUser = useSelector((state: RootState) => state.auth.currentUser);
 
+  const [createProject, { isLoading: isCreatingProject }] = useCreateProjectMutation();
   const { data: clientsRes } = useGetClientsQuery({ limit: 100 });
   const clients = clientsRes?.data ?? [];
 
@@ -75,7 +93,13 @@ export function AiProjectDetailsView({ basePath = "/projects" }: { basePath?: st
     },
   });
 
-  const onSubmit = (values: FormValues) => {
+  /**
+   * Step 1 of the documented flow — create the project, because the takeoff
+   * session hangs off a real projectId. If creation fails the flow still
+   * continues on the local `draft` id so the screens stay walkable; the AI
+   * calls then stay dormant until a session can be opened.
+   */
+  const onSubmit = async (values: FormValues) => {
     const client = clients.find((c) => c._id === values.clientId);
     dispatch(
       setAiDetails({
@@ -86,9 +110,50 @@ export function AiProjectDetailsView({ basePath = "/projects" }: { basePath?: st
         clientName: client?.name ?? "",
       }),
     );
-    // TODO: Swap point — create the project server-side here and route on the
-    // returned id instead of the local draft id.
-    router.push(`${basePath}/ai/draft/drawings`);
+
+    try {
+      const response = await createProject({
+        name: values.projectTitle,
+        description: values.description || undefined,
+        // `source`, `processingMode` and `name` are the API's required trio.
+        // AI takeoff writes into the same MeasurementSession records the
+        // manual canvas uses, so the source is the drawing, and processingMode
+        // is what marks the project as AI-driven.
+        source: "manual-drawn",
+        processingMode: "ai",
+        clientId: values.clientId || undefined,
+        clientName: client?.name || undefined,
+        projectCode: values.projectCode || undefined,
+        projectType: values.projectType ? toProjectType(values.projectType) : undefined,
+        projectLocation: values.location || undefined,
+        currency: values.currency || undefined,
+        companyId: currentUser?._id || undefined,
+      } as Parameters<typeof createProject>[0]).unwrap();
+
+      // POST /projects answers with the bare Project, while GET wraps it in
+      // { success, data }. Accept either rather than silently losing the id.
+      const wrapped = response as unknown as { data?: { _id?: string }; _id?: string };
+      const createdId = wrapped.data?._id ?? wrapped._id;
+
+      if (!isValidObjectId(createdId)) {
+        toast.error("Could not create the project", {
+          description: "The server did not return a project id. Please try again.",
+        });
+        return;
+      }
+
+      dispatch(setAiProjectId(createdId));
+      toast.success(apiMessage(response, "Project created successfully."), {
+        description: values.projectTitle,
+      });
+      router.push(`${basePath}/ai/${createdId}/drawings`);
+    } catch (error) {
+      // Staying put is deliberate: continuing on a placeholder id makes every
+      // downstream call fail with "Invalid project ID" far from the cause.
+      toast.error("Could not create the project", {
+        description: describeApiError(error, "Please check the form and try again."),
+      });
+    }
   };
 
   return (
@@ -104,9 +169,9 @@ export function AiProjectDetailsView({ basePath = "/projects" }: { basePath?: st
             </span>
           }
           footer={
-            <Button type="submit" className="h-10 gap-2">
-              Continue to Drawings
-              <ArrowRight className="h-4 w-4" />
+            <Button type="submit" className="h-10 gap-2" disabled={isCreatingProject}>
+              {isCreatingProject ? "Creating project…" : "Continue to Drawings"}
+              {!isCreatingProject && <ArrowRight className="h-4 w-4" />}
             </Button>
           }
         >

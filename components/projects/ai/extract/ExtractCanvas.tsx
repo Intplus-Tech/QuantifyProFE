@@ -39,6 +39,9 @@ export function ExtractCanvas({
   overlay?: React.ReactNode;
   topLeftSlot?: React.ReactNode;
 }) {
+  // blob: preview URLs die on reload, so fall back to the uploaded server copy.
+  const source = drawing?.previewUrl ?? drawing?.uploadedUrl ?? null;
+
   const [tool, setTool] = useState<Tool>("pan");
   const [scale, setScale] = useState(0.9);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -113,19 +116,19 @@ export function ExtractCanvas({
               <p className="mt-32 text-xs text-slate-400">No drawing selected</p>
             )}
 
-            {drawing?.previewUrl && drawing.extension === ".pdf" && (
+            {source && drawing?.extension === ".pdf" && (
               <AiPdfPreview
-                url={drawing.previewUrl}
+                url={source}
                 page={page}
                 scale={scale}
                 onLoadSuccess={onPageCountResolved}
               />
             )}
 
-            {drawing?.previewUrl && drawing.extension !== ".pdf" && (
+            {source && drawing && drawing.extension !== ".pdf" && (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={drawing.previewUrl}
+                src={source}
                 alt={drawing.name}
                 style={{ transform: `scale(${scale})`, transformOrigin: "top center" }}
                 className="max-w-full shadow-lg"

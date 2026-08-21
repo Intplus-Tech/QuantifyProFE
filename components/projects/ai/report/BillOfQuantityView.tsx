@@ -1,14 +1,16 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { updateBoqItem } from "@/store/slices/aiFlowSlice";
+import { toast } from "sonner";
+import { removeBoqItem, updateBoqItem } from "@/store/slices/aiFlowSlice";
 import type { RootState } from "@/store";
 import { boqAmount, boqSectionTotals, fmt, fmtInt, fmtNaira } from "../calc";
-import { EditableCell } from "../shared/EditableCell";
+import { EditableCell, EditableTextCell } from "../shared/EditableCell";
 import { exportToExcel, exportToPdf, type ExportSheet } from "../shared/export";
 import {
   ExportButtons,
+  RowActions,
   SectionCard,
   SummaryTiles,
   td,
@@ -26,6 +28,9 @@ export function BillOfQuantityView() {
   const { boqSections, contingencyPct, vatPct, projectMeta } = useSelector(
     (state: RootState) => state.aiFlow,
   );
+
+  // Only one row across the whole BOQ is editable at a time.
+  const [editingRowId, setEditingRowId] = useState<string | null>(null);
 
   const grand = useMemo(() => {
     const all = boqSections.flatMap((s) => s.items);
@@ -110,6 +115,17 @@ export function BillOfQuantityView() {
         <BoqSectionTable
           key={section.id}
           section={section}
+          editingRowId={editingRowId}
+          onToggleEdit={(itemId) =>
+            setEditingRowId((current) => (current === itemId ? null : itemId))
+          }
+          onDelete={(itemId, label) => {
+            if (editingRowId === itemId) setEditingRowId(null);
+            dispatch(removeBoqItem({ sectionId: section.id, itemId }));
+            toast.success(`${label} removed`, {
+              description: "Totals have been recalculated.",
+            });
+          }}
           onChange={(itemId, changes) =>
             dispatch(updateBoqItem({ sectionId: section.id, itemId, changes }))
           }
@@ -140,12 +156,20 @@ export function BillOfQuantityView() {
 
 function BoqSectionTable({
   section,
+  editingRowId,
+  onToggleEdit,
+  onDelete,
   onChange,
 }: {
   section: BoqSection;
+  editingRowId: string | null;
+  onToggleEdit: (itemId: string) => void;
+  onDelete: (itemId: string, label: string) => void;
   onChange: (
     itemId: string,
     changes: Partial<{
+      label: string;
+      descriptor: string;
       qty: number;
       rate: number | null;
       concrete: number;
@@ -160,7 +184,7 @@ function BoqSectionTable({
 
   return (
     <SectionCard title={section.title} count={section.count}>
-      <table className="w-full min-w-[900px]">
+      <table className="w-full min-w-[980px]">
         <thead className={theadCls}>
           <tr>
             <th className={th}>{section.itemLabel}</th>
@@ -173,78 +197,123 @@ function BoqSectionTable({
             <th className={`${th} text-right`}>Rebar (kg)</th>
             <th className={`${th} text-right`}>Formwork (m²)</th>
             <th className={`${th} text-right`}>Excavation (m³)</th>
+            <th className={`${th} text-center`}>Actions</th>
           </tr>
         </thead>
 
         <tbody>
-          {section.items.map((item) => (
-            <tr key={item.id} className={trCls}>
-              <td className={`${td} font-medium`}>{item.label}</td>
-              {hasDescriptor && <td className={td}>{item.descriptor ?? "—"}</td>}
-              <td className={tdNum}>
-                <EditableCell
-                  value={item.qty}
-                  dp={0}
-                  ariaLabel={`${item.label} quantity`}
-                  onCommit={(qty) => onChange(item.id, { qty: qty ?? 0 })}
-                />
-              </td>
-              <td className={td}>{item.unit}</td>
-              <td className={tdNum}>
-                <EditableCell
-                  value={item.rate}
-                  prefix="₦"
-                  ariaLabel={`${item.label} rate`}
-                  onCommit={(rate) => onChange(item.id, { rate })}
-                />
-              </td>
-              <td className={`${tdNum} font-medium`}>{fmt(boqAmount(item))}</td>
-              <td className={tdNum}>
-                <EditableCell
-                  value={item.concrete}
-                  ariaLabel={`${item.label} concrete`}
-                  onCommit={(concrete) => onChange(item.id, { concrete: concrete ?? 0 })}
-                />
-              </td>
-              <td className={tdNum}>
-                <EditableCell
-                  value={item.rebar}
-                  ariaLabel={`${item.label} rebar`}
-                  onCommit={(rebar) => onChange(item.id, { rebar: rebar ?? 0 })}
-                />
-              </td>
-              <td className={tdNum}>
-                <EditableCell
-                  value={item.formwork}
-                  ariaLabel={`${item.label} formwork`}
-                  onCommit={(formwork) => onChange(item.id, { formwork: formwork ?? 0 })}
-                />
-              </td>
-              <td className={tdNum}>
-                {item.excavation === null ? (
-                  <span className="text-slate-300">—</span>
-                ) : (
+          {section.items.map((item) => {
+            // Rate stays live at rest; everything else unlocks with the row.
+            const editing = editingRowId === item.id;
+
+            return (
+              <tr
+                key={item.id}
+                className={`${trCls} ${editing ? "bg-amber-50/40" : ""}`}
+              >
+                <td className={`${td} font-medium`}>
+                  <EditableTextCell
+                    value={item.label}
+                    editable={editing}
+                    ariaLabel={`${item.label} description`}
+                    onCommit={(label) => onChange(item.id, { label })}
+                  />
+                </td>
+
+                {hasDescriptor && (
+                  <td className={td}>
+                    <EditableTextCell
+                      value={item.descriptor ?? ""}
+                      editable={editing}
+                      ariaLabel={`${item.label} ${section.descriptorLabel}`}
+                      onCommit={(descriptor) => onChange(item.id, { descriptor })}
+                    />
+                  </td>
+                )}
+
+                <td className={tdNum}>
+                  <EditableCell
+                    value={item.qty}
+                    editable={editing}
+                    dp={0}
+                    ariaLabel={`${item.label} quantity`}
+                    onCommit={(qty) => onChange(item.id, { qty: qty ?? 0 })}
+                  />
+                </td>
+
+                <td className={td}>{item.unit}</td>
+
+                <td className={tdNum}>
+                  <EditableCell
+                    value={item.rate}
+                    prefix="₦"
+                    ariaLabel={`${item.label} rate`}
+                    onCommit={(rate) => onChange(item.id, { rate })}
+                  />
+                </td>
+
+                <td className={`${tdNum} font-medium`}>{fmt(boqAmount(item))}</td>
+
+                <td className={tdNum}>
+                  <EditableCell
+                    value={item.concrete}
+                    editable={editing}
+                    ariaLabel={`${item.label} concrete`}
+                    onCommit={(concrete) => onChange(item.id, { concrete: concrete ?? 0 })}
+                  />
+                </td>
+
+                <td className={tdNum}>
+                  <EditableCell
+                    value={item.rebar}
+                    editable={editing}
+                    ariaLabel={`${item.label} rebar`}
+                    onCommit={(rebar) => onChange(item.id, { rebar: rebar ?? 0 })}
+                  />
+                </td>
+
+                <td className={tdNum}>
+                  <EditableCell
+                    value={item.formwork}
+                    editable={editing}
+                    ariaLabel={`${item.label} formwork`}
+                    onCommit={(formwork) => onChange(item.id, { formwork: formwork ?? 0 })}
+                  />
+                </td>
+
+                <td className={tdNum}>
                   <EditableCell
                     value={item.excavation}
+                    editable={editing}
                     ariaLabel={`${item.label} excavation`}
                     onCommit={(excavation) => onChange(item.id, { excavation })}
                   />
-                )}
-              </td>
-            </tr>
-          ))}
+                </td>
+
+                <td className={`${td} text-center`}>
+                  <RowActions
+                    editing={editing}
+                    label={item.label}
+                    onToggleEdit={() => onToggleEdit(item.id)}
+                    onDelete={() => onDelete(item.id, item.label)}
+                  />
+                </td>
+              </tr>
+            );
+          })}
 
           <tr className={totalRowCls}>
             <td className={td}>Total</td>
-            {hasDescriptor && <td className={td}>—</td>}
-            <td className={tdNum}>—</td>
-            <td className={td}>—</td>
-            <td className={tdNum}>—</td>
+            {hasDescriptor && <td className={td}>--</td>}
+            <td className={tdNum}>--</td>
+            <td className={td}>--</td>
+            <td className={tdNum}>--</td>
             <td className={`${tdNum} text-amber-600`}>{fmt(totals.amount)}</td>
             <td className={tdNum}>{fmt(totals.concrete)}</td>
             <td className={tdNum}>{fmt(totals.rebar)}</td>
             <td className={tdNum}>{fmt(totals.formwork)}</td>
             <td className={tdNum}>{fmt(totals.excavation)}</td>
+            <td className={`${td} text-center`}>--</td>
           </tr>
         </tbody>
       </table>

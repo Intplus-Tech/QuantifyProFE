@@ -18,6 +18,7 @@ import {
   missingDimensionKeys,
   type DimensionKey,
 } from "../calc";
+import { useAiTakeoff } from "../useAiTakeoff";
 import type { ElementDimensions, ExtractedElement } from "../types";
 
 const DIMENSION_LABELS: Record<DimensionKey, string> = {
@@ -37,6 +38,7 @@ export function QuickEditModal({
   onClose: () => void;
 }) {
   const dispatch = useDispatch();
+  const { reviewDetections } = useAiTakeoff();
   const globalParameters = useSelector(
     (state: RootState) => state.aiFlow.globalParameters,
   );
@@ -95,20 +97,24 @@ export function QuickEditModal({
 
   const readOnlyKeys = applicable.filter((key) => !editKeys.includes(key));
 
-  const handleSave = () => {
+  // Saving accepts the detection; rejecting excludes it. Both are mirrored to
+  // PATCH /ai-takeoff/sessions/:id/elements/review when a session is live.
+  const handleSave = async () => {
     if (!allFilled) return;
     const changes: Partial<ElementDimensions> = {};
     for (const key of editKeys) changes[key] = Number(drafts[key]) * 1000;
 
     dispatch(updateElementDimensions({ elementId: element.id, dimensions: changes }));
+    await reviewDetections([element.id], "accepted");
     toast.success(`${element.id} saved`, {
       description: "Quantities recalculated from the updated dimensions.",
     });
     onClose();
   };
 
-  const handleReject = () => {
+  const handleReject = async () => {
     dispatch(setElementStatus({ elementId: element.id, status: "rejected" }));
+    await reviewDetections([element.id], "rejected");
     toast.warning(`${element.id} rejected`, {
       description: "It is excluded from all schedules and totals.",
     });

@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation";
 import { useSelector } from "react-redux";
 import {
   BarChart3,
-  Frame,
   Home,
   LayoutDashboard,
   ReceiptText,
@@ -16,13 +15,13 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { RootState } from "@/store";
+import { useAiTakeoff } from "../useAiTakeoff";
 
 const NAV = [
   { slug: "", label: "Overview", icon: LayoutDashboard },
   { slug: "boq", label: "Bill of Quantity", icon: ReceiptText },
   { slug: "materials", label: "Material Schedule", icon: BarChart3 },
   { slug: "bbs", label: "Bar Bending Schedule", icon: Waypoints },
-  { slug: "formwork", label: "Formwork Schedule", icon: Frame },
 ];
 
 export function ReportShell({
@@ -39,6 +38,7 @@ export function ReportShell({
   const projectCode = useSelector(
     (state: RootState) => state.aiFlow.details.projectCode,
   );
+  const { session, finish, isFinishing } = useAiTakeoff();
 
   const reportRoot = `${basePath}/ai/${projectId}/report`;
   const dashboardHref = basePath.startsWith("/enterprise")
@@ -69,6 +69,17 @@ export function ReportShell({
         </label>
 
         <div className="ml-auto flex shrink-0 items-center gap-2">
+          {session.sessionId && !session.finalized && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 text-[11px]"
+              disabled={isFinishing}
+              onClick={() => finish(true)}
+            >
+              {isFinishing ? "Finalizing…" : "Finalize Takeoff"}
+            </Button>
+          )}
           <Button asChild size="sm" className="h-8 text-[11px]">
             <Link href={`${basePath}/ai/${projectId}/extract`}>Continue to Drawing</Link>
           </Button>
