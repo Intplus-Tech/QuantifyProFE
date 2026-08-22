@@ -222,6 +222,8 @@ export const aiTakeoff = {
     `${AI_TAKEOFF_PREFIX}/ai-takeoff/sessions/${sessionId}/elements/review`,
   finish: (sessionId: string) =>
     `${AI_TAKEOFF_PREFIX}/ai-takeoff/sessions/${sessionId}/finish`,
+};
+
 export const measurementSessions = {
   // Project-scoped
   create: (projectId: string) => `/projects/${projectId}/measurement-sessions`,
