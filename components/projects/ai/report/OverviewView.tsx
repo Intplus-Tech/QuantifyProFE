@@ -14,7 +14,7 @@ import {
 import { setActivePage, setGlobalParameter } from "@/store/slices/aiFlowSlice";
 import type { RootState } from "@/store";
 import { computeElementQuantities, fmt } from "../calc";
-import { SOIL_TYPES } from "../mock-data";
+import { MEASURE_TYPES, SOIL_TYPES } from "../mock-data";
 import { QuickEditModal } from "../extract/QuickEditModal";
 import { useAiTakeoff } from "../useAiTakeoff";
 import {
@@ -59,6 +59,20 @@ export function OverviewView() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const { session, reviewDetections, isReviewing, jobs } = useAiTakeoff();
+
+  // Working space, blinding, cover and soil only feed excavation and blinding,
+  // which exist for below-ground elements. No foundations, nothing to set.
+  const hasFoundationElements = useMemo(
+    () =>
+      groups.some((group) =>
+        group.elements.some(
+          (element) =>
+            MEASURE_TYPES.find((m) => m.id === element.measureTypeId)?.group ===
+            "foundations",
+        ),
+      ),
+    [groups],
+  );
 
   // Newest completed job's observations about the page as a whole.
   const lastNotes = [...jobs]
@@ -168,7 +182,9 @@ export function OverviewView() {
         </div>
       </section>
 
-      {/* Global parameters */}
+      {/* Global parameters — only meaningful once something below ground has
+          been extracted, since they drive excavation and blinding alone. */}
+      {hasFoundationElements && (
       <section className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-lg border border-[#dbeef1] bg-white px-4 py-3">
         <span className="inline-flex items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-wide text-slate-600">
           <SlidersHorizontal className="h-3.5 w-3.5 text-amber-500" />
@@ -214,6 +230,7 @@ export function OverviewView() {
           </div>
         </div>
       </section>
+      )}
 
       {/* Bulk review — only meaningful against a live session */}
       {session.sessionId && selected.size > 0 && (

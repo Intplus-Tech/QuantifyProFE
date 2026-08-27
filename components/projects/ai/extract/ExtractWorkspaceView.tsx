@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { toast } from "sonner";
 import { LayoutList, X } from "lucide-react";
@@ -53,12 +53,13 @@ export function ExtractWorkspaceView({
   } = useSelector((state: RootState) => state.aiFlow);
 
 
-  const { analyseCurrentPage, ensureSession, reviewDetections, isAnalysing } =
+  const { analyseCurrentPage, ensureSession, reviewDetections, isAnalysingPage } =
     useAiTakeoff();
   /** With a server session the job drives progress; otherwise the mock ticker does. */
   const live = !!session.sessionId;
 
   const [stepProgress, setStepProgress] = useState(0);
+  const extractInFlight = useRef(false);
   const [showElements, setShowElements] = useState(false);
   const [quickEditId, setQuickEditId] = useState<string | null>(null);
 
@@ -111,7 +112,22 @@ export function ExtractWorkspaceView({
 
   const handleExtract = async () => {
     if (selected.length === 0) return;
+
+    // `busy` only turns on after a re-render, so a fast second click would slip
+    // through and fire a duplicate POST — which the server answers 409. A ref
+    // closes that window synchronously.
+    if (extractInFlight.current) return;
+    extractInFlight.current = true;
     setStepProgress(0);
+
+    try {
+      await runExtract();
+    } finally {
+      extractInFlight.current = false;
+    }
+  };
+
+  const runExtract = async () => {
 
     // A reload loses the in-memory session, so try to resume before deciding
     // this is a demo run. Never silently fall back to the mock when the route
@@ -223,7 +239,7 @@ export function ExtractWorkspaceView({
                 dispatch(toggleMeasureType({ page: activePage, measureTypeId }))
               }
               onExtract={handleExtract}
-              busy={isAnalysing}
+              busy={isAnalysingPage(activePage)}
               error={session.lastError}
             />
           ) : (

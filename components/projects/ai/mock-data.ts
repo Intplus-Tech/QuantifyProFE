@@ -32,6 +32,7 @@ export const MEASURE_TYPES: MeasureType[] = [
   { id: "stairs", label: "STAIRS", group: "superstructure", icon: "TrendingUp" },
   { id: "ramps", label: "RAMPS", group: "superstructure", icon: "Triangle" },
   { id: "blockwork", label: "BLOCKWORK", group: "superstructure", icon: "Blocks" },
+  { id: "walls", label: "WALLS", group: "superstructure", icon: "BrickWall" },
   // Figma shows "STAIRS" twice in the superstructure grid; treated as a design
   // slip and mapped to DOORS to keep every tile addressable.
   { id: "doors", label: "DOORS", group: "superstructure", icon: "DoorOpen" },

@@ -186,6 +186,15 @@ const aiFlowSlice = createSlice({
   name: "aiFlow",
   initialState,
   reducers: {
+    /**
+     * Empty the details form after a project has been created, so returning to
+     * /ai/new starts blank. `projectMeta` is deliberately left alone — the
+     * report headings for the project just created are derived from it.
+     */
+    clearAiDetails(state) {
+      state.details = { ...emptyDetails };
+    },
+
     setAiDetails(state, action: PayloadAction<Partial<AiProjectDetails>>) {
       state.details = { ...state.details, ...action.payload };
       if (action.payload.projectTitle) {
@@ -247,10 +256,14 @@ const aiFlowSlice = createSlice({
       if (!drawing) return;
       drawing.pageCount = action.payload.pageCount;
       if (state.activeDrawingId === drawing.id) {
-        state.pages = Array.from({ length: action.payload.pageCount }, (_, i) => {
-          const seeded = MOCK_PAGES[i];
-          return { number: i + 1, status: seeded?.status ?? "pending" };
-        });
+        // Every page starts pending and is only marked once a job reports on
+        // it. This runs when the PDF resolves its page count, which happens
+        // before the session opens — so keying off sessionId here still let
+        // the sample statuses through and ticked pages nobody had run.
+        state.pages = Array.from({ length: action.payload.pageCount }, (_, i) => ({
+          number: i + 1,
+          status: "pending",
+        }));
       }
     },
 
@@ -558,6 +571,30 @@ const aiFlowSlice = createSlice({
     },
 
     /** Mark a page's audit status as detections arrive. */
+    /**
+     * Replace the report tables with figures derived from live detections.
+     * The Bar Bending Schedule is emptied rather than filled: bar marks, sizes
+     * and cut lengths are not part of the detection payload, so it stays a
+     * user-entered table once a real session is driving the report.
+     */
+    setDerivedReports(
+      state,
+      action: PayloadAction<{
+        boqSections: BoqSection[];
+        concreteSchedule: ConcreteScheduleRow[];
+        rebarSchedule: RebarScheduleRow[];
+        formworkMaterial: FormworkMaterialRow[];
+      }>,
+    ) {
+      state.boqSections = action.payload.boqSections;
+      state.concreteSchedule = action.payload.concreteSchedule;
+      state.rebarSchedule = action.payload.rebarSchedule;
+      state.formworkMaterial = action.payload.formworkMaterial;
+      state.bbsGroups = [];
+      state.formworkBreakdown = [];
+      state.boqIsLive = true;
+    },
+
     setPageStatus(
       state,
       action: PayloadAction<{ page: number; status: DrawingPageMeta["status"] }>,
@@ -630,6 +667,7 @@ const aiFlowSlice = createSlice({
 
 export const {
   setAiDetails,
+  clearAiDetails,
   addAiDrawing,
   updateAiDrawing,
   removeAiDrawing,
@@ -659,6 +697,7 @@ export const {
   setBoqSections,
   setExtractionSteps,
   setPageStatus,
+  setDerivedReports,
   applyElementReview,
   hydrateAiFlow,
   updateElementDimensions,
