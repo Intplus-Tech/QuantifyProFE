@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Printer, Table2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -124,6 +125,13 @@ export function BOQDocumentView({
     );
   }
 
+  // An AI project has its own Bill of Quantity under the Project Audit report.
+  // The manual empty state — and its "Back to Workspace" link into the manual
+  // canvas — do not belong to that flow.
+  if (project.processingMode === "ai" && (!doc || !totals || doc.bills.length === 0)) {
+    return <AiBoqRedirect basePath={basePath} projectId={projectId} />;
+  }
+
   if (!doc || !totals || doc.bills.length === 0) {
     return (
       <BOQDocumentEmpty
@@ -233,4 +241,26 @@ export function BOQDocumentView({
       </div>
     </div>
   );
+}
+
+/**
+ * AI projects keep their Bill of Quantity inside the Project Audit report, so
+ * /projects/:id/boq forwards there rather than rendering the manual flow's
+ * "No BOQ generated yet" state.
+ */
+function AiBoqRedirect({
+  basePath,
+  projectId,
+}: {
+  basePath: string;
+  projectId: string;
+}) {
+  const router = useRouter();
+  const target = `${basePath}/ai/${projectId}/report/boq`;
+
+  useEffect(() => {
+    router.replace(target);
+  }, [router, target]);
+
+  return <BOQDocumentLoading />;
 }

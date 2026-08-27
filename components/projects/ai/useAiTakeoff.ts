@@ -24,11 +24,13 @@ import {
   setAiSession,
   setAiSessionError,
   setBoqSections,
+  setDerivedReports,
   setExtractedGroups,
   setExtractionSteps,
   setPageStatus,
 } from "@/store/slices/aiFlowSlice";
-import type { AiReviewStatus } from "@/types/aiTakeoff";
+import type { AiReviewStatus, AiTakeoffJob } from "@/types/aiTakeoff";
+import type { PageStatus } from "./types";
 import { apiMessage, describeApiError, isValidObjectId } from "@/utils/apiError";
 import {
   buildStepsFromJob,
@@ -37,6 +39,12 @@ import {
   toAiElementTypes,
 } from "./api-mappers";
 import { rasterisePage } from "./pageRaster";
+import {
+  deriveBoqSections,
+  deriveConcreteSchedule,
+  deriveFormworkMaterial,
+  deriveRebarSchedule,
+} from "./deriveReports";
 
 const JOB_POLL_MS = 3000;
 
@@ -90,8 +98,14 @@ function readableJobError(raw?: string): string {
  */
 export function useAiTakeoff() {
   const dispatch = useDispatch();
-  const { session, drawings, activeDrawingId, activePage, selectionsByPage } =
-    useSelector((state: RootState) => state.aiFlow);
+  const {
+    session,
+    drawings,
+    activeDrawingId,
+    activePage,
+    selectionsByPage,
+    globalParameters,
+  } = useSelector((state: RootState) => state.aiFlow);
 
   const [uploadFile, uploadState] = useUploadAiFileMutation();
   const [createSession, createSessionState] = useCreateAiTakeoffSessionMutation();
@@ -161,7 +175,10 @@ export function useAiTakeoff() {
       dispatch(setAiSessionError(message));
       // Back to the selection panel so the page can be retried.
       dispatch(failExtraction());
+      // One id per page: a retry replaces the previous notice instead of
+      // stacking another copy that has to be dismissed separately.
       toast.error("Extraction failed", {
+        id: `ai-extract-${job?.pageNumber ?? "page"}`,
         description: `${message}${
           job?.creditsCharged === 0 ? " No credits were charged." : ""
         }`,
@@ -181,6 +198,7 @@ export function useAiTakeoff() {
 
     if (detected === 0) {
       toast.info("No elements found on this page", {
+        id: `ai-extract-${job?.pageNumber ?? "page"}`,
         description:
           job?.notes ??
           "The model reported nothing matching the selected element types. Try a page with the relevant plan or schedule.",
@@ -188,6 +206,7 @@ export function useAiTakeoff() {
       });
     } else {
       toast.success("Extraction complete", {
+        id: `ai-extract-${job?.pageNumber ?? "page"}`,
         description: `${detected} element(s) detected${
           job?.discardedCount ? `, ${job.discardedCount} discarded` : ""
         }.`,
@@ -204,9 +223,51 @@ export function useAiTakeoff() {
     [sessionQuery.data],
   );
 
+  /**
+   * Page chips reflect what actually ran: a page is only "processed" once a
+   * job reports on it, and "review" if that job failed or found nothing.
+   */
+  useEffect(() => {
+    if (!session.sessionId || sessionJobs.length === 0) return;
+
+    const latestByPage = new Map<number, AiTakeoffJob>();
+    for (const job of sessionJobs) {
+      const seen = latestByPage.get(job.pageNumber);
+      const at = (j: AiTakeoffJob) => new Date(j.createdAt ?? 0).getTime();
+      if (!seen || at(job) >= at(seen)) {
+        latestByPage.set(job.pageNumber, job);
+      }
+    }
+
+    for (const [pageNumber, job] of latestByPage) {
+      const status: PageStatus =
+        job.status === "completed"
+          ? (job.detectedCount ?? 0) > 0
+            ? "processed"
+            : "review"
+          : job.status === "failed"
+            ? "review"
+            : "pending";
+      dispatch(setPageStatus({ page: pageNumber, status }));
+    }
+  }, [sessionJobs, session.sessionId, dispatch]);
+
   useEffect(() => {
     if (detections.length === 0) return;
-    dispatch(setExtractedGroups(groupDetections(detections, session.unit)));
+
+    const liveGroups = groupDetections(detections, session.unit, session.scale);
+    dispatch(setExtractedGroups(liveGroups));
+
+    // Rebuild the report tables off the real detections so the BOQ, Material
+    // Schedule and Formwork Schedule stop showing the seeded sample.
+    dispatch(
+      setDerivedReports({
+        boqSections: deriveBoqSections(liveGroups, globalParameters),
+        concreteSchedule: deriveConcreteSchedule(liveGroups, globalParameters),
+        rebarSchedule: deriveRebarSchedule(liveGroups, globalParameters),
+        formworkMaterial: deriveFormworkMaterial(liveGroups, globalParameters),
+      }),
+    );
 
     // The OpenAPI document describes `attributes` only as "single object or
     // array of attribute objects" — it never names the keys. If the server's
@@ -230,7 +291,7 @@ export function useAiTakeoff() {
         detections[0],
       );
     }
-  }, [detections, session.unit, dispatch]);
+  }, [detections, session.unit, session.scale, globalParameters, dispatch]);
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
@@ -551,6 +612,14 @@ export function useAiTakeoff() {
     isUploading: uploadState.isLoading,
     isOpeningSession: createSessionState.isLoading,
     isAnalysing: analyseState.isLoading || !!session.activeJobId,
+    /**
+     * A run only blocks the page it is analysing — the server rejects a second
+     * request for the *same* page, not for the drawing. Scoping it this way
+     * keeps Extract live when the user moves to another page mid-run.
+     */
+    isAnalysingPage: (pageNumber: number) =>
+      analyseState.isLoading ||
+      (!!session.activeJobId && session.jobPageNumber === pageNumber),
     isReviewing: reviewState.isLoading,
     isFinishing: finishState.isLoading,
   };

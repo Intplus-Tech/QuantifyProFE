@@ -42,10 +42,8 @@ export const aiTakeoffApi = baseApi.injectEndpoints({
       },
     }),
 
-    /** GET /uploads/:id */
-    getUpload: builder.query<ApiResponse<FileUploadResponse>, string>({
-      query: (id) => ApiEndpoints.uploads.getUploads(id),
-    }),
+    // GET /uploads/:id lives in uploadApi as `getUpload` — injecting a second
+    // endpoint under the same name silently overrides it at runtime.
 
     /** POST /projects/:projectId/ai-takeoff/sessions */
     createAiTakeoffSession: builder.mutation<
@@ -138,7 +136,6 @@ export const aiTakeoffApi = baseApi.injectEndpoints({
 
 export const {
   useUploadAiFileMutation,
-  useGetUploadQuery,
   useCreateAiTakeoffSessionMutation,
   useGetAiTakeoffSessionQuery,
   useLazyGetAiTakeoffSessionQuery,

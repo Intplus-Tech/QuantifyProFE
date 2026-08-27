@@ -19,7 +19,11 @@ import {
 import { toast } from "sonner";
 import { useGetClientsQuery } from "@/store/api/clientsApi";
 import { useCreateProjectMutation } from "@/store/api/projectsApi";
-import { setAiDetails, setAiProjectId } from "@/store/slices/aiFlowSlice";
+import {
+  clearAiDetails,
+  setAiDetails,
+  setAiProjectId,
+} from "@/store/slices/aiFlowSlice";
 import { apiMessage, describeApiError, isValidObjectId } from "@/utils/apiError";
 import type { RootState } from "@/store";
 import { AiFlowCard, AiFlowShell } from "./AiFlowShell";
@@ -79,6 +83,7 @@ export function AiProjectDetailsView({ basePath = "/projects" }: { basePath?: st
     register,
     handleSubmit,
     control,
+    reset,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -145,6 +150,19 @@ export function AiProjectDetailsView({ basePath = "/projects" }: { basePath?: st
       dispatch(setAiProjectId(createdId));
       toast.success(apiMessage(response, "Project created successfully."), {
         description: values.projectTitle,
+      });
+      // Leave a clean form behind. `reset()` with no argument restores the
+      // defaultValues, which are seeded from Redux — and Redux is persisted to
+      // sessionStorage — so the values have to be cleared in all three places.
+      dispatch(clearAiDetails());
+      reset({
+        projectTitle: "",
+        clientId: "",
+        projectCode: "",
+        projectType: "",
+        location: "",
+        currency: "NGN",
+        description: "",
       });
       router.push(`${basePath}/ai/${createdId}/drawings`);
     } catch (error) {

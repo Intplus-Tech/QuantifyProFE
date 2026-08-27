@@ -74,14 +74,14 @@ export function ExtractCanvas({
         <div className="flex items-center gap-1">
           <PageStepButton
             label="Previous page"
-            disabled={page <= 1}
+            disabled={page <= 1 || !!dimmed}
             onClick={() => onPageChange(page - 1)}
           >
             <ChevronDown className="h-3.5 w-3.5" />
           </PageStepButton>
           <PageStepButton
             label="Next page"
-            disabled={page >= pageCount}
+            disabled={page >= pageCount || !!dimmed}
             onClick={() => onPageChange(page + 1)}
           >
             <ChevronUp className="h-3.5 w-3.5" />
