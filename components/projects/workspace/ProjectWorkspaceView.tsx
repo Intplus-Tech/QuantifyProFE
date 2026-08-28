@@ -163,6 +163,18 @@ import type {
 
 const HYDRATION_COLOR = "#f59e0b";
 
+// All measured quantities (length, area) are reported in meters regardless of
+// what unit the user picked to enter the known distance during calibration —
+// mm/cm/ft are converted to meters once, at Apply Scale, so on-canvas labels,
+// panel totals, and the backend's own BOQ numbers stay in one consistent unit.
+const METERS_PER_UNIT: Record<string, number> = {
+  mm: 0.001,
+  cm: 0.01,
+  m: 1,
+  ft: 0.3048,
+};
+const REPORT_UNIT = "Meters";
+
 function toXY(p: { x: number; y: number }): [number, number] {
   return [p.x, p.y];
 }
@@ -1089,47 +1101,60 @@ export function ProjectWorkspaceView({
       const sid = sessionData._id;
 
       for (const el of elements) {
-        const attrs = el.attributes ?? {};
-        const snapshotStr = attrs._snapshot as string | undefined;
-        if (!snapshotStr) continue;
+        // persistVariantsToBackend sends `attributes` as a single object for
+        // one variant, or an array — one entry per variant — when several
+        // variants of the same element/tool were bundled into one request.
+        // Normalize to a list so both shapes reconstruct the same way.
+        const attrsList: Record<string, unknown>[] = Array.isArray(
+          el.attributes,
+        )
+          ? el.attributes
+          : [el.attributes ?? {}];
 
-        let parsedVariant: WsConcreteMeasurement | null = null;
-        try {
-          parsedVariant = JSON.parse(snapshotStr) as WsConcreteMeasurement;
-        } catch {
-          continue;
-        }
+        for (const attrs of attrsList) {
+          const snapshotStr = attrs._snapshot as string | undefined;
+          if (!snapshotStr) continue;
 
-        if (attrs.pending === true) {
-          if (!pendingVariantsMap.has(parsedVariant.id)) {
-            pendingVariantsMap.set(parsedVariant.id, parsedVariant);
-          }
-        } else {
-          const eid = attrs.elementId as string | undefined;
-          const elementName = attrs.elementName as string | undefined;
-          if (!eid || !elementName) continue;
-
-          if (!assignedElementMap.has(eid)) {
-            assignedElementMap.set(eid, {
-              meta: {
-                id: eid,
-                name: elementName,
-                category: (attrs.elementCategory as string) ?? "Substructure",
-                categoryFolder: (attrs.categoryFolder as string) ?? elementName,
-                measurementUnit: (attrs.measurementUnit as string) ?? "items",
-                variants: [],
-                sessionId: sid,
-                drawingId: parsedVariant.drawingId,
-                pageNumber: parsedVariant.pageNumber,
-                createdAt: parsedVariant.savedAt,
-              },
-              variantMap: new Map(),
-            });
+          let parsedVariant: WsConcreteMeasurement | null = null;
+          try {
+            parsedVariant = JSON.parse(snapshotStr) as WsConcreteMeasurement;
+          } catch {
+            continue;
           }
 
-          const entry = assignedElementMap.get(eid)!;
-          if (!entry.variantMap.has(parsedVariant.id)) {
-            entry.variantMap.set(parsedVariant.id, parsedVariant);
+          if (attrs.pending === true) {
+            if (!pendingVariantsMap.has(parsedVariant.id)) {
+              pendingVariantsMap.set(parsedVariant.id, parsedVariant);
+            }
+          } else {
+            const eid = attrs.elementId as string | undefined;
+            const elementName = attrs.elementName as string | undefined;
+            if (!eid || !elementName) continue;
+
+            if (!assignedElementMap.has(eid)) {
+              assignedElementMap.set(eid, {
+                meta: {
+                  id: eid,
+                  name: elementName,
+                  category:
+                    (attrs.elementCategory as string) ?? "Substructure",
+                  categoryFolder:
+                    (attrs.categoryFolder as string) ?? elementName,
+                  measurementUnit: (attrs.measurementUnit as string) ?? "items",
+                  variants: [],
+                  sessionId: sid,
+                  drawingId: parsedVariant.drawingId,
+                  pageNumber: parsedVariant.pageNumber,
+                  createdAt: parsedVariant.savedAt,
+                },
+                variantMap: new Map(),
+              });
+            }
+
+            const entry = assignedElementMap.get(eid)!;
+            if (!entry.variantMap.has(parsedVariant.id)) {
+              entry.variantMap.set(parsedVariant.id, parsedVariant);
+            }
           }
         }
       }
@@ -1197,7 +1222,7 @@ export function ProjectWorkspaceView({
         count: sessionTotals.count,
         length: effectiveConcreteLength,
         area: sessionTotals.area,
-        unit: distanceUnit,
+        unit: REPORT_UNIT,
         measurementIds,
       },
       calibration: appliedCalibration,
@@ -1573,28 +1598,27 @@ export function ProjectWorkspaceView({
       return;
     }
 
-    // scaleFactor = base pixels per real unit
-    const sf = calibBasePxDist / realDist;
+    // Convert the entered distance to meters up front — scaleFactor (and
+    // everything derived from it downstream: on-canvas labels, panel totals,
+    // the backend's own BOQ numbers) is always pixels-per-meter from here on,
+    // regardless of which unit the user read off the drawing (mm, cm, ft…).
+    const metersPerUnit =
+      METERS_PER_UNIT[toBackendDistanceUnit(distanceUnit)] ?? 1;
+    const realDistMeters = realDist * metersPerUnit;
 
-    // TEMP diagnostic — remove once the pixel-to-real-unit bug is found.
-    console.log("[CALIBRATION]", {
-      pdfZoom: scale,
-      calibBasePxDist,
-      knownDistanceEntered: realDist,
-      unit: distanceUnit,
-      scaleFactor_pxPerUnit: sf,
-    });
+    // scaleFactor = base pixels per meter
+    const sf = calibBasePxDist / realDistMeters;
 
     setGlobalScaleFactor(sf);
     measurementHook.setCalibration(calibPts, sf);
     setAppliedCalibration({
-      knownDistance: realDist,
+      knownDistance: realDistMeters,
       pixelDistance: calibBasePxDist,
-      unit: toBackendDistanceUnit(distanceUnit),
+      unit: "m",
     });
 
-    const approxRatio = Math.round(calibBasePxDist / realDist);
-    const newScaleInfo = `Scale: 1:${approxRatio} | ${sf.toFixed(1)} px/${distanceUnit}`;
+    const approxRatio = Math.round(calibBasePxDist / realDistMeters);
+    const newScaleInfo = `Scale: 1:${approxRatio} | ${sf.toFixed(1)} px/m`;
     setScaleInfo(newScaleInfo);
     setShowScaleNotification(true);
     if (scaleNotifTimerRef.current) clearTimeout(scaleNotifTimerRef.current);
@@ -2031,7 +2055,7 @@ export function ProjectWorkspaceView({
   // `attributes` as a parallel array and geometry's plural field (rectangles/
   // polylines/pointGroups) holding each one's own points, matching the
   // backend's documented multi-attribute payload shape.
-  function persistVariantsToBackend(
+  async function persistVariantsToBackend(
     variants: WsConcreteMeasurement[],
     sessionId: string,
     elementId: string,
@@ -2152,21 +2176,28 @@ export function ProjectWorkspaceView({
 
       const label = groupVariants[0].tag || groupVariants[0].measureType;
 
-      upsertMeasurementElement({
-        sessionId,
-        body: {
-          // Stable per element+tool so re-assigning the same element updates
-          // this same backend record instead of creating duplicates.
-          clientId: `${elementId}-${tool}`,
-          tool,
-          label,
-          mapsToElementType: backendType,
-          geometry,
-          style: { color, strokeWidth: 2 },
-          attributes:
-            attributesList.length === 1 ? attributesList[0] : attributesList,
-        },
-      });
+      try {
+        await upsertMeasurementElement({
+          sessionId,
+          body: {
+            // Stable per element+tool so re-assigning the same element updates
+            // this same backend record instead of creating duplicates.
+            clientId: `${elementId}-${tool}`,
+            tool,
+            label,
+            mapsToElementType: backendType,
+            geometry,
+            style: { color, strokeWidth: 2 },
+            attributes:
+              attributesList.length === 1 ? attributesList[0] : attributesList,
+          },
+        }).unwrap();
+      } catch (err) {
+        console.error("Failed to save element to the server", err);
+        toast.error(
+          `"${elementName}" didn't fully save to the server — it may be missing after you reload. Try re-assigning it.`,
+        );
+      }
     }
   }
 
@@ -2688,7 +2719,7 @@ export function ProjectWorkspaceView({
                   </span>
                   <span className="text-white text-[11px] font-bold">
                     {(lengthTotal + (liveDrawingLength ?? 0)).toFixed(2)}{" "}
-                    {distanceUnit}
+                    {REPORT_UNIT}
                   </span>
                 </div>
               )}
@@ -2698,8 +2729,7 @@ export function ProjectWorkspaceView({
                     Area
                   </span>
                   <span className="text-white text-[11px] font-bold">
-                    {areaTotal.toFixed(2)}{" "}
-                    {distanceUnit === "Meters" ? "m²" : `${distanceUnit}²`}
+                    {areaTotal.toFixed(2)} m²
                   </span>
                 </div>
               )}
@@ -2765,7 +2795,7 @@ export function ProjectWorkspaceView({
                           No elements yet.
                         </p>
                         <button
-                          onClick={() => setCreateNewElOpen(true)}
+                          onClick={handleAddNewElement}
                           className="flex items-center gap-1.5 text-amber-600 hover:text-amber-700 text-[12px] font-semibold transition-colors"
                         >
                           <Plus className="w-3.5 h-3.5" /> Create Elements
@@ -2840,7 +2870,7 @@ export function ProjectWorkspaceView({
 
                         <div className="px-3 py-2.5">
                           <button
-                            onClick={() => setCreateNewElOpen(true)}
+                            onClick={handleAddNewElement}
                             className="flex items-center gap-1.5 text-amber-600 hover:text-amber-700 text-[12px] font-semibold transition-colors"
                           >
                             <Plus className="w-3.5 h-3.5" /> Create Elements
@@ -3123,7 +3153,7 @@ export function ProjectWorkspaceView({
                     activeTool={activeTool}
                     isCalibrating={scaleFlowActive && !scaleLocked}
                     scaleFactor={globalScaleFactor}
-                    distanceUnit={distanceUnit}
+                    distanceUnit={REPORT_UNIT}
                     activeColor={activeColor}
                     measurements={measurementHook.state.measurements}
                     highlightedIds={highlightedMarkIds}
@@ -3245,7 +3275,7 @@ export function ProjectWorkspaceView({
                         liveArea={sessionTotals.area}
                         liveRebarLength={rebarDrawnLength}
                         selectedVariant={selectedVariant}
-                        distanceUnit={distanceUnit}
+                        distanceUnit={REPORT_UNIT}
                         hasMeasurements={
                           sessionTotals.count > 0 ||
                           sessionTotals.length > 0 ||
@@ -3497,7 +3527,7 @@ export function ProjectWorkspaceView({
             <LiveMeasurementsPanel
               elements={elements}
               pendingVariants={concreteMeasurements}
-              distanceUnit={distanceUnit}
+              distanceUnit={REPORT_UNIT}
               selectedVariantId={selectedVariantId}
               onSelectVariant={handleSelectVariant}
               onDeleteVariant={handleDeleteVariant}

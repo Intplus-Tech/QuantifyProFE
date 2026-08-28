@@ -67,7 +67,10 @@ export interface MeasurementElement {
   mapsToElementType?: string;
   floorLabel?: string;
   geometry?: MeasurementGeometry;
-  attributes?: Record<string, unknown>;
+  // Echoes back whatever shape was sent in UpsertElementBody — a single
+  // object for one variant, or an array when several variants of the same
+  // element were bundled into one request.
+  attributes?: Record<string, unknown> | Record<string, unknown>[];
   computed?: MeasurementComputed;
   version?: number;
 }
