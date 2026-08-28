@@ -27,6 +27,7 @@ import {
   Save,
   Box,
   Trash2,
+  Hand,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -111,6 +112,11 @@ import { DrawingCanvas } from "./components/DrawingCanvas";
 import { DrawingPreloader } from "./components/DrawingPreloader";
 import { FileRow } from "./components/FileRow";
 import { NewFolderDialog } from "./components/NewFolderDialog";
+import {
+  WorkspaceOnboarding,
+  hasSeenWorkspaceOnboarding,
+  type OnboardingStep,
+} from "./components/WorkspaceOnboarding";
 import {
   useCanvasMeasurements,
   removeMeasurementsFromStorage,
@@ -572,7 +578,7 @@ export function ProjectWorkspaceView({
   // Left workspace sidebar — collapsed by default so the drawing gets full width;
   // expands to the full Tools/Element/Drawings column when the header icon is clicked.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
-    () => savedSession.sidebarCollapsed ?? true,
+    () => savedSession.sidebarCollapsed ?? false,
   );
 
   // ── Floating Element Detail Panel — draggable + collapsible, position persists ──
@@ -602,6 +608,9 @@ export function ProjectWorkspaceView({
   const [expandedCategories, setExpandedCategories] = useState<string[]>([]);
   // Elements — populated by Phase 2 hydration from backend, never from localStorage
   const [elements, setElements] = useState<CreatedElement[]>([]);
+  // True while loadProjectElements' backend round-trip is in flight — lets the
+  // sidebar distinguish "still fetching" from "genuinely no elements yet".
+  const [elementsLoading, setElementsLoading] = useState(true);
   const [deleteElementTarget, setDeleteElementTarget] =
     useState<CreatedElement | null>(null);
   const [deletingElementId, setDeletingElementId] = useState<string | null>(
@@ -638,6 +647,21 @@ export function ProjectWorkspaceView({
   );
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── First-run onboarding — anchors for the guided tour coachmarks ────────────
+  const toolsSectionRef = useRef<HTMLDivElement>(null);
+  const newElementBtnRef = useRef<HTMLButtonElement>(null);
+  const zoomControlsRef = useRef<HTMLDivElement>(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  useEffect(() => {
+    if (backendProject && !hasSeenWorkspaceOnboarding()) {
+      // Force the sidebar open so the coachmark targets are actually visible —
+      // overrides a stale collapsed preference from before this tour existed.
+      setSidebarCollapsed(false);
+      setShowOnboarding(true);
+    }
+  }, [backendProject]);
+
   const selectedDrawing =
     drawings.find((d) => d.id === selectedDrawingId) ?? null;
 
@@ -812,6 +836,7 @@ export function ProjectWorkspaceView({
     setKnownDistance("");
     setActiveTool(null);
     setElements([]);
+    setElementsLoading(true);
     setConcreteMeasurements([]);
     setClaimedMarkIds(new Set());
     rebarMarkIds.current = new Set();
@@ -1041,6 +1066,8 @@ export function ProjectWorkspaceView({
   // mutates elements server-side — e.g. deleting one — can re-invoke it to
   // resync the sidebar list with the backend instead of trusting local state.
   const loadProjectElements = useCallback(async () => {
+    setElementsLoading(true);
+    try {
     const sessionsResult = await fetchProjectSessions(projectId);
     if (!("data" in sessionsResult) || !sessionsResult.data?.data?.length)
       return;
@@ -1128,6 +1155,9 @@ export function ProjectWorkspaceView({
       if (localPending && localPending.length > 0) {
         setConcreteMeasurements(localPending);
       }
+    }
+    } finally {
+      setElementsLoading(false);
     }
     // fetchProjectSessions and fetchSessionById are stable references from RTK Query lazy hooks
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2466,6 +2496,48 @@ export function ProjectWorkspaceView({
     return Array.from(ids);
   }, [backendProject?.drawings, savedSession.drawings]);
 
+  // True while at least one expected drawing hasn't finished hydrating into
+  // Redux yet — lets the canvas/sidebar show "loading" instead of the same
+  // empty state a genuinely drawing-less project would show.
+  const drawingsHydrating = useMemo(
+    () =>
+      apiHydrateIds.some(
+        (id) => !drawings.some((d) => d.id === id || d.uploadedFileId === id),
+      ),
+    [apiHydrateIds, drawings],
+  );
+
+  const onboardingSteps: OnboardingStep[] = useMemo(
+    () => [
+      {
+        title: "Start by creating an Element",
+        body: "This is your first step. Creating an Element walks you through choosing what to measure (piles, columns, beams…) and setting your drawing's scale — everything else in the workspace builds on it.",
+        targetRef: newElementBtnRef,
+        placement: "bottom",
+      },
+      {
+        title: "Then measure with these tools",
+        body: "Once your element and scale are set, use Length, Area, or Count to take off quantities from the drawing.",
+        targetRef: toolsSectionRef,
+        placement: "right",
+      },
+      {
+        title: "Navigating the drawing",
+        body: "These controls move you around without disturbing your measurements:",
+        legend: [
+          { icon: Hand, label: "Hand — drag to pan the drawing" },
+          { icon: ZoomIn, label: "Zoom in" },
+          { icon: ZoomOut, label: "Zoom out" },
+          { icon: Maximize2, label: "Fit / reset zoom" },
+          { icon: RotateCw, label: "Rotate the drawing 90°" },
+        ],
+        targetRef: zoomControlsRef,
+        placement: "right",
+      },
+    ],
+    [],
+  );
+
   if (isLoading && !backendProject) {
     return (
       <div className="flex items-center justify-center h-screen bg-slate-100">
@@ -2537,7 +2609,10 @@ export function ProjectWorkspaceView({
             </div>
 
             {/* Tools */}
-            <div className="px-3 pt-3 pb-2.5 border-b border-slate-100">
+            <div
+              ref={toolsSectionRef}
+              className="px-3 pt-3 pb-2.5 border-b border-slate-100"
+            >
               <div className="flex items-center gap-1.5 mb-2.5">
                 <Wrench className="w-3.5 h-3.5 text-slate-400" />
                 <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
@@ -2649,6 +2724,7 @@ export function ProjectWorkspaceView({
                     </span>
                   </div>
                   <button
+                    ref={newElementBtnRef}
                     onClick={handleAddNewElement}
                     className="text-[10px] font-bold uppercase tracking-widest text-slate-800 underline hover:text-amber-600 transition-colors"
                   >
@@ -2674,7 +2750,15 @@ export function ProjectWorkspaceView({
                   </div>
 
                   <div className="flex-1 min-h-0 overflow-y-auto">
-                    {Object.keys(elementsByCategory).length === 0 ? (
+                    {elementsLoading &&
+                    Object.keys(elementsByCategory).length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-full px-4 gap-3">
+                        <div className="w-6 h-6 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
+                        <p className="text-[11px] text-slate-400 text-center leading-relaxed">
+                          Loading elements…
+                        </p>
+                      </div>
+                    ) : Object.keys(elementsByCategory).length === 0 ? (
                       <div className="flex flex-col items-center justify-center h-full px-4 gap-3">
                         <Box className="w-8 h-8 text-slate-200" />
                         <p className="text-[11px] text-slate-400 text-center leading-relaxed">
@@ -2803,10 +2887,20 @@ export function ProjectWorkspaceView({
                       </div>
                     </div>
                     <div className="flex-1 overflow-y-auto">
-                      {folders.length === 0 ||
+                      {drawingsHydrating &&
                       drawings.filter(
                         (d) => d.status === "complete" || d.previewUrl,
                       ).length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-8 px-4 text-center gap-2">
+                          <div className="w-6 h-6 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
+                          <p className="text-[11px] text-slate-400 leading-relaxed">
+                            Loading drawings…
+                          </p>
+                        </div>
+                      ) : folders.length === 0 ||
+                        drawings.filter(
+                          (d) => d.status === "complete" || d.previewUrl,
+                        ).length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-8 px-4 text-center gap-2">
                           <FolderOpen className="w-8 h-8 text-slate-200" />
                           <p className="text-[11px] text-slate-400 leading-relaxed">
@@ -3004,6 +3098,14 @@ export function ProjectWorkspaceView({
               ref={canvasAreaRef}
               className="flex-1 min-w-0 relative overflow-hidden bg-[#e8edf2]"
             >
+              {drawingsHydrating && !selectedDrawing ? (
+                <div className="flex flex-col items-center justify-center h-full gap-3 select-none">
+                  <div className="w-8 h-8 animate-spin rounded-full border-4 border-amber-500 border-t-transparent" />
+                  <p className="text-sm text-slate-500 font-medium">
+                    Loading drawings…
+                  </p>
+                </div>
+              ) : (
               <DrawingCanvas
                 drawing={selectedDrawing}
                 page={selectedPage}
@@ -3036,9 +3138,25 @@ export function ProjectWorkspaceView({
                   />
                 }
               />
+              )}
 
               {/* Zoom controls */}
-              <div className="absolute top-4 left-4 flex flex-col gap-1 bg-white rounded-lg shadow-md border border-slate-200 p-1">
+              <div
+                ref={zoomControlsRef}
+                className="absolute top-4 left-4 flex flex-col gap-1 bg-white rounded-lg shadow-md border border-slate-200 p-1"
+              >
+                <button
+                  onClick={handleDeselectTool}
+                  className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
+                    !activeTool
+                      ? "bg-amber-500 text-white hover:bg-amber-600"
+                      : "hover:bg-slate-100 text-slate-500"
+                  }`}
+                  title="Hand tool — pan the drawing"
+                >
+                  <Hand className="w-3.5 h-3.5" />
+                </button>
+                <div className="h-px bg-slate-200 mx-0.5" />
                 <button
                   onClick={zoomIn}
                   disabled={scale >= 3}
@@ -3557,6 +3675,13 @@ export function ProjectWorkspaceView({
           onPageCountResolved={handlePageCountResolved}
         />
       </div>
+
+      {showOnboarding && (
+        <WorkspaceOnboarding
+          steps={onboardingSteps}
+          onFinish={() => setShowOnboarding(false)}
+        />
+      )}
     </>
   );
 }

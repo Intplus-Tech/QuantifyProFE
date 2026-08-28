@@ -60,6 +60,9 @@ export function StepDrawings({ onBack, onSaveAndProceed, isSaving }: StepDrawing
   const [uploadFile] = useUploadFileMutation();
 
   const selectedFile = drawings.find((d) => d.id === selectedId) ?? null;
+  const hasActiveUploads = drawings.some(
+    (d) => d.status === "uploading" || d.status === "processing",
+  );
 
   const processFile = useCallback(
     async (file: File) => {
@@ -217,7 +220,7 @@ export function StepDrawings({ onBack, onSaveAndProceed, isSaving }: StepDrawing
         </div>
 
         {/* Right: preview panel */}
-        <div className="hidden lg:flex border border-border/40 rounded-xl overflow-hidden bg-card min-h-[460px] flex-col">
+        <div className="hidden lg:flex border border-border/40 rounded-xl overflow-hidden bg-card h-115 flex-col">
           <DrawingPreviewPanel file={selectedFile} />
         </div>
       </div>
@@ -229,17 +232,22 @@ export function StepDrawings({ onBack, onSaveAndProceed, isSaving }: StepDrawing
         </Button>
 
         <div className="flex items-center gap-3">
+          {hasActiveUploads && (
+            <p className="text-xs text-muted-foreground">
+              Waiting for uploads to finish…
+            </p>
+          )}
           <Button
             variant="ghost"
             onClick={onSaveAndProceed}
-            disabled={isSaving}
+            disabled={isSaving || hasActiveUploads}
             className="text-primary hover:text-primary/80"
           >
             Save, Continue later
           </Button>
           <Button
             onClick={onSaveAndProceed}
-            disabled={isSaving || drawings.length === 0}
+            disabled={isSaving || drawings.length === 0 || hasActiveUploads}
             className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2"
           >
             {isSaving ? "Saving…" : "Save & Proceed →"}

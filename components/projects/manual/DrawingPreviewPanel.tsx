@@ -104,13 +104,13 @@ function ImageViewer({ file, scale }: { file: DrawingFile; scale: number }) {
   }
 
   return (
-    <div className="flex items-center justify-center h-full overflow-auto">
+    <div className="flex items-center justify-center h-full min-h-0 w-full overflow-auto">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={src}
         alt={file.name}
         style={{ transform: `scale(${scale})`, transformOrigin: "center center", transition: "transform 0.15s ease" }}
-        className="max-w-full max-h-full object-contain"
+        className="w-full h-full object-contain"
         draggable={false}
       />
     </div>
@@ -159,7 +159,7 @@ export function DrawingPreviewPanel({ file, onClose, onPageCountChange }: Drawin
   const canPreviewInline = file.category === "pdf" || file.category === "image";
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       {/* Toolbar */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border/40 shrink-0 bg-muted/30">
         <div className="flex items-center gap-1.5 min-w-0">
@@ -188,7 +188,7 @@ export function DrawingPreviewPanel({ file, onClose, onPageCountChange }: Drawin
       </div>
 
       {/* Preview area */}
-      <div className="flex-1 overflow-auto bg-slate-50 relative">
+      <div className="flex-1 min-h-0 overflow-auto bg-slate-50 relative">
         {file.category === "pdf" ? (
           <PdfViewer file={file} scale={scale} page={page} onPageCount={handlePageCount} />
         ) : file.category === "image" ? (
