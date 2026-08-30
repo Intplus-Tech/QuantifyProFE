@@ -163,6 +163,18 @@ import type {
 
 const HYDRATION_COLOR = "#f59e0b";
 
+// All measured quantities (length, area) are reported in meters regardless of
+// what unit the user picked to enter the known distance during calibration —
+// mm/cm/ft are converted to meters once, at Apply Scale, so on-canvas labels,
+// panel totals, and the backend's own BOQ numbers stay in one consistent unit.
+const METERS_PER_UNIT: Record<string, number> = {
+  mm: 0.001,
+  cm: 0.01,
+  m: 1,
+  ft: 0.3048,
+};
+const REPORT_UNIT = "Meters";
+
 function toXY(p: { x: number; y: number }): [number, number] {
   return [p.x, p.y];
 }
@@ -456,6 +468,10 @@ export function ProjectWorkspaceView({
   const [savedSession] = useState(() => loadSession(projectId));
   const [activeTool, setActiveTool] = useState<ToolId | null>(null);
   const [pendingTool, setPendingTool] = useState<ToolId | null>(null);
+  // Hand tool — toggling it on remembers whatever measurement tool was active
+  // so toggling it off again restores that tool instead of leaving nothing selected.
+  const [handToolActive, setHandToolActive] = useState(false);
+  const preHandToolRef = useRef<ToolId | null>(null);
   const [activeColor, setActiveColor] = useState(PALETTE[0]);
   const [search, setSearch] = useState("");
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(
@@ -1089,47 +1105,60 @@ export function ProjectWorkspaceView({
       const sid = sessionData._id;
 
       for (const el of elements) {
-        const attrs = el.attributes ?? {};
-        const snapshotStr = attrs._snapshot as string | undefined;
-        if (!snapshotStr) continue;
+        // persistVariantsToBackend sends `attributes` as a single object for
+        // one variant, or an array — one entry per variant — when several
+        // variants of the same element/tool were bundled into one request.
+        // Normalize to a list so both shapes reconstruct the same way.
+        const attrsList: Record<string, unknown>[] = Array.isArray(
+          el.attributes,
+        )
+          ? el.attributes
+          : [el.attributes ?? {}];
 
-        let parsedVariant: WsConcreteMeasurement | null = null;
-        try {
-          parsedVariant = JSON.parse(snapshotStr) as WsConcreteMeasurement;
-        } catch {
-          continue;
-        }
+        for (const attrs of attrsList) {
+          const snapshotStr = attrs._snapshot as string | undefined;
+          if (!snapshotStr) continue;
 
-        if (attrs.pending === true) {
-          if (!pendingVariantsMap.has(parsedVariant.id)) {
-            pendingVariantsMap.set(parsedVariant.id, parsedVariant);
-          }
-        } else {
-          const eid = attrs.elementId as string | undefined;
-          const elementName = attrs.elementName as string | undefined;
-          if (!eid || !elementName) continue;
-
-          if (!assignedElementMap.has(eid)) {
-            assignedElementMap.set(eid, {
-              meta: {
-                id: eid,
-                name: elementName,
-                category: (attrs.elementCategory as string) ?? "Substructure",
-                categoryFolder: (attrs.categoryFolder as string) ?? elementName,
-                measurementUnit: (attrs.measurementUnit as string) ?? "items",
-                variants: [],
-                sessionId: sid,
-                drawingId: parsedVariant.drawingId,
-                pageNumber: parsedVariant.pageNumber,
-                createdAt: parsedVariant.savedAt,
-              },
-              variantMap: new Map(),
-            });
+          let parsedVariant: WsConcreteMeasurement | null = null;
+          try {
+            parsedVariant = JSON.parse(snapshotStr) as WsConcreteMeasurement;
+          } catch {
+            continue;
           }
 
-          const entry = assignedElementMap.get(eid)!;
-          if (!entry.variantMap.has(parsedVariant.id)) {
-            entry.variantMap.set(parsedVariant.id, parsedVariant);
+          if (attrs.pending === true) {
+            if (!pendingVariantsMap.has(parsedVariant.id)) {
+              pendingVariantsMap.set(parsedVariant.id, parsedVariant);
+            }
+          } else {
+            const eid = attrs.elementId as string | undefined;
+            const elementName = attrs.elementName as string | undefined;
+            if (!eid || !elementName) continue;
+
+            if (!assignedElementMap.has(eid)) {
+              assignedElementMap.set(eid, {
+                meta: {
+                  id: eid,
+                  name: elementName,
+                  category:
+                    (attrs.elementCategory as string) ?? "Substructure",
+                  categoryFolder:
+                    (attrs.categoryFolder as string) ?? elementName,
+                  measurementUnit: (attrs.measurementUnit as string) ?? "items",
+                  variants: [],
+                  sessionId: sid,
+                  drawingId: parsedVariant.drawingId,
+                  pageNumber: parsedVariant.pageNumber,
+                  createdAt: parsedVariant.savedAt,
+                },
+                variantMap: new Map(),
+              });
+            }
+
+            const entry = assignedElementMap.get(eid)!;
+            if (!entry.variantMap.has(parsedVariant.id)) {
+              entry.variantMap.set(parsedVariant.id, parsedVariant);
+            }
           }
         }
       }
@@ -1197,7 +1226,7 @@ export function ProjectWorkspaceView({
         count: sessionTotals.count,
         length: effectiveConcreteLength,
         area: sessionTotals.area,
-        unit: distanceUnit,
+        unit: REPORT_UNIT,
         measurementIds,
       },
       calibration: appliedCalibration,
@@ -1405,6 +1434,30 @@ export function ProjectWorkspaceView({
     setActiveTool(null);
     setCountModeActive(false);
     setPendingTool(null);
+    setHandToolActive(false);
+    preHandToolRef.current = null;
+  }
+
+  // ── Hand tool — pan the drawing without a mouse-only drag ─────────────────────
+  // Toggling on remembers whatever measurement tool was active and clears it so
+  // the canvas is free to pan; toggling off restores that same tool so the user
+  // doesn't have to reselect Length/Area/Count after moving the drawing.
+  function handleToggleHandTool() {
+    if (handToolActive) {
+      const prev = preHandToolRef.current;
+      preHandToolRef.current = null;
+      setHandToolActive(false);
+      if (prev) {
+        setActiveTool(prev);
+        setCountModeActive(prev === "count");
+      }
+    } else {
+      preHandToolRef.current = activeTool;
+      setHandToolActive(true);
+      setActiveTool(null);
+      setCountModeActive(false);
+      setPendingTool(null);
+    }
   }
 
   // ── Tool click ───────────────────────────────────────────────────────────────
@@ -1421,6 +1474,8 @@ export function ProjectWorkspaceView({
     // Text is a plain annotation tool, not a measurable BOQ category — it never
     // goes through the BBS/Scale modal chain (that's only for "+ New Element").
     if (id === "text") {
+      setHandToolActive(false);
+      preHandToolRef.current = null;
       setActiveTool((prev) => (prev === "text" ? null : "text"));
       return;
     }
@@ -1428,6 +1483,8 @@ export function ProjectWorkspaceView({
     // This lets the user navigate to another page for additional rebar/concrete
     // measurements without being re-prompted for BBS or scale every time.
     if (scaleFlowActive) {
+      setHandToolActive(false);
+      preHandToolRef.current = null;
       setActiveTool(id);
       setCountModeActive(id === "count");
       setPendingTool(null);
@@ -1573,28 +1630,27 @@ export function ProjectWorkspaceView({
       return;
     }
 
-    // scaleFactor = base pixels per real unit
-    const sf = calibBasePxDist / realDist;
+    // Convert the entered distance to meters up front — scaleFactor (and
+    // everything derived from it downstream: on-canvas labels, panel totals,
+    // the backend's own BOQ numbers) is always pixels-per-meter from here on,
+    // regardless of which unit the user read off the drawing (mm, cm, ft…).
+    const metersPerUnit =
+      METERS_PER_UNIT[toBackendDistanceUnit(distanceUnit)] ?? 1;
+    const realDistMeters = realDist * metersPerUnit;
 
-    // TEMP diagnostic — remove once the pixel-to-real-unit bug is found.
-    console.log("[CALIBRATION]", {
-      pdfZoom: scale,
-      calibBasePxDist,
-      knownDistanceEntered: realDist,
-      unit: distanceUnit,
-      scaleFactor_pxPerUnit: sf,
-    });
+    // scaleFactor = base pixels per meter
+    const sf = calibBasePxDist / realDistMeters;
 
     setGlobalScaleFactor(sf);
     measurementHook.setCalibration(calibPts, sf);
     setAppliedCalibration({
-      knownDistance: realDist,
+      knownDistance: realDistMeters,
       pixelDistance: calibBasePxDist,
-      unit: toBackendDistanceUnit(distanceUnit),
+      unit: "m",
     });
 
-    const approxRatio = Math.round(calibBasePxDist / realDist);
-    const newScaleInfo = `Scale: 1:${approxRatio} | ${sf.toFixed(1)} px/${distanceUnit}`;
+    const approxRatio = Math.round(calibBasePxDist / realDistMeters);
+    const newScaleInfo = `Scale: 1:${approxRatio} | ${sf.toFixed(1)} px/m`;
     setScaleInfo(newScaleInfo);
     setShowScaleNotification(true);
     if (scaleNotifTimerRef.current) clearTimeout(scaleNotifTimerRef.current);
@@ -2031,7 +2087,7 @@ export function ProjectWorkspaceView({
   // `attributes` as a parallel array and geometry's plural field (rectangles/
   // polylines/pointGroups) holding each one's own points, matching the
   // backend's documented multi-attribute payload shape.
-  function persistVariantsToBackend(
+  async function persistVariantsToBackend(
     variants: WsConcreteMeasurement[],
     sessionId: string,
     elementId: string,
@@ -2152,21 +2208,28 @@ export function ProjectWorkspaceView({
 
       const label = groupVariants[0].tag || groupVariants[0].measureType;
 
-      upsertMeasurementElement({
-        sessionId,
-        body: {
-          // Stable per element+tool so re-assigning the same element updates
-          // this same backend record instead of creating duplicates.
-          clientId: `${elementId}-${tool}`,
-          tool,
-          label,
-          mapsToElementType: backendType,
-          geometry,
-          style: { color, strokeWidth: 2 },
-          attributes:
-            attributesList.length === 1 ? attributesList[0] : attributesList,
-        },
-      });
+      try {
+        await upsertMeasurementElement({
+          sessionId,
+          body: {
+            // Stable per element+tool so re-assigning the same element updates
+            // this same backend record instead of creating duplicates.
+            clientId: `${elementId}-${tool}`,
+            tool,
+            label,
+            mapsToElementType: backendType,
+            geometry,
+            style: { color, strokeWidth: 2 },
+            attributes:
+              attributesList.length === 1 ? attributesList[0] : attributesList,
+          },
+        }).unwrap();
+      } catch (err) {
+        console.error("Failed to save element to the server", err);
+        toast.error(
+          `"${elementName}" didn't fully save to the server — it may be missing after you reload. Try re-assigning it.`,
+        );
+      }
     }
   }
 
@@ -2688,7 +2751,7 @@ export function ProjectWorkspaceView({
                   </span>
                   <span className="text-white text-[11px] font-bold">
                     {(lengthTotal + (liveDrawingLength ?? 0)).toFixed(2)}{" "}
-                    {distanceUnit}
+                    {REPORT_UNIT}
                   </span>
                 </div>
               )}
@@ -2698,8 +2761,7 @@ export function ProjectWorkspaceView({
                     Area
                   </span>
                   <span className="text-white text-[11px] font-bold">
-                    {areaTotal.toFixed(2)}{" "}
-                    {distanceUnit === "Meters" ? "m²" : `${distanceUnit}²`}
+                    {areaTotal.toFixed(2)} m²
                   </span>
                 </div>
               )}
@@ -2765,7 +2827,7 @@ export function ProjectWorkspaceView({
                           No elements yet.
                         </p>
                         <button
-                          onClick={() => setCreateNewElOpen(true)}
+                          onClick={handleAddNewElement}
                           className="flex items-center gap-1.5 text-amber-600 hover:text-amber-700 text-[12px] font-semibold transition-colors"
                         >
                           <Plus className="w-3.5 h-3.5" /> Create Elements
@@ -2840,7 +2902,7 @@ export function ProjectWorkspaceView({
 
                         <div className="px-3 py-2.5">
                           <button
-                            onClick={() => setCreateNewElOpen(true)}
+                            onClick={handleAddNewElement}
                             className="flex items-center gap-1.5 text-amber-600 hover:text-amber-700 text-[12px] font-semibold transition-colors"
                           >
                             <Plus className="w-3.5 h-3.5" /> Create Elements
@@ -3123,7 +3185,7 @@ export function ProjectWorkspaceView({
                     activeTool={activeTool}
                     isCalibrating={scaleFlowActive && !scaleLocked}
                     scaleFactor={globalScaleFactor}
-                    distanceUnit={distanceUnit}
+                    distanceUnit={REPORT_UNIT}
                     activeColor={activeColor}
                     measurements={measurementHook.state.measurements}
                     highlightedIds={highlightedMarkIds}
@@ -3146,9 +3208,9 @@ export function ProjectWorkspaceView({
                 className="absolute top-4 left-4 flex flex-col gap-1 bg-white rounded-lg shadow-md border border-slate-200 p-1"
               >
                 <button
-                  onClick={handleDeselectTool}
+                  onClick={handleToggleHandTool}
                   className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-                    !activeTool
+                    handToolActive
                       ? "bg-amber-500 text-white hover:bg-amber-600"
                       : "hover:bg-slate-100 text-slate-500"
                   }`}
@@ -3245,7 +3307,7 @@ export function ProjectWorkspaceView({
                         liveArea={sessionTotals.area}
                         liveRebarLength={rebarDrawnLength}
                         selectedVariant={selectedVariant}
-                        distanceUnit={distanceUnit}
+                        distanceUnit={REPORT_UNIT}
                         hasMeasurements={
                           sessionTotals.count > 0 ||
                           sessionTotals.length > 0 ||
@@ -3497,7 +3559,7 @@ export function ProjectWorkspaceView({
             <LiveMeasurementsPanel
               elements={elements}
               pendingVariants={concreteMeasurements}
-              distanceUnit={distanceUnit}
+              distanceUnit={REPORT_UNIT}
               selectedVariantId={selectedVariantId}
               onSelectVariant={handleSelectVariant}
               onDeleteVariant={handleDeleteVariant}
