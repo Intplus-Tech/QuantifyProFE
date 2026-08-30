@@ -88,6 +88,98 @@ navigates to workspace on proceed.
 
 ---
 
+## AI Project Creation Flow (Figma `1322-1155`)
+
+> Built in session: `Mercy` branch. Replaces the old in-dialog AI path.
+
+### Route map (mirrored solo + enterprise)
+
+```
+{basePath}/ai/new                          → AiProjectDetailsView   (details form)
+{basePath}/ai/[projectId]/drawings         → DrawingReferencesView  (upload + preview)
+{basePath}/ai/[projectId]/extract          → ExtractWorkspaceView   (canvas + right rail)
+{basePath}/ai/[projectId]/report           → OverviewView           ("Project Audit")
+{basePath}/ai/[projectId]/report/boq       → BillOfQuantityView
+{basePath}/ai/[projectId]/report/materials → MaterialScheduleView
+{basePath}/ai/[projectId]/report/bbs       → BarBendingScheduleView
+{basePath}/ai/[projectId]/report/formwork  → FormworkScheduleView
+```
+
+`basePath` is `/projects` or `/enterprise/projects`. The static `ai` segment sits
+beside `[projectId]` — Next resolves static first, so a project whose id is
+literally `ai` would collide. `projectId` is currently the literal `draft`
+until project creation is wired server-side.
+
+### Flow
+
+1. **Projects → New Project** → `NewProjectDialog` (Select Processing Mode) → AI → `/ai/new`
+2. **Project Details** — name, client, ref, type, address, currency, description
+3. **Drawing References** — dropzone (PDF/JPG/PNG, 50 MB), per-file status
+   (`Queued → n% Processing → Render Complete`), preview with zoom + page nav
+4. **Extract** — canvas left, right rail is a state machine:
+   - `idle` → `MeasureSelectPanel`: 18 tiles in FOUNDATIONS / SUPERSTRUCTURE,
+     multi-select per page, footer counter `Extract Selected (N)`
+   - `running` → `ExtractionProgressPanel`: 5 steps, canvas dims + spinner,
+     `Cancel Processing`
+   - `complete` → `Review Results` / `Back to drawing`, plus a `View Elements`
+     chip on the canvas that opens `QuickEditModal` per element
+5. **Quick Edit** — green rows for detected dimensions, red for OCR failures,
+   inputs for missing values, live Concrete/Formwork/Rebar preview, Reject/Save.
+   When nothing is missing, every dimension becomes editable.
+6. **Project Audit** — left nav across Overview + 4 schedules, reachable any
+   time via `View Reports`. Every numeric cell is editable; totals recompute.
+
+### Key files
+
+| File | Purpose |
+|---|---|
+| `store/slices/aiFlowSlice.ts` | Whole AI session state |
+| `components/projects/ai/types.ts` | Domain types |
+| `components/projects/ai/mock-data.ts` | **All mock data — the single swap point** |
+| `components/projects/ai/calc.ts` | Quantity + BBS maths, formatters |
+| `components/projects/ai/shared/export.ts` | Excel/PDF export (swap point) |
+| `components/projects/ai/shared/ReportPrimitives.tsx` | Table/tile/section chrome |
+| `components/projects/ai/shared/EditableCell.tsx` | Always-on editable cells |
+
+### Calculation basis (`calc.ts`)
+
+```
+concrete   = L × W × D                    (circular: πr²D)
+formwork   = 2(L + W) × D                 (circular: 2πrD)
+rebar      = concrete × 38.83 kg/m³       calibrated to the Figma Quick Edit preview
+excavation = (L + 2ws)(W + 2ws)(D + blinding)
+bar weight = total length × BAR_MASS_PER_M[size]
+```
+
+`BAR_MASS_PER_M` reproduces the Figma BBS weights exactly (25 mm → 3.85 kg/m).
+
+### Known deviations from Figma (deliberate)
+
+| Figma | Built | Why |
+|---|---|---|
+| `STAIRS` tile appears twice | second one is `DOORS` | duplicate tile is unaddressable |
+| GB-3/GB-4 `6000×300×600` → `1.92 m³` | computes `1.08 m³` | Figma figure contradicts its own dimensions |
+| BOQ section totals don't sum their rows | all totals computed live | rows were placeholder-duplicated |
+| Formwork tile `TOTAL AREA 2,450 m²` | computes `257.56 m²` | 2,450 is the bar count copied across |
+| Screen 6 still titled "Extraction in Progress" | "Extraction Complete" | all five steps are ticked |
+
+### Pending
+
+- **BOQ Excel template** — client's workbook not yet supplied. `exportToExcel`
+  emits UTF-8 CSV; swap to `exceljs` writing into the template when it lands.
+- No backend for extraction — `mock-data.ts` seeds `aiFlowSlice` initial state
+  so report routes survive a hard refresh. Uploads use `simulateUpload`.
+- State is in-memory only; a hard refresh mid-flow loses uploads.
+
+### Old AI path (commented out, not deleted)
+
+`NewProjectDialog` no longer renders `AiAnalysisContent`; both are left on disk
+with the `step === "ai"` block commented. `ProcessingView` and
+`{basePath}/[projectId]/processing` are untouched but now unreachable from the
+AI flow — they still hold the working BIM/PDF/multi BOQ job wiring.
+
+---
+
 ## Redux Store
 
 ### Registered reducers (store/index.ts)
@@ -95,6 +187,7 @@ navigates to workspace on proceed.
 baseApi          auth          company       library
 credits          document      plans         clients
 projects         manualWizard  projectWorkspace  takeoff
+aiFlow
 ```
 
 > **Important:** `store/index 2.ts` was a stale duplicate that had the correct reducers.
