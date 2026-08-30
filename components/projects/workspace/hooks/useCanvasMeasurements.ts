@@ -54,13 +54,35 @@ export function removeMeasurementsFromStorage(
   } catch {}
 }
 
+interface Calibration {
+  scaleFactor: number | null;
+  calibPts: [MPoint, MPoint] | null;
+}
+
 export function useCanvasMeasurements(drawingId: string | null, page: number) {
   // Load from localStorage exactly once on mount (lazy initializer)
   const [initialData] = useState<PageMeasurements>(
     () => (drawingId ? loadPage(drawingId, page) : EMPTY),
   );
-  const { state, push, undo, redo, reset, canUndo, canRedo } =
-    useShapeHistory(initialData);
+
+  // Only the drawn shapes go through undo/redo. Calibration is one-time page
+  // setup (Apply Scale), not a "shape" — if it shared the same history stack,
+  // undoing past the last drawn mark would silently wipe the scale too, and
+  // the only symptom would show up later as "scale gone" on the next reload.
+  const {
+    state: measurements,
+    push,
+    undo,
+    redo,
+    reset: resetMeasurements,
+    canUndo,
+    canRedo,
+  } = useShapeHistory<Measurement[]>(initialData.measurements);
+
+  const [calibration, setCalibrationState] = useState<Calibration>({
+    scaleFactor: initialData.scaleFactor,
+    calibPts: initialData.calibPts,
+  });
 
   // Synchronous derived-state reset: when drawingId/page changes, immediately
   // reset to the correct page's data with zero one-frame bleed.
@@ -70,7 +92,9 @@ export function useCanvasMeasurements(drawingId: string | null, page: number) {
   const currentKey = makeKey(drawingId, page);
   if (prevKey !== currentKey) {
     setPrevKey(currentKey);
-    reset(drawingId ? loadPage(drawingId, page) : EMPTY);
+    const data = drawingId ? loadPage(drawingId, page) : EMPTY;
+    resetMeasurements(data.measurements);
+    setCalibrationState({ scaleFactor: data.scaleFactor, calibPts: data.calibPts });
   }
 
   // Refs updated during every render so the persistence effect always writes to
@@ -80,55 +104,66 @@ export function useCanvasMeasurements(drawingId: string | null, page: number) {
   drawingIdRef.current = drawingId;
   pageRef.current = page;
 
+  // Persists the combined shape (measurements + calibration) — same on-disk
+  // format as before, even though calibration now lives outside the undo stack.
   useEffect(() => {
     const did = drawingIdRef.current;
     const pg = pageRef.current;
     if (!did) return;
+    const snapshot: PageMeasurements = {
+      scaleFactor: calibration.scaleFactor,
+      calibPts: calibration.calibPts,
+      measurements,
+    };
     try {
-      localStorage.setItem(storageKey(did, pg), JSON.stringify(state));
+      localStorage.setItem(storageKey(did, pg), JSON.stringify(snapshot));
     } catch {}
-  }, [state]);
+  }, [measurements, calibration]);
 
   // All mutations use the functional-updater form so they always read the latest
   // committed state from React internals — never a stale closed-over value.
 
   function setCalibration(pts: [MPoint, MPoint], scaleFactor: number) {
-    push((cur) => ({ ...cur, calibPts: pts, scaleFactor }));
+    setCalibrationState({ calibPts: pts, scaleFactor });
   }
 
   function addMeasurement(m: Measurement) {
-    push((cur) => ({ ...cur, measurements: [...cur.measurements, m] }));
+    push((cur) => [...cur, m]);
   }
 
   function removeMeasurement(id: string) {
-    push((cur) => ({
-      ...cur,
-      measurements: cur.measurements.filter((m) => m.id !== id),
-    }));
+    push((cur) => cur.filter((m) => m.id !== id));
   }
 
   function removeMeasurements(ids: string[]) {
     if (ids.length === 0) return;
     const idSet = new Set(ids);
-    push((cur) => ({
-      ...cur,
-      measurements: cur.measurements.filter((m) => !idSet.has(m.id)),
-    }));
+    push((cur) => cur.filter((m) => !idSet.has(m.id)));
   }
 
   function clearMeasurements() {
-    push((cur) => ({ ...cur, measurements: [] }));
+    push(() => []);
   }
 
   // Bulk-replace all state (used when re-hydrating from backend). Stable because
-  // `reset` is a useCallback from useShapeHistory with no deps.
+  // `resetMeasurements` is a useCallback from useShapeHistory with no deps.
   const resetWithData = useCallback(
-    (data: PageMeasurements) => reset(data),
-    [reset],
+    (data: PageMeasurements) => {
+      resetMeasurements(data.measurements);
+      setCalibrationState({
+        scaleFactor: data.scaleFactor,
+        calibPts: data.calibPts,
+      });
+    },
+    [resetMeasurements],
   );
 
   return {
-    state,
+    state: {
+      measurements,
+      scaleFactor: calibration.scaleFactor,
+      calibPts: calibration.calibPts,
+    },
     setCalibration,
     addMeasurement,
     removeMeasurement,

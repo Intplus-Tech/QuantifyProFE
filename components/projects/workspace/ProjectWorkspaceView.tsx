@@ -468,6 +468,10 @@ export function ProjectWorkspaceView({
   const [savedSession] = useState(() => loadSession(projectId));
   const [activeTool, setActiveTool] = useState<ToolId | null>(null);
   const [pendingTool, setPendingTool] = useState<ToolId | null>(null);
+  // Hand tool — toggling it on remembers whatever measurement tool was active
+  // so toggling it off again restores that tool instead of leaving nothing selected.
+  const [handToolActive, setHandToolActive] = useState(false);
+  const preHandToolRef = useRef<ToolId | null>(null);
   const [activeColor, setActiveColor] = useState(PALETTE[0]);
   const [search, setSearch] = useState("");
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(
@@ -1430,6 +1434,30 @@ export function ProjectWorkspaceView({
     setActiveTool(null);
     setCountModeActive(false);
     setPendingTool(null);
+    setHandToolActive(false);
+    preHandToolRef.current = null;
+  }
+
+  // ── Hand tool — pan the drawing without a mouse-only drag ─────────────────────
+  // Toggling on remembers whatever measurement tool was active and clears it so
+  // the canvas is free to pan; toggling off restores that same tool so the user
+  // doesn't have to reselect Length/Area/Count after moving the drawing.
+  function handleToggleHandTool() {
+    if (handToolActive) {
+      const prev = preHandToolRef.current;
+      preHandToolRef.current = null;
+      setHandToolActive(false);
+      if (prev) {
+        setActiveTool(prev);
+        setCountModeActive(prev === "count");
+      }
+    } else {
+      preHandToolRef.current = activeTool;
+      setHandToolActive(true);
+      setActiveTool(null);
+      setCountModeActive(false);
+      setPendingTool(null);
+    }
   }
 
   // ── Tool click ───────────────────────────────────────────────────────────────
@@ -1446,6 +1474,8 @@ export function ProjectWorkspaceView({
     // Text is a plain annotation tool, not a measurable BOQ category — it never
     // goes through the BBS/Scale modal chain (that's only for "+ New Element").
     if (id === "text") {
+      setHandToolActive(false);
+      preHandToolRef.current = null;
       setActiveTool((prev) => (prev === "text" ? null : "text"));
       return;
     }
@@ -1453,6 +1483,8 @@ export function ProjectWorkspaceView({
     // This lets the user navigate to another page for additional rebar/concrete
     // measurements without being re-prompted for BBS or scale every time.
     if (scaleFlowActive) {
+      setHandToolActive(false);
+      preHandToolRef.current = null;
       setActiveTool(id);
       setCountModeActive(id === "count");
       setPendingTool(null);
@@ -3176,9 +3208,9 @@ export function ProjectWorkspaceView({
                 className="absolute top-4 left-4 flex flex-col gap-1 bg-white rounded-lg shadow-md border border-slate-200 p-1"
               >
                 <button
-                  onClick={handleDeselectTool}
+                  onClick={handleToggleHandTool}
                   className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-                    !activeTool
+                    handToolActive
                       ? "bg-amber-500 text-white hover:bg-amber-600"
                       : "hover:bg-slate-100 text-slate-500"
                   }`}
