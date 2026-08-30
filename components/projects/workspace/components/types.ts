@@ -119,7 +119,14 @@ export function computeVolume(
       vol = n("width") * n("depth") * canvas.length;
       break;
     }
-    case "Pile Cap":
+    case "Pile Cap": {
+      // Quantity (Identical Caps) multiplies the traced area × depth — it
+      // mirrors the backend's `count` repetition-multiplier field, defaulting
+      // to 1 so a blank/zero entry never zeroes out the volume.
+      const count = n("count") || 1;
+      vol = n("depth") * canvas.area * count;
+      break;
+    }
     case "Column Base / Pad":
     case "Ground Floor Slab":
     case "Upper Floor Slab": {

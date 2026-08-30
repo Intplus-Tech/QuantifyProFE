@@ -127,12 +127,23 @@ export const ELEMENT_CONFIGS: Record<string, ElementConcreteConfig> = {
   "Pile Cap": {
     tool: "area",
     sectionHeader: "CONCRETE (FROM MEASUREMENT)",
-    tagLabel: "Tag this Pile Cap as:",
-    tagPlaceholder: "e.g. PC1",
+    tagLabel: "Tag this Pile cap as:",
+    tagPlaceholder: "e.g. PC01",
     measureLabel: "Area",
     measureUnit: "m²",
     mockMeasureValue: "0",
-    rows: [{ fields: [{ key: "thickness", label: "Thickness (m)", defaultValue: "0" }] }],
+    rows: [
+      {
+        fields: [
+          { key: "depth", label: "Depth (m)", defaultValue: "0" },
+          {
+            key: "count",
+            label: "Quantity (Identical Caps)",
+            defaultValue: "1",
+          },
+        ],
+      },
+    ],
   },
   "Ground Beam / Raft": {
     tool: "length",
