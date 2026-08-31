@@ -26,6 +26,8 @@ export interface CanvasPoint {
   y: number;
 }
 
+export type CanvasTool = Tool;
+
 export function ExtractCanvas({
   drawing,
   page,
@@ -43,6 +45,8 @@ export function ExtractCanvas({
   calibrating,
   calibrationPoints,
   onCalibrationPoint,
+  tool,
+  onToolChange,
 }: {
   drawing: AiDrawing | null;
   page: number;
@@ -62,6 +66,8 @@ export function ExtractCanvas({
   onRetry?: () => void;
   calibrating?: boolean;
   calibrationPoints?: CanvasPoint[];
+  tool: Tool;
+  onToolChange: (tool: Tool) => void;
   /**
    * A click on the page, already converted out of the current zoom and back
    * into the page's own pixel space, so the calibration survives zooming.
@@ -75,10 +81,12 @@ export function ExtractCanvas({
   const source =
     drawing?.previewUrl ?? (restoring ? null : (drawing?.uploadedUrl ?? null));
 
-  const [tool, setTool] = useState<Tool>("pan");
   const [scale, setScale] = useState(0.9);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const dragRef = useRef<{ x: number; y: number } | null>(null);
+  const dragRef = useRef<{ x: number; y: number; movedBy: number } | null>(null);
+  // A pan that ends over the page would otherwise fire a click and drop a
+  // stray calibration point where the drag happened to stop.
+  const suppressClick = useRef(false);
   const pageRef = useRef<HTMLDivElement>(null);
   // Kept locally as well as reported upward: the image is sized from it, which
   // is what keeps the rendered box the same shape as the clickable area.
@@ -91,22 +99,27 @@ export function ExtractCanvas({
     onNaturalSize?.(size);
   };
 
-  const panning = tool === "pan" && !calibrating;
+  // The hand and the pointer are the whole interaction, calibrating or not:
+  // finding a known distance means panning the sheet around first, so pan is
+  // never taken away — the pointer tool is what places the points.
+  const panning = tool === "pan";
+  const armed = !!calibrating && tool === "select";
 
   const startDrag = (e: React.MouseEvent) => {
-    if (!panning) return;
-    dragRef.current = { x: e.clientX - offset.x, y: e.clientY - offset.y };
+    if (!panning || dimmed) return;
+    dragRef.current = { x: e.clientX - offset.x, y: e.clientY - offset.y, movedBy: 0 };
   };
 
   const onDrag = (e: React.MouseEvent) => {
-    if (!dragRef.current) return;
-    setOffset({
-      x: e.clientX - dragRef.current.x,
-      y: e.clientY - dragRef.current.y,
-    });
+    const drag = dragRef.current;
+    if (!drag) return;
+    const next = { x: e.clientX - drag.x, y: e.clientY - drag.y };
+    drag.movedBy += Math.abs(next.x - offset.x) + Math.abs(next.y - offset.y);
+    setOffset(next);
   };
 
   const endDrag = () => {
+    if (dragRef.current && dragRef.current.movedBy > 3) suppressClick.current = true;
     dragRef.current = null;
   };
 
@@ -115,7 +128,11 @@ export function ExtractCanvas({
   // and divided back out of the zoom so the pair means the same thing however
   // far in the user was when they placed them.
   const handleCalibrationClick = (event: React.MouseEvent) => {
-    if (!calibrating || !onCalibrationPoint || !pageRef.current) return;
+    if (suppressClick.current) {
+      suppressClick.current = false;
+      return;
+    }
+    if (!armed || !onCalibrationPoint || !pageRef.current) return;
     const box = pageRef.current.getBoundingClientRect();
     onCalibrationPoint({
       x: (event.clientX - box.left) / scale,
@@ -159,10 +176,10 @@ export function ExtractCanvas({
       {/* Canvas surface */}
       <div
         className={`relative flex-1 overflow-hidden ${
-          calibrating
-            ? "cursor-crosshair"
-            : panning
-              ? "cursor-grab active:cursor-grabbing"
+          panning
+            ? "cursor-grab active:cursor-grabbing"
+            : armed
+              ? "cursor-crosshair"
               : "cursor-default"
         }`}
         onMouseDown={startDrag}
@@ -255,18 +272,20 @@ export function ExtractCanvas({
         {/* Tool rail */}
         <div className="absolute left-3 top-3 flex flex-col gap-0.5 rounded-lg border border-slate-200 bg-white/95 p-1 shadow-sm backdrop-blur">
           <ToolButton
-            label="Select"
+            label={armed ? "Point tool — place calibration points" : "Point tool"}
             active={tool === "select"}
             disabled={dimmed}
-            onClick={() => setTool("select")}
+            onClick={() => onToolChange("select")}
           >
             <MousePointer2 className="h-3.5 w-3.5" />
           </ToolButton>
+          {/* Toggling the hand off returns to the pointer, so the two are a
+              single switch rather than two buttons to remember. */}
           <ToolButton
-            label="Pan"
-            active={tool === "pan"}
+            label={panning ? "Hand tool — click to go back to pointing" : "Hand tool"}
+            active={panning}
             disabled={dimmed}
-            onClick={() => setTool("pan")}
+            onClick={() => onToolChange(panning ? "select" : "pan")}
           >
             <Hand className="h-3.5 w-3.5" />
           </ToolButton>
@@ -288,11 +307,13 @@ export function ExtractCanvas({
 
         {calibrating && (
           <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 rounded-full bg-slate-900/85 px-3 py-1.5 text-[11px] font-medium text-white shadow-lg">
-            {points.length === 0
-              ? "Click the first point of a known distance"
-              : points.length === 1
-                ? "Click the second point"
-                : "Both points set — enter the real distance below"}
+            {panning
+              ? "Hand tool — drag to find your known distance, then switch to the pointer"
+              : points.length === 0
+                ? "Click the first point of a known distance"
+                : points.length === 1
+                  ? "Click the second point"
+                  : "Both points set — enter the real distance below"}
           </div>
         )}
 

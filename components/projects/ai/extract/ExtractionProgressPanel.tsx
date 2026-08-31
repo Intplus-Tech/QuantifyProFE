@@ -10,6 +10,8 @@ export function ExtractionProgressPanel({
   steps,
   complete,
   stepProgress,
+  elapsedMs,
+  pageNumber,
   onCancel,
   onReview,
   onBackToDrawing,
@@ -18,6 +20,9 @@ export function ExtractionProgressPanel({
   complete: boolean;
   /** 0–100 for the step currently running */
   stepProgress: number;
+  /** time since the run started, when a real job is driving it */
+  elapsedMs?: number;
+  pageNumber?: number;
   onCancel: () => void;
   onReview: () => void;
   onBackToDrawing: () => void;
@@ -37,6 +42,14 @@ export function ExtractionProgressPanel({
             ? "All foundational data has been extracted and classified."
             : "Foundational data will be extracted and classified."}
         </p>
+
+        {!complete && elapsedMs != null && (
+          <p className="mt-1.5 flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-slate-400">
+            {pageNumber != null && <span>Page {pageNumber}</span>}
+            <span className="h-1 w-1 rounded-full bg-slate-300" />
+            <span className="tabular-nums">{formatElapsed(elapsedMs)} elapsed</span>
+          </p>
+        )}
       </div>
 
       <div className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-2">
@@ -81,6 +94,12 @@ export function ExtractionProgressPanel({
       </div>
     </div>
   );
+}
+
+function formatElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  return `${minutes}:${String(total % 60).padStart(2, "0")}`;
 }
 
 function StepRow({ step, progress }: { step: ExtractionStep; progress: number }) {

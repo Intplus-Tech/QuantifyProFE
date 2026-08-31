@@ -1043,3 +1043,140 @@ previewUrl (blob, this page load)
 
 `ExtractCanvas` no longer falls back to `uploadedUrl` while `restoring` is true;
 that cross-origin fetch racing the recovery was the error on screen.
+
+### Follow-up — RAMPS / DOORS / WINDOWS, and Extract double-click
+
+The API's `elementType` enum (`docs/api/openapi.json`, 37 values) has no ramp,
+door or window member, which is why those tiles were greyed out. They are now
+sent as the structural element they actually are on a drawing:
+
+| Tile | Sent as | Why |
+|---|---|---|
+| RAMPS | `slab` | an inclined slab — concrete and formwork measure identically |
+| DOORS | `lintels` | the structural item at an opening is the lintel over it |
+| WINDOWS | `lintels` | the same |
+
+Two tiles can now share one server type, so `MEASURE_BY_AI_ELEMENT_TYPE` is
+seeded from `CANONICAL_MEASURE_BY_TYPE` — deriving it from the forward map alone
+picked whichever alias was declared last, which would have filed real lintels
+under WINDOWS. `measureDetectionNote()` puts the substitution on the tile
+tooltip and in a line above the Extract button, so a lintel row is never read as
+a door count. This also covers BLOCKWORK / EXT. WALLS / INT. WALLS, which have
+always shared `wall`.
+
+Extract now flips a `submitting` state on the first click rather than waiting
+for the request to reach `isLoading` — the ref already closed the duplicate-POST
+window, but the button stayed live-looking for a beat.
+
+### Follow-up — QS calculations, dimension detection and live progress
+
+**Reinforcement now follows the QS method** rather than a volumetric rate.
+`rectangularRebar()` in `calc.ts`:
+
+```
+bar length in X      = Lx − 2cv
+number of bars in X  = floor(Ly / spacing) + 1
+weight per direction = length × count × (π/4 × φ²) × 7850
+total = both directions, doubled when a top mesh is specified
+```
+
+`REBAR_KG_PER_M3 = 38.83` survives only as the fallback for circular piles,
+which have a cage rather than a mat. `ComputedQuantities` gained `blinding`
+(= plan area × 50 mm). `GlobalParameters` gained `barDiameter`, `barSpacing` and
+`topMesh`, all editable in the report's Global Parameters bar. Concrete stays
+`A_top × h` and formwork `P × h` — a tapered base would need `A_bot`, which the
+detection payload does not carry.
+
+**Why the pile legend wasn't picked up.** Two causes, one fixable here:
+`DIA. (mm) 600 | LENGTH (M) 10` arrives as two bare numbers, and defaulting both
+to millimetres made the 10 m pile 10 mm — that was "Depth 0.01 m". `inferUnit()`
+in `api-mappers.ts` treats a bare figure under 50 as metres, since no structural
+member is a centimetre in any direction. The deeper cause is not frontend: the
+detector reports *where* each pile is, not what the legend says about it, so
+`applyDimensionsToGroup` + the "Apply to all N" checkbox in Quick Edit let the
+legend be entered once for the whole run.
+
+**A ~0 dimension is missing, not measured.** `isDimensionKnown()` (≥ 10 mm)
+replaces the `!== null` checks, so an uncalibrated page's 2 mm "length" no
+longer shows as a green detected `0.00 m`. Quick Edit drafts keep 3 decimals —
+2 dp was rounding 25 mm to 30 mm on save.
+
+**Live progress.** `AiTakeoffJob` carries no progress figure, only a status and
+`startedAt`. The bar is driven from elapsed time on `1 − e^(−t/20s)`, capped at
+96% until the job actually reports completion, with a `m:ss elapsed` readout
+beside the page number. It always moves and never claims to be done early.
+
+### Follow-up — hand tool during calibration, and per-type dimensions
+
+**Pan was switched off while calibrating** (`tool === "pan" && !calibrating`),
+so finding a known distance meant measuring whatever happened to be on screen.
+The two tools now coexist: `panning = tool === "pan"` always, and
+`armed = calibrating && tool === "select"` is what places points. The hand
+button toggles back to the pointer when pressed again, "Pick two points" arms
+the pointer automatically, and applying a scale returns to the hand. A drag that
+moved more than 3px suppresses the click that follows it, so panning can't drop
+a stray calibration point.
+
+`tool` lifted from `ExtractCanvas` to `ExtractWorkspaceView` so the scale bar can
+drive it.
+
+**Dimension columns are per element type.** One fixed "L × W × D" column printed
+piles as `? × ? × 10` — two dimensions a pile does not have. `formatDimensions`
+and `dimensionColumnLabel` in `calc.ts` derive both header and row from
+`applicableDimensionKeys`, so a pile reads `Ø0.60 × D10.00` and a pile cap
+`L2.60 × W2.55 × D0.90`.
+
+**Global Parameters → Site Assumptions.** None of these are read off the
+drawing — no plan states its own working space or bar spacing. They are now
+labelled as standard values the QS overrides, and split into the two groups that
+consume them: `Excavation` (working space, blinding, soil type) shows only when
+foundations exist, `Reinforcement mat` (cover, bar Ø, spacing, top mesh) only
+when a non-circular base exists. A drawing of nothing but bored piles has no mat
+to describe.
+
+### Follow-up — the element model was wrong (2026-08-31)
+
+Three faults, all feeding each other: one dimension schema for every element
+type, no member count, and totals that summed one member instead of the run.
+
+**1. `elementSpec.ts` — one table, every element type.** Each type names its own
+dimensions, symbols, volume and formwork rules; every screen derives its column
+header, its Quick Edit inputs and its arithmetic from it.
+
+| Type | Dims | Volume | Formwork |
+|---|---|---|---|
+| Pile (bored) | Ø × L | π/4 Ø² L | 0 — cast against the bore |
+| Pile cap / pad | L × W × D | L·W·D | 2(L+W)·D |
+| Raft | L × W × t | L·W·t | 2(L+W)·t |
+| Strip | L × W × D | L·W·D | 2L·D — two long sides |
+| Ground beam | b × D × L | b·D·L | 2D·L — cast against earth |
+| Column (rect) | b × h × H | b·h·H | 2(b+h)·H |
+| Column (circ) | Ø × H | π/4 Ø² H | π Ø H |
+| Beam / lintel | b × D × L | b·D·L | (2D+b)·L |
+| Slab / roof / ramp | L × W × t | L·W·t | L·W soffit |
+| Shear / lift / blockwork wall | L × H × t | L·H·t | 2L·H |
+| Stair flight | Plan L × Plan W × t × Rise | L·W·t × slope | L·W × slope |
+
+`slope = √(rise² + going²) / going`. `ElementDimensions` gained `height`,
+`thickness` and `rise`; `DEFAULT_SPEC` is a rectangular base.
+
+**2. `quantity` on every element.** A pile legend is one detection standing for
+130 piles — `PILES (1 DETECTED)` against a drawing with 130 of them, and a BOQ
+for one pile. `readQuantity()` reads a `total`/`count`/`nos` attribute,
+`computed.count`, or an inclusive mark range (`P1 - P130` → 130). Quick Edit
+carries a **How many of these?** box, because the detector also under-counts
+(52 caps where the drawing has 54) and the surveyor has the drawing.
+
+`computeElementQuantities` returns figures for ONE member. Every consumer —
+Overview totals, per-row concrete, `deriveReports` — multiplies by `quantity`.
+Overview gained a `No.` column, a `Members` total and Total Formwork.
+
+**3. Excavation is no longer applied to everything.** Only `belowGround` specs
+earn it, and a bored pile is its own excavation — the bore, no working space,
+no blinding. Verified: Ø600 × 10 m pile = 2.827 m³, ×130 = 367.57 m³; a
+2.4 × 2.4 × 0.9 cap = 5.184 m³ / 8.64 m², matching the Figma reference.
+
+Rebar for a mat is Ø²/162.2 per metre (the QS shorthand for π/4 Ø² × 7850). The
+2.4 m cap reads 174.2 kg at Y16@200 both ways with a top mesh, against the
+design's 201.3 kg — the design figure came from the 38.83 kg/m³ rule of thumb,
+which now survives only for cages and columns.

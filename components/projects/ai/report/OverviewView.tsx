@@ -13,7 +13,14 @@ import {
 } from "@/components/ui/select";
 import { setActivePage, setGlobalParameter } from "@/store/slices/aiFlowSlice";
 import type { RootState } from "@/store";
-import { computeElementQuantities, fmt } from "../calc";
+import {
+  computeElementQuantities,
+  fmt,
+  fmtInt,
+  formatDimensions,
+  isElementComplete,
+} from "../calc";
+import { dimensionColumnLabel, hasReinforcementMat } from "../elementSpec";
 import { MEASURE_TYPES, SOIL_TYPES } from "../mock-data";
 import { summariseNotes } from "../humanise";
 import { QuickEditModal } from "../extract/QuickEditModal";
@@ -82,6 +89,19 @@ export function OverviewView() {
     400,
   );
 
+  // The reinforcement mat is counted bar by bar across a rectangular base, so
+  // those inputs only mean anything once such an element exists. A drawing of
+  // nothing but bored piles has no mat to describe.
+  const hasReinforcedBases = useMemo(
+    () =>
+      groups.some((group) =>
+        group.elements.some((element) =>
+          hasReinforcementMat(element.measureTypeId, element.dimensions),
+        ),
+      ),
+    [groups],
+  );
+
   const quickEditElement =
     groups.flatMap((g) => g.elements).find((e) => e.id === quickEditId) ?? null;
 
@@ -118,18 +138,31 @@ export function OverviewView() {
     let concrete = 0;
     let rebar = 0;
     let excavation = 0;
+    let blinding = 0;
+
+    let formwork = 0;
+    let members = 0;
 
     for (const group of groups) {
       for (const element of group.elements) {
         if (element.status === "rejected") continue;
-        const q = computeElementQuantities(element.dimensions, globalParameters);
-        concrete += q.concrete;
-        rebar += q.rebar;
-        excavation += q.excavation;
+        // One member's quantities, multiplied by how many that row stands for.
+        const q = computeElementQuantities(
+          element.dimensions,
+          globalParameters,
+          group.measureTypeId,
+        );
+        const n = element.quantity || 1;
+        concrete += q.concrete * n;
+        rebar += q.rebar * n;
+        excavation += q.excavation * n;
+        blinding += q.blinding * n;
+        formwork += q.formwork * n;
+        members += n;
       }
     }
 
-    return { concrete, rebar, excavation };
+    return { concrete, rebar, excavation, blinding, formwork, members };
   }, [groups, globalParameters]);
 
   return (
@@ -185,52 +218,99 @@ export function OverviewView() {
         </div>
       </section>
 
-      {/* Global parameters — only meaningful once something below ground has
-          been extracted, since they drive excavation and blinding alone. */}
-      {hasFoundationElements && (
-      <section className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-lg border border-[#dbeef1] bg-white px-4 py-3">
-        <span className="inline-flex items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-          <SlidersHorizontal className="h-3.5 w-3.5 text-amber-500" />
-          Global Parameters
-        </span>
+      {/* Site assumptions. These are NOT read off the drawing — no plan states
+          its own working space or bar spacing — so they are conventional
+          starting values the QS overrides. They are grouped by what they
+          actually feed, because a pile and a pile cap do not consume the same
+          ones: excavation applies to anything dug, the mat only to bases with
+          a rectangular reinforcement mat. */}
+      {(hasFoundationElements || hasReinforcedBases) && (
+      <section className="rounded-lg border border-[#dbeef1] bg-white px-4 py-3">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <span className="inline-flex items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+            <SlidersHorizontal className="h-3.5 w-3.5 text-amber-500" />
+            Site Assumptions
+          </span>
+          <span className="text-[11px] text-slate-400">
+            Not taken from the drawing — standard values you can override. Every
+            quantity below recalculates as you change them.
+          </span>
+        </div>
 
-        <div className="ml-auto flex flex-wrap items-end gap-4">
-          <ParamField
-            label="Working Space"
-            value={globalParameters.workingSpace}
-            onCommit={(workingSpace) => dispatch(setGlobalParameter({ workingSpace }))}
-          />
-          <ParamField
-            label="Blinding"
-            value={globalParameters.blinding}
-            onCommit={(blinding) => dispatch(setGlobalParameter({ blinding }))}
-          />
-          <ParamField
-            label="Concrete Cover"
-            value={globalParameters.concreteCover}
-            onCommit={(concreteCover) => dispatch(setGlobalParameter({ concreteCover }))}
-          />
+        <div className="mt-3 flex flex-wrap items-end gap-x-6 gap-y-3">
+          {hasFoundationElements && (
+            <ParamGroup label="Excavation">
+              <ParamField
+                label="Working Space"
+                value={globalParameters.workingSpace}
+                onCommit={(workingSpace) => dispatch(setGlobalParameter({ workingSpace }))}
+              />
+              <ParamField
+                label="Blinding"
+                value={globalParameters.blinding}
+                onCommit={(blinding) => dispatch(setGlobalParameter({ blinding }))}
+              />
 
-          <div className="space-y-1">
-            <p className="font-mono text-[9px] uppercase tracking-widest text-slate-400">
-              Soil Type
-            </p>
-            <Select
-              value={globalParameters.soilType}
-              onValueChange={(soilType) => dispatch(setGlobalParameter({ soilType }))}
-            >
-              <SelectTrigger className="h-8 w-[140px] border-[#bfe3e8] bg-[#f2fbfc] text-[11px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {SOIL_TYPES.map((soil) => (
-                  <SelectItem key={soil} value={soil} className="text-xs">
-                    {soil}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+              <div className="space-y-1">
+                <p className="font-mono text-[9px] uppercase tracking-widest text-slate-400">
+                  Soil Type
+                </p>
+                <Select
+                  value={globalParameters.soilType}
+                  onValueChange={(soilType) => dispatch(setGlobalParameter({ soilType }))}
+                >
+                  <SelectTrigger className="h-8 w-[140px] border-[#bfe3e8] bg-[#f2fbfc] text-[11px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SOIL_TYPES.map((soil) => (
+                      <SelectItem key={soil} value={soil} className="text-xs">
+                        {soil}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </ParamGroup>
+          )}
+
+          {hasReinforcedBases && (
+            <ParamGroup label="Reinforcement mat">
+              <ParamField
+                label="Concrete Cover"
+                value={globalParameters.concreteCover}
+                onCommit={(concreteCover) =>
+                  dispatch(setGlobalParameter({ concreteCover }))
+                }
+              />
+          {/* Bar size and spacing drive the reinforcement count directly:
+                  weight = (Lx - 2cv) x (Ly/spacing + 1) x barArea x 7850. */}
+              <ParamField
+                label="Bar Ø"
+                value={globalParameters.barDiameter}
+                onCommit={(barDiameter) => dispatch(setGlobalParameter({ barDiameter }))}
+              />
+              <ParamField
+                label="Bar Spacing"
+                value={globalParameters.barSpacing}
+                onCommit={(barSpacing) => dispatch(setGlobalParameter({ barSpacing }))}
+              />
+
+              <label className="flex cursor-pointer items-center gap-2 pb-1.5">
+                <input
+                  type="checkbox"
+                  checked={globalParameters.topMesh}
+                  onChange={(event) =>
+                    dispatch(setGlobalParameter({ topMesh: event.target.checked }))
+                  }
+                  className="h-3.5 w-3.5 accent-amber-500"
+                />
+                <span className="font-mono text-[9px] uppercase tracking-widest text-slate-500">
+                  Top Mesh
+                </span>
+              </label>
+            </ParamGroup>
+          )}
         </div>
       </section>
       )}
@@ -290,7 +370,9 @@ export function OverviewView() {
         <SectionCard
           key={group.measureTypeId}
           title={group.title}
-          count={`(${group.elements.length} DETECTED ACROSS ${group.pageRange})`}
+          count={`(${fmtInt(
+            group.elements.reduce((sum, e) => sum + (e.quantity || 1), 0),
+          )} MEMBERS ACROSS ${group.pageRange})`}
         >
           <table className="w-full min-w-[880px]">
             <thead className={theadCls}>
@@ -309,7 +391,13 @@ export function OverviewView() {
                 </th>
                 <th className={th}>ID</th>
                 <th className={th}>Grid</th>
-                <th className={th}>Dimensions (L×W×D)</th>
+                <th className={th}>
+                  {dimensionColumnLabel(
+                    group.measureTypeId,
+                    group.elements[0]?.dimensions,
+                  )}
+                </th>
+                <th className={`${th} text-right`}>No.</th>
                 <th className={th}>Page/Source</th>
                 <th className={th}>Confidence</th>
                 <th className={th}>Status</th>
@@ -333,9 +421,12 @@ export function OverviewView() {
 
       {/* Totals */}
       <footer className="sticky bottom-0 flex flex-wrap justify-center gap-x-10 gap-y-1.5 rounded-lg border border-[#dbeef1] bg-white/95 px-4 py-2.5 backdrop-blur">
+        <TotalStat label="Members" value={fmtInt(totals.members)} />
         <TotalStat label="Total Concrete" value={`${fmt(totals.concrete)} m³`} />
+        <TotalStat label="Total Formwork" value={`${fmt(totals.formwork)} m²`} />
         <TotalStat label="Total Rebar" value={`${fmt(totals.rebar / 1000)} Tons`} />
         <TotalStat label="Total Excavation" value={`${fmt(totals.excavation)} m³`} />
+        <TotalStat label="Total Blinding" value={`${fmt(totals.blinding)} m³`} />
       </footer>
 
       <QuickEditModal element={quickEditElement} onClose={() => setQuickEditId(null)} />
@@ -358,13 +449,16 @@ function ElementRow({
     (state: RootState) => state.aiFlow.globalParameters,
   );
 
-  const { length, width, depth } = element.dimensions;
-  const dims = [length, width, depth]
-    .map((v) => (v === null ? "?" : String(v)))
-    .join(" × ");
-
-  const complete = length !== null && width !== null && depth !== null;
-  const quantities = computeElementQuantities(element.dimensions, globalParameters);
+  // Only the dimensions this element type actually has, in metres — the unit
+  // the drawing and Quick Edit both use.
+  const dims = formatDimensions(element.dimensions, element.measureTypeId);
+  const complete = isElementComplete(element.dimensions, element.measureTypeId);
+  const members = element.quantity || 1;
+  const perMember = computeElementQuantities(
+    element.dimensions,
+    globalParameters,
+    element.measureTypeId,
+  );
 
   return (
     <tr
@@ -392,6 +486,7 @@ function ElementRow({
       <td className={`${td} font-mono font-semibold`}>{element.id}</td>
       <td className={td}>{element.grid}</td>
       <td className={`${td} tabular-nums`}>{dims}</td>
+      <td className={tdNum}>{members > 1 ? `${members}` : "1"}</td>
       <td className={td}>
         <span className="text-sky-600 underline decoration-dotted underline-offset-2">
           {element.source}
@@ -415,7 +510,8 @@ function ElementRow({
       </td>
       <td className={tdNum}>
         {complete ? (
-          fmt(quantities.concrete)
+          // The row total: one member's volume across every member it covers.
+          fmt(perMember.concrete * members)
         ) : (
           <span className="text-[10px] text-amber-600">
             {element.note ?? "Pending"}
@@ -423,6 +519,24 @@ function ElementRow({
         )}
       </td>
     </tr>
+  );
+}
+
+/** One labelled cluster of inputs, so it is clear what each figure feeds. */
+function ParamGroup({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-md border border-[#e4f2f4] bg-[#fbfeff] px-3 py-2">
+      <p className="mb-2 font-mono text-[9px] font-semibold uppercase tracking-widest text-amber-600">
+        {label}
+      </p>
+      <div className="flex flex-wrap items-end gap-4">{children}</div>
+    </div>
   );
 }
 

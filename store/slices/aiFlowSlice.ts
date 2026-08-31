@@ -15,7 +15,7 @@ import {
   MOCK_REBAR_SCHEDULE,
   VAT_PCT,
 } from "@/components/projects/ai/mock-data";
-import { barWeight } from "@/components/projects/ai/calc";
+import { barWeight, isElementComplete } from "@/components/projects/ai/calc";
 import type { AiReviewStatus, MeasurementUnit } from "@/types/aiTakeoff";
 import type {
   AiProjectMeta,
@@ -384,15 +384,69 @@ const aiFlowSlice = createSlice({
         const element = group.elements.find((e) => e.id === action.payload.elementId);
         if (!element) continue;
         element.dimensions = { ...element.dimensions, ...action.payload.dimensions };
-        const complete = Object.entries(element.dimensions).every(
-          ([key, value]) =>
-            key === "shape" || key === "diameter" || value !== null,
-        );
-        if (complete) {
+        // Completeness is per element type — a pile needs a diameter and a
+        // length, not every slot on the record filled.
+        if (isElementComplete(element.dimensions, element.measureTypeId)) {
           element.status = "valid";
           element.note = undefined;
         }
         return;
+      }
+    },
+
+    /**
+     * Apply one set of dimensions to every element of a measure type.
+     *
+     * A pile legend gives one spec for all 130 piles — the detector reports
+     * where each pile is, not what the legend says about it, so the figures are
+     * entered once here rather than 130 times.
+     */
+    applyDimensionsToGroup(
+      state,
+      action: PayloadAction<{
+        measureTypeId: string;
+        dimensions: Partial<ElementDimensions>;
+        /** limit to one page; omit to cover every page */
+        page?: number;
+      }>,
+    ) {
+      const { measureTypeId, dimensions, page } = action.payload;
+
+
+      for (const group of state.groups) {
+        if (group.measureTypeId !== measureTypeId) continue;
+
+        for (const element of group.elements) {
+          if (element.status === "rejected") continue;
+          if (page != null && element.page !== page) continue;
+
+          element.dimensions = { ...element.dimensions, ...dimensions };
+          if (isElementComplete(element.dimensions, element.measureTypeId)) {
+            element.status = "valid";
+            element.note = undefined;
+          }
+        }
+      }
+    },
+
+    /**
+     * Correct how many members a detection row stands for.
+     *
+     * The detector undercounts — a legend row for 130 piles arrives as one
+     * element, and a grid of 54 pile caps can come back as 52. The surveyor
+     * has the drawing in front of them, so the count is theirs to set.
+     */
+    setElementQuantity(
+      state,
+      action: PayloadAction<{ elementId: string; quantity: number }>,
+    ) {
+      const quantity = Math.max(1, Math.round(action.payload.quantity));
+      for (const group of state.groups) {
+        const element = group.elements.find((e) => e.id === action.payload.elementId);
+        if (element) {
+          element.quantity = quantity;
+          return;
+        }
       }
     },
 
@@ -749,6 +803,8 @@ export const {
   applyElementReview,
   hydrateAiFlow,
   updateElementDimensions,
+  applyDimensionsToGroup,
+  setElementQuantity,
   setElementStatus,
   updateBoqItem,
   removeBoqItem,

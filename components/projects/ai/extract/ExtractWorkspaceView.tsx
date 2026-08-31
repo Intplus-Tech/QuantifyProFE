@@ -18,7 +18,7 @@ import {
 } from "@/store/slices/aiFlowSlice";
 import type { RootState } from "@/store";
 import { ExtractTopBar } from "./ExtractTopBar";
-import { ExtractCanvas, type CanvasPoint } from "./ExtractCanvas";
+import { ExtractCanvas, type CanvasPoint, type CanvasTool } from "./ExtractCanvas";
 import { MeasureSelectPanel } from "./MeasureSelectPanel";
 import { ExtractionProgressPanel } from "./ExtractionProgressPanel";
 import { QuickEditModal } from "./QuickEditModal";
@@ -61,7 +61,7 @@ export function ExtractWorkspaceView({
     session,
   } = useSelector((state: RootState) => state.aiFlow);
 
-  const { analyseCurrentPage, ensureSession, isAnalysingPage } = useAiTakeoff();
+  const { analyseCurrentPage, ensureSession, isAnalysingPage, job } = useAiTakeoff();
   // Restores this project's takeoff when the page is reached cold — from the
   // dashboard, or after a reload — then re-previews the drawing locally.
   const { recovering } = useAiProjectSession(projectId);
@@ -70,7 +70,12 @@ export function ExtractWorkspaceView({
   const live = !!session.sessionId;
 
   const [stepProgress, setStepProgress] = useState(0);
+  const [elapsedMs, setElapsedMs] = useState(0);
   const extractInFlight = useRef(false);
+  // The ref closes the double-click window synchronously; this is the same
+  // fact in state, so the button goes dead on the first click rather than
+  // waiting for the request to reach `isLoading`.
+  const [submitting, setSubmitting] = useState(false);
   const [showElements, setShowElements] = useState(false);
   const [quickEditId, setQuickEditId] = useState<string | null>(null);
 
@@ -80,6 +85,7 @@ export function ExtractWorkspaceView({
     height: number;
   } | null>(null);
   const [picking, setPicking] = useState(false);
+  const [tool, setTool] = useState<CanvasTool>("pan");
   const [calibPoints, setCalibPoints] = useState<CanvasPoint[]>([]);
   const [knownDistance, setKnownDistance] = useState("");
   const [scaleUnit, setScaleUnit] = useState<ScaleUnit>("m");
@@ -103,6 +109,7 @@ export function ExtractWorkspaceView({
     setPicking(false);
     setCalibPoints([]);
     setKnownDistance("");
+    setTool("pan");
   }, [activePage, activeDrawingId]);
 
   useEffect(() => {
@@ -122,6 +129,26 @@ export function ExtractWorkspaceView({
 
     return () => clearInterval(id);
   }, [extractionPhase, dispatch, live]);
+
+  /**
+   * A live run has no progress figure to read — the job carries a status and a
+   * `startedAt`, nothing finer. Rather than leave the bar sitting empty, it is
+   * driven off elapsed time on a curve that approaches but never reaches the
+   * end of the step, so it always moves and never claims to be finished before
+   * the job says it is.
+   */
+  useEffect(() => {
+    if (!live || extractionPhase !== "running") {
+      setElapsedMs(0);
+      return;
+    }
+
+    const startedAt = job?.startedAt ? new Date(job.startedAt).getTime() : null;
+    const base = startedAt ?? Date.now();
+
+    const id = setInterval(() => setElapsedMs(Date.now() - base), 500);
+    return () => clearInterval(id);
+  }, [live, extractionPhase, job?.startedAt, job?._id]);
 
   // A live run ends when the polled job clears itself (completed or failed).
   useEffect(() => {
@@ -148,6 +175,7 @@ export function ExtractWorkspaceView({
     setCalibPoints([]);
     setKnownDistance("");
     setPicking(true);
+    setTool("select");
     dispatch(clearAiPageCalibration(activePage));
   };
 
@@ -202,10 +230,18 @@ export function ExtractWorkspaceView({
     );
 
     setPicking(false);
+    setTool("pan");
     toast.success("Ground scale applied", {
       description: `Page ${activePage} · ${entered} ${scaleUnit} across the marked line`,
     });
   };
+
+  // 1 - e^(-t/tau): fast at first, then asymptotic. TYPICAL_STEP_MS is the
+  // point the curve is ~63% through, tuned to how long a page usually takes.
+  const TYPICAL_STEP_MS = 20000;
+  const liveProgress = complete
+    ? 100
+    : Math.min(96, (1 - Math.exp(-elapsedMs / TYPICAL_STEP_MS)) * 100);
 
   const scaleInfo = calibration
     ? `1 px ≈ ${calibration.metresPerPixel.toFixed(4)} m · ${(
@@ -221,12 +257,14 @@ export function ExtractWorkspaceView({
     // closes that window synchronously.
     if (extractInFlight.current) return;
     extractInFlight.current = true;
+    setSubmitting(true);
     setStepProgress(0);
 
     try {
       await runExtract();
     } finally {
       extractInFlight.current = false;
+      setSubmitting(false);
     }
   };
 
@@ -322,6 +360,8 @@ export function ExtractWorkspaceView({
           calibrating={picking && !running}
           calibrationPoints={calibPoints}
           onCalibrationPoint={handleCalibrationPoint}
+          tool={tool}
+          onToolChange={setTool}
           footer={
             <GroundScaleBar
               picking={picking}
@@ -331,7 +371,12 @@ export function ExtractWorkspaceView({
               calibrated={!!calibration}
               scaleInfo={scaleInfo}
               disabled={running || !activeDrawing}
-              onStartPicking={() => setPicking(true)}
+              onStartPicking={() => {
+                setPicking(true);
+                // Arm the pointer, or the first click would pan instead of
+                // dropping a point.
+                setTool("select");
+              }}
               onKnownDistanceChange={setKnownDistance}
               onUnitChange={setScaleUnit}
               onApply={applyGroundScale}
@@ -374,7 +419,7 @@ export function ExtractWorkspaceView({
                 dispatch(toggleMeasureType({ page: activePage, measureTypeId }))
               }
               onExtract={handleExtract}
-              busy={isAnalysingPage(activePage)}
+              busy={submitting || isAnalysingPage(activePage)}
               error={session.lastError}
               scaleReady={!!calibration}
             />
@@ -382,7 +427,9 @@ export function ExtractWorkspaceView({
             <ExtractionProgressPanel
               steps={extractionSteps}
               complete={complete}
-              stepProgress={stepProgress}
+              stepProgress={live ? liveProgress : stepProgress}
+              elapsedMs={live ? elapsedMs : undefined}
+              pageNumber={session.jobPageNumber ?? activePage}
               onCancel={handleCancel}
               onReview={handleReview}
               onBackToDrawing={() => {

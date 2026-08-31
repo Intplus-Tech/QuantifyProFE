@@ -13,14 +13,21 @@ import type {
   ExtractionStep,
 } from "./types";
 import { MEASURE_TYPES } from "./mock-data";
-import { elementTypeLabels, humaniseText } from "./humanise";
+import { elementTypeLabel, elementTypeLabels, humaniseText } from "./humanise";
 
 /**
  * Measure tile → server element type.
  *
- * `null` means the detector has no equivalent for that tile. RAMPS, DOORS and
- * WINDOWS have no member in the API's 37-value elementType enum, so they are
- * disabled in the picker rather than sent and rejected.
+ * The API's elementType enum has 37 members and none of them is a ramp, a door
+ * or a window, so those three tiles are sent as the structural element they
+ * actually are on a drawing:
+ *
+ *   RAMPS   → slab    an inclined slab; concrete and formwork measure the same
+ *   DOORS   → lintels an opening's structural item is the lintel over it
+ *   WINDOWS → lintels the same
+ *
+ * `measureDetectionNote` surfaces the substitution on the tile so nobody reads
+ * a lintel row as a door count.
  */
 export const AI_ELEMENT_TYPE_BY_MEASURE: Record<string, AiElementType | null> = {
   piles: "pile",
@@ -43,20 +50,48 @@ export const AI_ELEMENT_TYPE_BY_MEASURE: Record<string, AiElementType | null> = 
   lintels: "lintels",
   roof: "roof_slab",
   "swimming-pool": "swimming_pool",
-  ramps: null,
-  doors: null,
-  windows: null,
+  ramps: "slab",
+  doors: "lintels",
+  windows: "lintels",
+};
+
+/**
+ * Which tile a detection is filed under when several tiles share one server
+ * type. Deriving the reverse map alone picks whichever alias was declared last,
+ * so real lintels would come back labelled WINDOWS.
+ */
+const CANONICAL_MEASURE_BY_TYPE: Partial<Record<AiElementType, string>> = {
+  wall: "ext-walls",
+  lintels: "lintels",
+  slab: "slabs",
 };
 
 export const MEASURE_BY_AI_ELEMENT_TYPE: Record<string, string> = Object.entries(
   AI_ELEMENT_TYPE_BY_MEASURE,
-).reduce<Record<string, string>>((acc, [measureId, elementType]) => {
-  if (elementType) acc[elementType] = measureId;
-  return acc;
-}, {});
+).reduce<Record<string, string>>(
+  (acc, [measureId, elementType]) => {
+    if (elementType && !(elementType in acc)) acc[elementType] = measureId;
+    return acc;
+  },
+  { ...CANONICAL_MEASURE_BY_TYPE } as Record<string, string>,
+);
 
 export const isMeasureSupported = (measureId: string) =>
   AI_ELEMENT_TYPE_BY_MEASURE[measureId] != null;
+
+/**
+ * What this tile is really detected as, when that isn't itself. `null` when the
+ * tile maps straight onto its own element type.
+ */
+export function measureDetectionNote(measureId: string): string | null {
+  const elementType = AI_ELEMENT_TYPE_BY_MEASURE[measureId];
+  if (!elementType) return null;
+
+  const canonical = MEASURE_BY_AI_ELEMENT_TYPE[elementType];
+  if (!canonical || canonical === measureId) return null;
+
+  return `Detected as ${elementTypeLabel(elementType)}`;
+}
 
 export function toAiElementTypes(measureIds: string[]): AiElementType[] {
   const types = measureIds
@@ -157,6 +192,22 @@ function readAttributeAny(
 }
 
 /**
+ * Rescue a figure whose column header carried the unit rather than the value.
+ *
+ * A pile legend reads `DIA. (mm) 600 | LENGTH (M) 10`. Both come back as bare
+ * numbers, and defaulting both to millimetres makes that 10 m pile 10 mm long —
+ * which is what put "Depth 0.01 m" in Quick Edit. No structural member is a
+ * centimetre in any direction, so a bare figure below this threshold is being
+ * quoted in metres.
+ */
+const IMPLAUSIBLE_MM = 50;
+
+function inferUnit(read: { value: number; unit: MeasurementUnit }): MeasurementUnit {
+  if (read.unit !== ANNOTATION_UNIT) return read.unit; // the value said so itself
+  return read.value > 0 && read.value < IMPLAUSIBLE_MM ? "m" : read.unit;
+}
+
+/**
  * Measure the detection's own geometry.
  *
  * The model reports *where* each element is, not how big it is — the docs are
@@ -235,7 +286,7 @@ export function mapDetectionToElement(
   const scaled = (value: number | null | undefined) =>
     value == null ? null : toMillimetres(value, unit);
   const annotated = (read: { value: number; unit: MeasurementUnit } | null) =>
-    read == null ? null : toMillimetres(read.value, read.unit);
+    read == null ? null : toMillimetres(read.value, inferUnit(read));
 
   const lengthMm =
     annotated(readAttributeAny(detection.attributes, ["length", "l", "len"])) ??
@@ -257,17 +308,28 @@ export function mapDetectionToElement(
   const measureTypeId =
     MEASURE_BY_AI_ELEMENT_TYPE[detection.mapsToElementType ?? ""] ?? "piles";
 
+  const heightMm = annotated(
+    readAttributeAny(detection.attributes, ["height", "h", "storeyheight"]),
+  );
+  const thicknessMm = annotated(
+    readAttributeAny(detection.attributes, ["thickness", "t", "waist", "slabthickness"]),
+  );
+  const riseMm = annotated(readAttributeAny(detection.attributes, ["rise", "totalrise"]));
+
+  const grid =
+    readText(detection.attributes, "grid") ??
+    readText(detection.attributes, "tag") ??
+    detection.label ??
+    "—";
+
   return {
     // clientId is the handle the review endpoint accepts, so it is the id we key on.
     id: detection.clientId || detection._id,
     measureTypeId,
-    grid:
-      readText(detection.attributes, "grid") ??
-      readText(detection.attributes, "tag") ??
-      detection.label ??
-      "—",
+    grid,
     page,
     source: `Pg${page}`,
+    quantity: readQuantity(detection, grid),
     confidence: Math.round((detection.confidence ?? 0) * 100),
     status: STATUS_BY_REVIEW[detection.reviewStatus ?? "pending"] ?? "review",
     dimensions: {
@@ -276,11 +338,57 @@ export function mapDetectionToElement(
         : (SHAPE_BY_GEOMETRY[geometryType] ?? "Rectangle"),
       length: lengthMm,
       width: widthMm,
+      // A pile's length lives in the legend's LENGTH column; a slab's
+      // thickness and a column's height are separate figures again. Anything
+      // that only produced a generic "depth" seeds the others so the element's
+      // own spec finds a value in the slot it asks for.
       depth: depthMm,
       diameter: diameterMm,
+      height: heightMm ?? depthMm,
+      thickness: thicknessMm ?? depthMm,
+      rise: riseMm,
     },
     note: detection.reviewStatus === "pending" ? "Pending review" : undefined,
   };
+}
+
+/**
+ * How many identical members one detection stands for.
+ *
+ * A pile legend is a single row covering the whole run — `1 - 130 | Ø600 | 10m`
+ * — so the detector reports one element where the drawing has 130 piles.
+ * Reading the count is the difference between 1 pile of concrete and 130.
+ */
+function readQuantity(
+  detection: AiDetectedMeasurementElement,
+  grid: string,
+): number {
+  const attribute = readAttributeAny(detection.attributes, [
+    "total",
+    "count",
+    "quantity",
+    "qty",
+    "nos",
+    "no",
+    "number",
+    "numberof",
+  ]);
+  if (attribute && attribute.value >= 1) return Math.round(attribute.value);
+
+  const counted = detection.computed?.count;
+  if (typeof counted === "number" && counted >= 1) return Math.round(counted);
+
+  // "P1 - P130", "1 – 130", "PC1..PC52" — an inclusive range of member marks.
+  const range = grid.match(/(?:^|[^d])(d+)s*(?:-|–|—|..|to)s*[A-Za-z]*?(d+)/);
+  if (range) {
+    const from = Number(range[1]);
+    const to = Number(range[2]);
+    if (Number.isFinite(from) && Number.isFinite(to) && to > from) {
+      return to - from + 1;
+    }
+  }
+
+  return 1;
 }
 
 /** Group flat detections the way the Overview tables expect. */
@@ -302,10 +410,12 @@ export function groupDetections(
     const pages = [...new Set(groupElements.map((e) => e.page))].sort((a, b) => a - b);
     const label =
       MEASURE_TYPES.find((m) => m.id === measureTypeId)?.label ?? measureTypeId;
+    // The member count, not the row count — one legend row is 130 piles.
+    const members = groupElements.reduce((sum, e) => sum + (e.quantity || 1), 0);
 
     return {
       measureTypeId,
-      title: `${label} (${groupElements.length} DETECTED)`,
+      title: `${label} (${members} DETECTED)`,
       pageRange:
         pages.length > 1
           ? `PAGES ${pages[0]}-${pages[pages.length - 1]}`

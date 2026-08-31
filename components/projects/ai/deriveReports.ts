@@ -41,11 +41,13 @@ const titleCase = (label: string) =>
 
 interface GroupTotals {
   measureTypeId: string;
+  /** members, not detection rows — one pile legend row can be 130 piles */
   qty: number;
   concrete: number;
   rebar: number;
   formwork: number;
   excavation: number;
+  blinding: number;
 }
 
 /** Sum each measure type's live elements, skipping anything rejected. */
@@ -59,7 +61,15 @@ function totalsByMeasure(
     for (const element of group.elements) {
       if (element.status === "rejected") continue;
 
-      const q = computeElementQuantities(element.dimensions, params);
+      const q = computeElementQuantities(
+        element.dimensions,
+        params,
+        element.measureTypeId,
+      );
+      // computeElementQuantities returns ONE member's figures; the row may
+      // stand for many. Summing without this gave a BOQ for a single pile.
+      const members = element.quantity || 1;
+
       const existing = byMeasure.get(element.measureTypeId) ?? {
         measureTypeId: element.measureTypeId,
         qty: 0,
@@ -67,13 +77,15 @@ function totalsByMeasure(
         rebar: 0,
         formwork: 0,
         excavation: 0,
+        blinding: 0,
       };
 
-      existing.qty += 1;
-      existing.concrete += q.concrete;
-      existing.rebar += q.rebar;
-      existing.formwork += q.formwork;
-      existing.excavation += q.excavation;
+      existing.qty += members;
+      existing.concrete += q.concrete * members;
+      existing.rebar += q.rebar * members;
+      existing.formwork += q.formwork * members;
+      existing.excavation += q.excavation * members;
+      existing.blinding += q.blinding * members;
       byMeasure.set(element.measureTypeId, existing);
     }
   }
