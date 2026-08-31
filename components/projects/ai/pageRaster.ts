@@ -20,6 +20,26 @@ const TARGET_LONG_EDGE = 2400;
  */
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
+/**
+ * Pixels of the uploaded page image per pixel of the page at its natural size.
+ *
+ * Ground scale is calibrated on screen but consumed by the server against the
+ * *uploaded raster*, so the clicked distance has to be converted into that
+ * image's pixel space. This mirrors the scale each rasteriser picks below —
+ * PDFs are rendered up to the long-edge target, rasters are only ever reduced.
+ */
+export function rasterScaleFor(
+  naturalWidth: number,
+  naturalHeight: number,
+  isPdf: boolean,
+): number {
+  const longEdge = Math.max(naturalWidth, naturalHeight);
+  if (longEdge <= 0) return 1;
+  return isPdf
+    ? Math.min(TARGET_LONG_EDGE / longEdge, 3)
+    : Math.min(TARGET_LONG_EDGE / longEdge, 1);
+}
+
 const toBlob = (canvas: HTMLCanvasElement, type: string, quality?: number) =>
   new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, quality));
 

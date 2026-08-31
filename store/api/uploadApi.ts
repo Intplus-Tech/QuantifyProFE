@@ -52,4 +52,10 @@ export const uploadApi = baseApi.injectEndpoints({
   }),
 });
 
-export const { useUploadFileMutation, useGetUploadQuery, useDownloadUploadQuery } = uploadApi;
+export const {
+  useUploadFileMutation,
+  useGetUploadQuery,
+  useLazyGetUploadQuery,
+  useDownloadUploadQuery,
+  useLazyDownloadUploadQuery,
+} = uploadApi;

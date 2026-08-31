@@ -965,3 +965,81 @@ If `concreteMeasurements` is somehow still empty when "+ Assign Element" is clic
 - **No comments** unless the WHY is non-obvious. No docstrings.
 - **Simulated data / stubs** must have a clearly marked `// TODO:` swap comment
 - **Git pushes:** Do NOT push to remote without explicit user confirmation. User has rejected pushes twice ("dont push"). Always ask before pushing.
+
+---
+
+## Session — AI Flow Fixes (2026-08-31)
+
+| # | Fix | Where |
+|---|---|---|
+| 1 | `/ai/new` always starts blank — form no longer seeds from persisted Redux details | `AiProjectDetailsView.tsx` |
+| 2 | **Ground scale** replaces "units per pixel". Two clicks + a known distance → m/px, the inverse of the manual canvas's px/m, so both flows measure identically | `GroundScaleBar.tsx`, `ExtractCanvas.tsx`, `aiFlowSlice.session.pageCalibrations` |
+| 3 | Drawing survives refresh — file bytes cached in IndexedDB, preview blob URL rebuilt on mount | `drawingCache.ts`, `useDrawingPreviews.ts` |
+| 4 | Extract page matches design: page badge left, `Page Up/Down` right, 21 measure tiles, no scale control in the rail | `ExtractCanvas.tsx`, `MeasureSelectPanel.tsx`, `mock-data.ts` |
+| 5 | Progress panel no longer overflows — `min-w-0` + `overflow-x-hidden`, long notes clamp with Show more | `ExtractionProgressPanel.tsx` |
+| 6 | Two calculation bugs: excavation was non-zero for elements with no dimensions; attribute figures (mm off the drawing) were being read in the page-scale unit | `calc.ts`, `api-mappers.ts` |
+| 7 | Dashboard "Open Project" routes like the Projects grid via shared `projectHref()` | `utils/projectRoute.ts` |
+| 8 | Navigation locked while extraction runs (Dashboard / View Reports / Continue later / page nav / tools) | `ExtractTopBar.tsx`, `ExtractCanvas.tsx` |
+| 9 | All server text passes through `humaniseText()` — no provider/model names, no OCR/schema/JSON/enum wording, element ids shown as tile labels | `humanise.ts` |
+
+### Ground scale — how the number is derived
+
+```
+pagePixels  = |p2 - p1|            two clicks, divided back out of the zoom
+rasterScale = rasterScaleFor(naturalW, naturalH, isPdf)   // matches pageRaster.ts
+imagePixels = pagePixels x rasterScale                    // uploaded image space
+metresPerPixel = knownDistance(m) / imagePixels           // what the API receives
+```
+
+Calibration is per page (a set mixes 1:50 details with 1:200 layouts), stored in
+`session.pageCalibrations[page]`, and Extract is disabled until the active page
+has one. `session.unit` is now always `"m"`.
+
+### Unit rule in `api-mappers.mapDetectionToElement`
+
+- **Attributes** (read off the drawing) → millimetres, unless the value carries
+  its own suffix (`"0.6 m"`).
+- **Geometry / `computed`** (derived from the page scale) → the session unit.
+
+Applying one unit to both is what turned a 600 mm pile into a 600 m one.
+
+### Follow-up — reopening an AI project from the dashboard
+
+Two problems, one cause: nothing tied an AI takeoff to its project.
+
+- **Routing.** `projectHref()` sent AI projects to `/projects/:id/boq`, a manual
+  screen that only renders a loader and redirects to `/projects/ai/:id/report/boq`
+   — and silently showed the manual "no BOQ" state whenever `processingMode`
+  hadn't loaded. It now returns the AI report route directly.
+- **Missing drawing.** `aiFlowSlice` persisted one flat record to
+  sessionStorage, so opening a second project overwrote the first, and closing
+  the tab lost both. Persistence is now a **map keyed by projectId in
+  localStorage** (`loadAiFlowForProject`).
+
+`useAiProjectSession(projectId)` restores a cold-started project in two steps:
+the saved record first (session ids, ground scale, drawing list — previews
+rebuilt from the IndexedDB file cache), then the project's own uploads from the
+server for a browser that has never opened it. The server copy is pulled through
+`downloadUpload` (authenticated axios → object URL) rather than the storage URL,
+so it can't fail on a missing CORS header. Called from `ExtractWorkspaceView`
+and `ReportShell`, which is where "Continue to Drawing" starts and lands.
+
+### Follow-up — "This drawing could not be opened"
+
+The restore put the drawing's *metadata* back (page count, name, ids) but had no
+bytes for it, and `useAiProjectSession`'s server download only ran when the
+drawings list was **empty** — so a restored project skipped it and the canvas
+handed react-pdf the raw storage URL instead.
+
+`useDrawingPreviews` now owns the whole ladder, per drawing, regardless of how
+many are in state:
+
+```
+previewUrl (blob, this page load)
+  → IndexedDB file cache
+  → GET /uploads/:id/download via axios + token  → object URL (and re-cached)
+  → reported as failed → canvas shows "Try again"
+```
+
+`ExtractCanvas` no longer falls back to `uploadedUrl` while `restoring` is true;
+that cross-origin fetch racing the recovery was the error on screen.

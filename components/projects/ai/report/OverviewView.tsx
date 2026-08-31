@@ -15,6 +15,7 @@ import { setActivePage, setGlobalParameter } from "@/store/slices/aiFlowSlice";
 import type { RootState } from "@/store";
 import { computeElementQuantities, fmt } from "../calc";
 import { MEASURE_TYPES, SOIL_TYPES } from "../mock-data";
+import { summariseNotes } from "../humanise";
 import { QuickEditModal } from "../extract/QuickEditModal";
 import { useAiTakeoff } from "../useAiTakeoff";
 import {
@@ -74,10 +75,12 @@ export function OverviewView() {
     [groups],
   );
 
-  // Newest completed job's observations about the page as a whole.
-  const lastNotes = [...jobs]
-    .reverse()
-    .find((job) => job.status === "completed" && job.notes)?.notes;
+  // Newest completed run's observations about the page as a whole, rewritten
+  // out of the pipeline's own vocabulary before a surveyor reads it.
+  const lastNotes = summariseNotes(
+    [...jobs].reverse().find((job) => job.status === "completed" && job.notes)?.notes,
+    400,
+  );
 
   const quickEditElement =
     groups.flatMap((g) => g.elements).find((e) => e.id === quickEditId) ?? null;
@@ -268,10 +271,10 @@ export function OverviewView() {
           <p className="text-sm font-medium text-slate-700">
             No elements extracted yet
           </p>
-          {lastNotes ? (
-            <p className="mx-auto mt-2 max-w-2xl text-xs leading-relaxed text-slate-500">
-              <span className="font-medium text-slate-600">Model notes: </span>
-              {lastNotes}
+          {lastNotes.short ? (
+            <p className="mx-auto mt-2 max-w-2xl break-words text-xs leading-relaxed text-slate-500">
+              <span className="font-medium text-slate-600">What we saw on this page: </span>
+              {lastNotes.short}
             </p>
           ) : (
             <p className="mt-2 text-xs text-slate-500">

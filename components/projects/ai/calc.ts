@@ -29,10 +29,24 @@ export const BAR_MASS_PER_M: Record<number, number> = {
 
 const mm = (v: number | null) => (v ?? 0) / 1000;
 
+const ZERO_QUANTITIES: ComputedQuantities = {
+  concrete: 0,
+  formwork: 0,
+  rebar: 0,
+  excavation: 0,
+};
+
 export function computeElementQuantities(
   dimensions: ElementDimensions,
   params: GlobalParameters,
 ): ComputedQuantities {
+  // Working space and blinding are added *around* the element, so an element
+  // whose dimensions the AI could not read still produced an excavation
+  // volume: (0 + 2ws)(0 + 2ws)(0 + blinding) — a real-looking figure sitting
+  // beside 0.00 m3 of concrete. Nothing is derivable until the dimensions are
+  // known, so nothing is returned.
+  if (!isElementComplete(dimensions)) return { ...ZERO_QUANTITIES };
+
   const l = mm(dimensions.length);
   const w = mm(dimensions.width);
   const d = mm(dimensions.depth);

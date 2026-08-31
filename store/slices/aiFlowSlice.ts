@@ -67,6 +67,22 @@ export interface AiProjectDetails {
 
 export type ExtractionPhase = "idle" | "running" | "complete" | "cancelled";
 
+/**
+ * Ground scale for one page, captured the same way the manual canvas captures
+ * it: click two points on a known distance, type what that distance really is.
+ * Both flows therefore reduce to the same number, and a drawing measured
+ * either way produces the same quantities.
+ */
+export interface AiPageCalibration {
+  /** real-world metres represented by one pixel of the uploaded page image */
+  metresPerPixel: number;
+  /** the distance the user typed, in `unit` — kept for the readout */
+  knownDistance: number;
+  unit: string;
+  /** separation of the two clicked points, in page-image pixels */
+  pixelDistance: number;
+}
+
 /** Server-side handles for the live AI takeoff session. */
 export interface AiSessionState {
   /** created project the session hangs off */
@@ -84,6 +100,8 @@ export interface AiSessionState {
   /** real-world units per pixel, and the unit those are expressed in */
   unit: MeasurementUnit;
   scale: number | null;
+  /** ground scale per 1-based page number */
+  pageCalibrations: Record<number, AiPageCalibration>;
   finalized: boolean;
   lastError: string | null;
 }
@@ -141,12 +159,13 @@ const emptySession: AiSessionState = {
   pageSizes: {},
   activeJobId: null,
   jobPageNumber: null,
-  unit: "mm",
-  // 1 mm per pixel is a neutral starting point so extraction is never blocked.
-  // It is almost certainly not the drawing's true scale — every length, area
-  // and perimeter is derived from it server-side, so it wants calibrating
-  // before the quantities are trusted.
-  scale: 1,
+  // Ground scale is always expressed in metres per page pixel, matching the
+  // manual canvas, which works in pixels-per-metre.
+  unit: "m",
+  // No default. A guessed scale silently rescales every length, area and
+  // volume the server derives, so the page is calibrated before it is run.
+  scale: null,
+  pageCalibrations: {},
   finalized: false,
   lastError: null,
 };
@@ -269,6 +288,10 @@ const aiFlowSlice = createSlice({
 
     setActivePage(state, action: PayloadAction<number>) {
       state.activePage = action.payload;
+      // Ground scale is per page — a drawing set mixes 1:50 details with 1:200
+      // layouts — so moving pages moves the active scale with it.
+      state.session.scale =
+        state.session.pageCalibrations[action.payload]?.metresPerPixel ?? null;
     },
 
     toggleMeasureType(
@@ -534,6 +557,28 @@ const aiFlowSlice = createSlice({
       if (action.payload.unit) state.session.unit = action.payload.unit;
     },
 
+    /** Record a page's ground scale and make it the session's active scale. */
+    setAiPageCalibration(
+      state,
+      action: PayloadAction<{ page: number; calibration: AiPageCalibration }>,
+    ) {
+      state.session.pageCalibrations[action.payload.page] = action.payload.calibration;
+      state.session.unit = "m";
+      state.session.scale = action.payload.calibration.metresPerPixel;
+    },
+
+    clearAiPageCalibration(state, action: PayloadAction<number>) {
+      delete state.session.pageCalibrations[action.payload];
+      state.session.scale = null;
+    },
+
+    /** Point the session's scale at whichever page is now on screen. */
+    syncAiScaleToPage(state, action: PayloadAction<number>) {
+      const calibration = state.session.pageCalibrations[action.payload];
+      state.session.unit = "m";
+      state.session.scale = calibration?.metresPerPixel ?? null;
+    },
+
     setAiActiveJob(
       state,
       action: PayloadAction<{ jobId: string | null; pageNumber?: number | null }>,
@@ -690,6 +735,9 @@ export const {
   clearAiSession,
   setAiPageUpload,
   setAiScale,
+  setAiPageCalibration,
+  clearAiPageCalibration,
+  syncAiScaleToPage,
   setAiActiveJob,
   setAiSessionError,
   markAiSessionFinalized,
@@ -718,10 +766,17 @@ export const {
 } = aiFlowSlice.actions;
 
 // ── Persistence ─────────────────────────────────────────────────────────────
-// The session ids and the uploaded drawings survive a reload; blob preview URLs
-// do not, so drawings fall back to their server `uploadedUrl` when rehydrated.
+// Session ids, the ground scale and the uploaded drawings survive a reload;
+// blob preview URLs do not, so they are rebuilt from the local file cache (see
+// components/projects/ai/useDrawingPreviews.ts).
+//
+// Keyed by project, and in localStorage rather than sessionStorage: opening a
+// project from the dashboard days later is the normal way back into an AI
+// takeoff, and a single flat record meant the previous project's session was
+// simply overwritten — which is why a reopened project had no drawing.
 
-const AI_FLOW_STORAGE_KEY = "quantifypro.aiFlow.session";
+const AI_FLOW_STORAGE_KEY = "quantifypro.aiFlow.sessions";
+const NO_PROJECT = "__draft__";
 
 interface PersistedAiFlow {
   session: AiSessionState;
@@ -730,49 +785,91 @@ interface PersistedAiFlow {
   details: AiProjectDetails;
 }
 
-export function loadPersistedAiFlow(): AiFlowState | undefined {
-  if (typeof window === "undefined") return undefined;
+interface PersistedAiFlowMap {
+  lastProjectId: string | null;
+  byProject: Record<string, PersistedAiFlow>;
+}
 
+const emptyMap: PersistedAiFlowMap = { lastProjectId: null, byProject: {} };
+
+function readMap(): PersistedAiFlowMap {
+  if (typeof window === "undefined") return emptyMap;
   try {
-    const raw = window.sessionStorage.getItem(AI_FLOW_STORAGE_KEY);
-    if (!raw) return undefined;
-
-    const parsed = JSON.parse(raw) as PersistedAiFlow;
-    if (!parsed?.session) return undefined;
-
-    return {
-      ...initialState,
-      details: parsed.details ?? initialState.details,
-      session: { ...emptySession, ...parsed.session },
-      drawings: parsed.drawings ?? [],
-      activeDrawingId: parsed.activeDrawingId ?? null,
-    };
+    const raw = window.localStorage.getItem(AI_FLOW_STORAGE_KEY);
+    if (!raw) return emptyMap;
+    const parsed = JSON.parse(raw) as PersistedAiFlowMap;
+    return parsed?.byProject ? parsed : emptyMap;
   } catch {
-    return undefined;
+    return emptyMap;
   }
+}
+
+/** A stored record → a full slice state, with the shape gaps older records have. */
+function toFlowState(record?: PersistedAiFlow): AiFlowState | undefined {
+  if (!record?.session) return undefined;
+
+  return {
+    ...initialState,
+    details: record.details ?? initialState.details,
+    session: {
+      ...emptySession,
+      ...record.session,
+      // Written before ground-scale calibration existed, these come back
+      // without the map and would crash the first lookup.
+      pageCalibrations: record.session.pageCalibrations ?? {},
+      pageUploadIds: record.session.pageUploadIds ?? {},
+      pageSizes: record.session.pageSizes ?? {},
+    },
+    drawings: record.drawings ?? [],
+    activeDrawingId: record.activeDrawingId ?? null,
+  };
+}
+
+/** The most recently touched project — what the store preloads on boot. */
+export function loadPersistedAiFlow(): AiFlowState | undefined {
+  const map = readMap();
+  const key = map.lastProjectId ?? NO_PROJECT;
+  return toFlowState(map.byProject[key]);
+}
+
+/** One specific project's saved takeoff, for when a route names it. */
+export function loadAiFlowForProject(projectId: string): AiFlowState | undefined {
+  return toFlowState(readMap().byProject[projectId]);
 }
 
 export function saveAiFlowState(state: AiFlowState): void {
   if (typeof window === "undefined") return;
 
   try {
-    const payload: PersistedAiFlow = {
+    const key = state.session.projectId ?? NO_PROJECT;
+    const map = readMap();
+
+    map.byProject[key] = {
       session: state.session,
       details: state.details,
       activeDrawingId: state.activeDrawingId,
       // Drop blob: preview URLs — they are dead after a reload.
       drawings: state.drawings.map(({ previewUrl: _previewUrl, ...rest }) => rest),
     };
-    window.sessionStorage.setItem(AI_FLOW_STORAGE_KEY, JSON.stringify(payload));
+    map.lastProjectId = key;
+
+    window.localStorage.setItem(AI_FLOW_STORAGE_KEY, JSON.stringify(map));
   } catch {
     // storage full or unavailable — the flow still works in-memory
   }
 }
 
-export function clearPersistedAiFlow(): void {
+export function clearPersistedAiFlow(projectId?: string): void {
   if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.removeItem(AI_FLOW_STORAGE_KEY);
+    if (!projectId) {
+      window.localStorage.removeItem(AI_FLOW_STORAGE_KEY);
+      return;
+    }
+    const map = readMap();
+    delete map.byProject[projectId];
+    if (map.lastProjectId === projectId) map.lastProjectId = null;
+    window.localStorage.setItem(AI_FLOW_STORAGE_KEY, JSON.stringify(map));
   } catch {
     // ignore
   }

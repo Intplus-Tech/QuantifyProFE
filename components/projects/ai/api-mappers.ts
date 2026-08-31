@@ -13,6 +13,7 @@ import type {
   ExtractionStep,
 } from "./types";
 import { MEASURE_TYPES } from "./mock-data";
+import { elementTypeLabels, humaniseText } from "./humanise";
 
 /**
  * Measure tile → server element type.
@@ -34,10 +35,12 @@ export const AI_ELEMENT_TYPE_BY_MEASURE: Record<string, AiElementType | null> = 
   "shear-walls": "shear_wall",
   "lift-walls": "lift_wall",
   stairs: "staircase",
-  // Blockwork and walls are both detected by the API as "wall"; the request
-  // is de-duplicated in toAiElementTypes so selecting both asks once.
+  // Blockwork and every wall tile are detected as "wall"; the request is
+  // de-duplicated in toAiElementTypes so selecting several asks once.
   blockwork: "wall",
-  walls: "wall",
+  "ext-walls": "wall",
+  "int-walls": "wall",
+  lintels: "lintels",
   roof: "roof_slab",
   "swimming-pool": "swimming_pool",
   ramps: null,
@@ -102,13 +105,33 @@ const STATUS_BY_REVIEW: Record<string, ExtractionStatus> = {
 };
 
 /**
+ * Structural drawings are dimensioned in millimetres, so a bare `600` read off
+ * a section is 600 mm — never 600 of whatever unit the page scale happens to
+ * be calibrated in. Attribute figures therefore carry their own unit, separate
+ * from the scale's.
+ */
+const ANNOTATION_UNIT: MeasurementUnit = "mm";
+
+const UNIT_SUFFIX: [RegExp, MeasurementUnit][] = [
+  [/\bmm\b|millim/i, "mm"],
+  [/\bcm\b|centim/i, "cm"],
+  [/(?<![a-z])m(?![a-z])|\bmet(er|re)/i, "m"],
+  [/\bft\b|feet|foot|'/i, "ft"],
+  [/\bin\b|inch|"/i, "in"],
+];
+
+/**
  * Attribute keys are not named anywhere in the OpenAPI document, so match
  * loosely: case-insensitive, ignoring separators, across the usual spellings.
+ *
+ * Returns the unit alongside the number: values arrive both as `600` and as
+ * `"600mm"` / `"0.6 m"`, and reading the second kind as the first is the
+ * difference between a 0.6 m pile and a 600 m one.
  */
 function readAttributeAny(
   attributes: AiDetectedMeasurementElement["attributes"],
   keys: string[],
-): number | null {
+): { value: number; unit: MeasurementUnit } | null {
   if (!attributes) return null;
   const first = Array.isArray(attributes) ? attributes[0] : attributes;
   if (!first) return null;
@@ -118,9 +141,17 @@ function readAttributeAny(
 
   for (const [key, raw] of Object.entries(first)) {
     if (!wanted.has(normalise(key)) || raw == null) continue;
-    // Values sometimes arrive as "600mm" rather than 600.
-    const num = typeof raw === "number" ? raw : parseFloat(String(raw));
-    if (Number.isFinite(num)) return num;
+
+    if (typeof raw === "number") {
+      return Number.isFinite(raw) ? { value: raw, unit: ANNOTATION_UNIT } : null;
+    }
+
+    const text = String(raw);
+    const num = parseFloat(text);
+    if (!Number.isFinite(num)) continue;
+
+    const suffix = UNIT_SUFFIX.find(([pattern]) => pattern.test(text.slice(String(num).length)));
+    return { value: num, unit: suffix?.[1] ?? ANNOTATION_UNIT };
   }
   return null;
 }
@@ -194,27 +225,34 @@ export function mapDetectionToElement(
   // Attributes first (the model read it off the drawing), then the server's
   // computed figures, then the geometry itself. Only after all three come up
   // empty is a dimension genuinely unknown.
+  //
+  // Each source has its own unit and they are not interchangeable: attributes
+  // are drawing annotations (millimetres unless they say otherwise), while
+  // geometry and the server's computed figures come out of the page scale and
+  // are therefore in `unit`. Applying one unit to all three is how a 600 mm
+  // pile turns into a 600 m one.
   const measured = measureGeometry(detection.geometry, scale);
+  const scaled = (value: number | null | undefined) =>
+    value == null ? null : toMillimetres(value, unit);
+  const annotated = (read: { value: number; unit: MeasurementUnit } | null) =>
+    read == null ? null : toMillimetres(read.value, read.unit);
 
-  const lengthUnits =
-    readAttributeAny(detection.attributes, ["length", "l", "len"]) ??
-    detection.computed?.length ??
-    measured.long;
+  const lengthMm =
+    annotated(readAttributeAny(detection.attributes, ["length", "l", "len"])) ??
+    scaled(detection.computed?.length) ??
+    scaled(measured.long);
 
-  const widthAttr =
-    readAttributeAny(detection.attributes, ["width", "w", "breadth"]) ??
-    measured.short;
+  const widthMm =
+    annotated(readAttributeAny(detection.attributes, ["width", "w", "breadth"])) ??
+    scaled(measured.short);
 
-  const depthAttr = readAttributeAny(detection.attributes, [
-    "depth",
-    "d",
-    "thickness",
-    "height",
-  ]);
+  const depthMm = annotated(
+    readAttributeAny(detection.attributes, ["depth", "d", "thickness", "height"]),
+  );
 
-  const diameterAttr =
-    readAttributeAny(detection.attributes, ["diameter", "dia", "ø"]) ??
-    measured.diameter;
+  const diameterMm =
+    annotated(readAttributeAny(detection.attributes, ["diameter", "dia", "ø"])) ??
+    scaled(measured.diameter);
 
   const measureTypeId =
     MEASURE_BY_AI_ELEMENT_TYPE[detection.mapsToElementType ?? ""] ?? "piles";
@@ -236,10 +274,10 @@ export function mapDetectionToElement(
       shape: CIRCULAR_MEASURES.has(measureTypeId)
         ? "Circular"
         : (SHAPE_BY_GEOMETRY[geometryType] ?? "Rectangle"),
-      length: lengthUnits == null ? null : toMillimetres(lengthUnits, unit),
-      width: widthAttr == null ? null : toMillimetres(widthAttr, unit),
-      depth: depthAttr == null ? null : toMillimetres(depthAttr, unit),
-      diameter: diameterAttr == null ? null : toMillimetres(diameterAttr, unit),
+      length: lengthMm,
+      width: widthMm,
+      depth: depthMm,
+      diameter: diameterMm,
     },
     note: detection.reviewStatus === "pending" ? "Pending review" : undefined,
   };
@@ -321,20 +359,25 @@ export function buildStepsFromJob(job: AiTakeoffJob | null): ExtractionStep[] {
       case 0:
         return job?.pageNumber ? `Page ${job.pageNumber} queued for analysis.` : "Queued.";
       case 1:
+        // The server names element types by their internal ids (pile_cap,
+        // ground_beam …). Surveyors read the tile labels, so show those.
         return job?.requestedElementTypes?.length
-          ? `Looking for: ${job.requestedElementTypes.join(", ")}`
+          ? `Looking for: ${elementTypeLabels(job.requestedElementTypes)}`
           : "Reading the drawing.";
       case 2:
         // The provider and model are deliberately not surfaced to the user.
         return "Matching detections across the page.";
       case 3:
         return job?.detectedCount != null
-          ? `Detected ${job.detectedCount}${
-              job.discardedCount ? `, discarded ${job.discardedCount}` : ""
+          ? `Found ${job.detectedCount} element${job.detectedCount === 1 ? "" : "s"}${
+              job.discardedCount ? `, set aside ${job.discardedCount}` : ""
             }.`
-          : "Extracting element attributes.";
+          : "Reading each element's size and reference.";
       default:
-        return job?.notes ?? "Deriving lengths, areas and perimeters from page scale.";
+        return (
+          humaniseText(job?.notes) ||
+          "Working out lengths, areas and volumes from the page scale."
+        );
     }
   };
 

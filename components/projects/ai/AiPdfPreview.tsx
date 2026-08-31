@@ -36,7 +36,15 @@ export function AiPdfPreview({
         </div>
       }
       error={
-        <p className="py-16 text-xs text-red-500">Failed to load this drawing.</p>
+        <div className="px-6 py-16 text-center">
+          <p className="text-xs font-medium text-red-500">
+            This drawing could not be opened.
+          </p>
+          <p className="mx-auto mt-1 max-w-xs text-[11px] leading-relaxed text-slate-500">
+            Your local copy may have been cleared. Go back to Drawing References
+            and upload the file again to carry on.
+          </p>
+        </div>
       }
       className={className}
     >
