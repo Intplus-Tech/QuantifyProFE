@@ -102,6 +102,9 @@ import {
   loadPageCalibration,
   savePageCalibration,
   clearPageCalibration,
+  loadPageDraftVariantId,
+  savePageDraftVariantId,
+  clearPageDraftVariantId,
   type WsConcreteMeasurement,
   type WsElementAssignment,
   type VariantCalibration,
@@ -462,14 +465,9 @@ export function ProjectWorkspaceView({
     setRotation(0);
   }, []);
 
-  // ── Local UI state ──────────────────────────────────────────────────────────
-  // UI preferences only — loaded from localStorage once on mount.
-  // All measurement data (scale, elements, variants) comes from backend hydration.
   const [savedSession] = useState(() => loadSession(projectId));
   const [activeTool, setActiveTool] = useState<ToolId | null>(null);
   const [pendingTool, setPendingTool] = useState<ToolId | null>(null);
-  // Hand tool — toggling it on remembers whatever measurement tool was active
-  // so toggling it off again restores that tool instead of leaving nothing selected.
   const [handToolActive, setHandToolActive] = useState(false);
   const preHandToolRef = useRef<ToolId | null>(null);
   const [activeColor, setActiveColor] = useState(PALETTE[0]);
@@ -480,6 +478,9 @@ export function ProjectWorkspaceView({
   const [selectedPage, setSelectedPage] = useState(1);
   const [scale, setScale] = useState(1.0);
   const [rotation, setRotation] = useState<0 | 90 | 180 | 270>(0);
+  // Bumped whenever the drawing's pan position should recenter (Reset Zoom) —
+  // DrawingCanvas watches this to reset its own free-drag pan offset.
+  const [viewResetSignal, setViewResetSignal] = useState(0);
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [openFolders, setOpenFolders] = useState<string[]>(() =>
     folders.map((f) => f.id),
@@ -605,6 +606,9 @@ export function ProjectWorkspaceView({
   const [elementPanelCollapsed, setElementPanelCollapsed] = useState(
     () => savedSession.elementPanelCollapsed ?? false,
   );
+  // Bumped after an element is created/merged so the floating panel remounts
+  // with a blank concrete + rebar form for the next element.
+  const [panelResetToken, setPanelResetToken] = useState(0);
   const canvasAreaRef = useRef<HTMLDivElement>(null);
   // Mirrors DrawingCanvas's internal pan-drag state so the measurement overlay
   // (rendered here, on top of it) can also show a "grabbing" cursor while
@@ -633,27 +637,17 @@ export function ProjectWorkspaceView({
     null,
   );
 
-  // ── Calibration points (received from canvas during calibration) ─────────────
   const [calibPtCount, setCalibPtCount] = useState<0 | 1 | 2>(0);
   const [calibBasePxDist, setCalibBasePxDist] = useState<number | null>(null);
   const [calibPts, setCalibPts] = useState<[MPoint, MPoint] | null>(null);
-  // Snapshot taken at Apply Scale time — carried on every variant saved while
-  // this page's scale is active, since nothing pushes it to the backend
-  // until the variant's element is actually assigned.
+
   const [appliedCalibration, setAppliedCalibration] =
     useState<VariantCalibration | null>(null);
 
-  // Live in-progress length from the canvas (A→cursor, null when not drawing)
   const [liveDrawingLength, setLiveDrawingLength] = useState<number | null>(
     null,
   );
 
-  // ── Round totals — derived from actual canvas marks, never a drifting counter ──
-  // Left sidebar  = per-page totals (lengthTotal / countTotal / areaTotal below)
-  // Right panel   = current-round totals: marks not yet "claimed" by a finished
-  // round (Apply & Continue, +New Element, Blockwork side switch, hydration).
-  // Deriving straight from measurementHook.state.measurements means undo/redo can
-  // never desync it, unlike an incrementing counter that only ever counted up.
   const [claimedMarkIds, setClaimedMarkIds] = useState<Set<string>>(new Set());
 
   // ── Per-page measurement state (persisted to localStorage) ───────────────────
@@ -664,15 +658,12 @@ export function ProjectWorkspaceView({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ── First-run onboarding — anchors for the guided tour coachmarks ────────────
   const toolsSectionRef = useRef<HTMLDivElement>(null);
   const newElementBtnRef = useRef<HTMLButtonElement>(null);
   const zoomControlsRef = useRef<HTMLDivElement>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   useEffect(() => {
     if (backendProject && !hasSeenWorkspaceOnboarding()) {
-      // Force the sidebar open so the coachmark targets are actually visible —
-      // overrides a stale collapsed preference from before this tour existed.
       setSidebarCollapsed(false);
       setShowOnboarding(true);
     }
@@ -680,10 +671,6 @@ export function ProjectWorkspaceView({
 
   const selectedDrawing =
     drawings.find((d) => d.id === selectedDrawingId) ?? null;
-
-  // Current-round totals: sum of marks that aren't yet claimed by a finished
-  // round and aren't rebar-tab reference lengths. Recomputed from the actual
-  // mark list on every render, so undo/redo can never leave it stale.
   const sessionTotals = useMemo(() => {
     let count = 0,
       length = 0,
@@ -732,6 +719,21 @@ export function ProjectWorkspaceView({
   function handleSelectVariant(variant: WsConcreteMeasurement) {
     setSelectedVariantId((prev) => (prev === variant.id ? null : variant.id));
   }
+
+  const currentPageKey = `${selectedDrawing?.uploadedFileId ?? "none"}-${selectedPage}`;
+  useEffect(() => {
+    const drawingKey = selectedDrawing?.uploadedFileId ?? "none";
+    const storedVariantId = loadPageDraftVariantId(
+      projectId,
+      drawingKey,
+      selectedPage,
+    );
+    currentVariantId.current = storedVariantId ?? crypto.randomUUID();
+    lastFormPayload.current = null;
+    prevMarkCount.current = measurementHook.state.measurements.length;
+    setSelectedVariantId(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPageKey, projectId]);
 
   // Erases the actual drawn marks (points/lines/polygons) a variant is made of,
   // not just its table row. Resolves the variant's own drawing/page — which may
@@ -1084,107 +1086,108 @@ export function ProjectWorkspaceView({
   const loadProjectElements = useCallback(async () => {
     setElementsLoading(true);
     try {
-    const sessionsResult = await fetchProjectSessions(projectId);
-    if (!("data" in sessionsResult) || !sessionsResult.data?.data?.length)
-      return;
+      const sessionsResult = await fetchProjectSessions(projectId);
+      if (!("data" in sessionsResult) || !sessionsResult.data?.data?.length)
+        return;
 
-    const sessionIds = sessionsResult.data.data.map((s) => s._id);
-    const sessionResults = await Promise.all(
-      sessionIds.map((id) => fetchSessionById(id)),
-    );
+      const sessionIds = sessionsResult.data.data.map((s) => s._id);
+      const sessionResults = await Promise.all(
+        sessionIds.map((id) => fetchSessionById(id)),
+      );
 
-    const assignedElementMap = new Map<
-      string,
-      { meta: CreatedElement; variantMap: Map<string, WsConcreteMeasurement> }
-    >();
-    const pendingVariantsMap = new Map<string, WsConcreteMeasurement>();
+      const assignedElementMap = new Map<
+        string,
+        { meta: CreatedElement; variantMap: Map<string, WsConcreteMeasurement> }
+      >();
+      const pendingVariantsMap = new Map<string, WsConcreteMeasurement>();
 
-    for (const result of sessionResults) {
-      if (!("data" in result) || !result.data?.data) continue;
-      const { elements, session: sessionData } = result.data.data;
-      const sid = sessionData._id;
+      for (const result of sessionResults) {
+        if (!("data" in result) || !result.data?.data) continue;
+        const { elements, session: sessionData } = result.data.data;
+        const sid = sessionData._id;
 
-      for (const el of elements) {
-        // persistVariantsToBackend sends `attributes` as a single object for
-        // one variant, or an array — one entry per variant — when several
-        // variants of the same element/tool were bundled into one request.
-        // Normalize to a list so both shapes reconstruct the same way.
-        const attrsList: Record<string, unknown>[] = Array.isArray(
-          el.attributes,
-        )
-          ? el.attributes
-          : [el.attributes ?? {}];
+        for (const el of elements) {
+          // persistVariantsToBackend sends `attributes` as a single object for
+          // one variant, or an array — one entry per variant — when several
+          // variants of the same element/tool were bundled into one request.
+          // Normalize to a list so both shapes reconstruct the same way.
+          const attrsList: Record<string, unknown>[] = Array.isArray(
+            el.attributes,
+          )
+            ? el.attributes
+            : [el.attributes ?? {}];
 
-        for (const attrs of attrsList) {
-          const snapshotStr = attrs._snapshot as string | undefined;
-          if (!snapshotStr) continue;
+          for (const attrs of attrsList) {
+            const snapshotStr = attrs._snapshot as string | undefined;
+            if (!snapshotStr) continue;
 
-          let parsedVariant: WsConcreteMeasurement | null = null;
-          try {
-            parsedVariant = JSON.parse(snapshotStr) as WsConcreteMeasurement;
-          } catch {
-            continue;
-          }
-
-          if (attrs.pending === true) {
-            if (!pendingVariantsMap.has(parsedVariant.id)) {
-              pendingVariantsMap.set(parsedVariant.id, parsedVariant);
-            }
-          } else {
-            const eid = attrs.elementId as string | undefined;
-            const elementName = attrs.elementName as string | undefined;
-            if (!eid || !elementName) continue;
-
-            if (!assignedElementMap.has(eid)) {
-              assignedElementMap.set(eid, {
-                meta: {
-                  id: eid,
-                  name: elementName,
-                  category:
-                    (attrs.elementCategory as string) ?? "Substructure",
-                  categoryFolder:
-                    (attrs.categoryFolder as string) ?? elementName,
-                  measurementUnit: (attrs.measurementUnit as string) ?? "items",
-                  variants: [],
-                  sessionId: sid,
-                  drawingId: parsedVariant.drawingId,
-                  pageNumber: parsedVariant.pageNumber,
-                  createdAt: parsedVariant.savedAt,
-                },
-                variantMap: new Map(),
-              });
+            let parsedVariant: WsConcreteMeasurement | null = null;
+            try {
+              parsedVariant = JSON.parse(snapshotStr) as WsConcreteMeasurement;
+            } catch {
+              continue;
             }
 
-            const entry = assignedElementMap.get(eid)!;
-            if (!entry.variantMap.has(parsedVariant.id)) {
-              entry.variantMap.set(parsedVariant.id, parsedVariant);
+            if (attrs.pending === true) {
+              if (!pendingVariantsMap.has(parsedVariant.id)) {
+                pendingVariantsMap.set(parsedVariant.id, parsedVariant);
+              }
+            } else {
+              const eid = attrs.elementId as string | undefined;
+              const elementName = attrs.elementName as string | undefined;
+              if (!eid || !elementName) continue;
+
+              if (!assignedElementMap.has(eid)) {
+                assignedElementMap.set(eid, {
+                  meta: {
+                    id: eid,
+                    name: elementName,
+                    category:
+                      (attrs.elementCategory as string) ?? "Substructure",
+                    categoryFolder:
+                      (attrs.categoryFolder as string) ?? elementName,
+                    measurementUnit:
+                      (attrs.measurementUnit as string) ?? "items",
+                    variants: [],
+                    sessionId: sid,
+                    drawingId: parsedVariant.drawingId,
+                    pageNumber: parsedVariant.pageNumber,
+                    createdAt: parsedVariant.savedAt,
+                  },
+                  variantMap: new Map(),
+                });
+              }
+
+              const entry = assignedElementMap.get(eid)!;
+              if (!entry.variantMap.has(parsedVariant.id)) {
+                entry.variantMap.set(parsedVariant.id, parsedVariant);
+              }
             }
           }
         }
       }
-    }
 
-    const reconstructedElements: CreatedElement[] = Array.from(
-      assignedElementMap.values(),
-    ).map(({ meta, variantMap }) => ({
-      ...meta,
-      variants: Array.from(variantMap.values()),
-    }));
+      const reconstructedElements: CreatedElement[] = Array.from(
+        assignedElementMap.values(),
+      ).map(({ meta, variantMap }) => ({
+        ...meta,
+        variants: Array.from(variantMap.values()),
+      }));
 
-    const reconstructedPending = Array.from(pendingVariantsMap.values());
+      const reconstructedPending = Array.from(pendingVariantsMap.values());
 
-    setElements(reconstructedElements);
-    if (reconstructedPending.length > 0) {
-      setConcreteMeasurements(reconstructedPending);
-    } else {
-      // Backend has no pending variants — fall back to localStorage for measurements
-      // saved in this session that weren't yet assigned to an element (e.g. after a
-      // hard refresh before assignment was completed).
-      const localPending = loadSession(projectId).concreteMeasurements;
-      if (localPending && localPending.length > 0) {
-        setConcreteMeasurements(localPending);
+      setElements(reconstructedElements);
+      if (reconstructedPending.length > 0) {
+        setConcreteMeasurements(reconstructedPending);
+      } else {
+        // Backend has no pending variants — fall back to localStorage for measurements
+        // saved in this session that weren't yet assigned to an element (e.g. after a
+        // hard refresh before assignment was completed).
+        const localPending = loadSession(projectId).concreteMeasurements;
+        if (localPending && localPending.length > 0) {
+          setConcreteMeasurements(localPending);
+        }
       }
-    }
     } finally {
       setElementsLoading(false);
     }
@@ -1215,6 +1218,19 @@ export function ProjectWorkspaceView({
     const measurementIds = measurementHook.state.measurements
       .map((m) => m.id)
       .filter((id) => !rebarMarkIds.current.has(id));
+
+    // Marks already claimed by a finished/assigned round (e.g. just re-hydrated
+    // from the backend) don't count as this round's own work.
+    const freshMarkIds = measurementIds.filter((id) => !claimedMarkIds.has(id));
+
+    // Nothing new drawn on this page and nothing already saved under this id —
+    // don't materialise an empty "In Progress" row. This is what fired
+    // spuriously on page switches / backend hydration and produced the duplicate.
+    const alreadyTracked = concreteMeasurements.some(
+      (v) => v.id === currentVariantId.current,
+    );
+    if (freshMarkIds.length === 0 && !alreadyTracked) return;
+
     const variant: WsConcreteMeasurement = {
       id: currentVariantId.current,
       measureType: effectiveMeasureType,
@@ -1245,6 +1261,15 @@ export function ProjectWorkspaceView({
       saveSession(projectId, { concreteMeasurements: next });
       return next;
     });
+
+    // Remember which variant this page's round is building so returning to the
+    // page continues it instead of opening a fresh one.
+    savePageDraftVariantId(
+      projectId,
+      selectedDrawing?.uploadedFileId ?? "none",
+      selectedPage,
+      currentVariantId.current,
+    );
 
     setAutoSaveStatus("saving");
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
@@ -1329,6 +1354,9 @@ export function ProjectWorkspaceView({
   // Concrete tab restores the category's own tool.
   useEffect(() => {
     if (!scaleFlowActive) return;
+    // Hand tool owns the canvas while it's active — don't let a tab/tool sync
+    // yank the active tool back and re-arm drawing under the pan cursor.
+    if (handToolActive) return;
     if (elementPanelTab === "rebar") {
       setActiveTool("length");
       setCountModeActive(false);
@@ -1344,6 +1372,18 @@ export function ProjectWorkspaceView({
     if (tab === "concrete") setRebarDrawnLength(null);
   }
 
+  // Cycle to a fresh in-progress variant id and drop this page's persisted
+  // pointer so the next round starts clean instead of reopening the last one.
+  function beginNewVariantRound() {
+    currentVariantId.current = crypto.randomUUID();
+    lastFormPayload.current = null;
+    clearPageDraftVariantId(
+      projectId,
+      selectedDrawing?.uploadedFileId ?? "none",
+      selectedPage,
+    );
+  }
+
   // External/Internal Blockwork are independent elements — switching starts a
   // fresh round (live length back to zero, new variant) without touching
   // whatever's already drawn on the sheet.
@@ -1351,15 +1391,13 @@ export function ProjectWorkspaceView({
     if (side === blockworkSide) return;
     setBlockworkSide(side);
     claimCurrentMarks();
-    currentVariantId.current = crypto.randomUUID();
-    lastFormPayload.current = null;
+    beginNewVariantRound();
   }
 
   function handleAddNewElement() {
     // Start a fresh measurement round so this doesn't overwrite whatever variant
     // was previously being drawn.
-    currentVariantId.current = crypto.randomUUID();
-    lastFormPayload.current = null;
+    beginNewVariantRound();
     setColumnMeasureChoice(null);
     setElementPanelTab("concrete");
     setRebarDrawnLength(null);
@@ -1368,6 +1406,18 @@ export function ProjectWorkspaceView({
     setLiveDrawingLength(null);
     setPendingTool(null);
     setShowScaleSetup(true);
+  }
+
+  // After an element is created or merged, wipe the working area back to a clean
+  // slate — live measurement totals, the floating panel's concrete + rebar form,
+  // and any "viewing a saved row" state — so the next element starts from empty.
+  function resetWorkingAreaAfterAssign() {
+    claimCurrentMarks();
+    setSelectedVariantId(null);
+    setLiveDrawingLength(null);
+    setRebarDrawnLength(null);
+    setElementPanelTab("concrete");
+    setPanelResetToken((n) => n + 1);
   }
 
   // ── Floating Element Detail Panel: drag + collapse ────────────────────────────
@@ -1770,8 +1820,7 @@ export function ProjectWorkspaceView({
     });
 
     // Cycle to a fresh ID so the next measurement round gets its own slot.
-    currentVariantId.current = crypto.randomUUID();
-    lastFormPayload.current = null;
+    beginNewVariantRound();
   }
 
   // ── Assign element flow ───────────────────────────────────────────────────────
@@ -1864,6 +1913,10 @@ export function ProjectWorkspaceView({
 
     setConcreteMeasurements([]);
     saveSession(projectId, { concreteMeasurements: [] });
+    // These variants are now assigned — the next measurement on this page is a
+    // new round, not a continuation of the one we just handed off.
+    beginNewVariantRound();
+    resetWorkingAreaAfterAssign();
 
     setAssignCompleteData({
       elementName: assigningElement.name,
@@ -1887,7 +1940,9 @@ export function ProjectWorkspaceView({
     const name = parts.slice(1).join(" / ") || "Element";
 
     const newEl: CreatedElement = {
-      id: crypto.randomUUID(),
+      // Sent to the backend as-is (attributes.elementId + `${id}-${tool}` clientId).
+      // Intentionally blank so the backend owns element identity.
+      id: "",
       name,
       category,
       categoryFolder: data.categoryFolder,
@@ -1920,6 +1975,9 @@ export function ProjectWorkspaceView({
 
     setConcreteMeasurements([]);
     saveSession(projectId, { concreteMeasurements: [] });
+    // Assigned — start a fresh round for the next measurement on this page.
+    beginNewVariantRound();
+    resetWorkingAreaAfterAssign();
 
     setExpandedCategories((prev) =>
       prev.includes(category) ? prev : [...prev, category],
@@ -2288,6 +2346,9 @@ export function ProjectWorkspaceView({
     setLiveDrawingLength(null);
     setRebarDrawnLength(null);
     setElementPanelTab("concrete");
+    // Drop any "Viewing: <row>" selection so Apply & Continue really starts the
+    // next identical variant from a blank form instead of the last row's data.
+    setSelectedVariantId(null);
   }
 
   // ── Per-page totals for the LEFT sidebar stat bar ─────────────────────────────
@@ -2317,7 +2378,10 @@ export function ProjectWorkspaceView({
 
   const zoomIn = () => setScale((s) => Math.min(+(s + 0.25).toFixed(2), 3));
   const zoomOut = () => setScale((s) => Math.max(+(s - 0.25).toFixed(2), 0.25));
-  const resetZoom = () => setScale(1.0);
+  const resetZoom = () => {
+    setScale(1.0);
+    setViewResetSignal((n) => n + 1);
+  };
   const rotateDrawing = () =>
     setRotation((r) => ((r + 90) % 360) as 0 | 90 | 180 | 270);
 
@@ -3168,38 +3232,41 @@ export function ProjectWorkspaceView({
                   </p>
                 </div>
               ) : (
-              <DrawingCanvas
-                drawing={selectedDrawing}
-                page={selectedPage}
-                scale={scale}
-                rotation={rotation}
-                panEnabled={
-                  !(scaleFlowActive && !scaleLocked) &&
-                  (!activeTool || activeTool === "text")
-                }
-                onPanningChange={setIsPanningDrawing}
-                onPageCountResolved={handlePageCountResolved}
-                measurementOverlay={
-                  <MeasurementCanvas
-                    pdfScale={scale}
-                    activeTool={activeTool}
-                    isCalibrating={scaleFlowActive && !scaleLocked}
-                    scaleFactor={globalScaleFactor}
-                    distanceUnit={REPORT_UNIT}
-                    activeColor={activeColor}
-                    measurements={measurementHook.state.measurements}
-                    highlightedIds={highlightedMarkIds}
-                    nextCountIndex={nextCountIndex}
-                    pageKey={`${selectedDrawingId ?? "none"}-${selectedPage}`}
-                    isPanning={isPanningDrawing}
-                    onCalibrationUpdate={handleCalibrationUpdate}
-                    onMeasurementAdd={handleMeasurementAdd}
-                    onLiveLength={setLiveDrawingLength}
-                    onUndo={measurementHook.undo}
-                    onRedo={measurementHook.redo}
-                  />
-                }
-              />
+                <DrawingCanvas
+                  drawing={selectedDrawing}
+                  page={selectedPage}
+                  scale={scale}
+                  rotation={rotation}
+                  resetSignal={viewResetSignal}
+                  panEnabled={
+                    handToolActive ||
+                    (!(scaleFlowActive && !scaleLocked) &&
+                      (!activeTool || activeTool === "text"))
+                  }
+                  onPanningChange={setIsPanningDrawing}
+                  onPageCountResolved={handlePageCountResolved}
+                  measurementOverlay={
+                    <MeasurementCanvas
+                      pdfScale={scale}
+                      activeTool={activeTool}
+                      isCalibrating={scaleFlowActive && !scaleLocked}
+                      panMode={handToolActive}
+                      scaleFactor={globalScaleFactor}
+                      distanceUnit={REPORT_UNIT}
+                      activeColor={activeColor}
+                      measurements={measurementHook.state.measurements}
+                      highlightedIds={highlightedMarkIds}
+                      nextCountIndex={nextCountIndex}
+                      pageKey={`${selectedDrawingId ?? "none"}-${selectedPage}`}
+                      isPanning={isPanningDrawing}
+                      onCalibrationUpdate={handleCalibrationUpdate}
+                      onMeasurementAdd={handleMeasurementAdd}
+                      onLiveLength={setLiveDrawingLength}
+                      onUndo={measurementHook.undo}
+                      onRedo={measurementHook.redo}
+                    />
+                  }
+                />
               )}
 
               {/* Zoom controls */}
@@ -3296,8 +3363,9 @@ export function ProjectWorkspaceView({
                       )}
                     </button>
                   ) : (
-                    <div className="w-[290px] max-h-[70vh] flex flex-col rounded-xl shadow-xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-right">
+                    <div className="w-[305px] max-h-[70vh] flex flex-col rounded-xl shadow-xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-right">
                       <ElementDetailPanel
+                        key={panelResetToken}
                         measure={scaleWhat}
                         measureChoice={columnMeasureChoice}
                         showRebarTab={showRebarTab}

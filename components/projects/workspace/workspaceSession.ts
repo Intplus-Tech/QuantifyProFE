@@ -198,3 +198,52 @@ export function clearPageCalibration(drawingId: string, page: number): void {
     localStorage.removeItem(calibrationKey(drawingId, page));
   } catch {}
 }
+
+// ─── Page-scoped in-progress variant id ─────────────────────────────────────
+// The workspace upserts every auto-save / "Apply & Continue" under one stable
+// clientId (currentVariantId) so repeated saves of the same measurement round
+// stay idempotent. That id used to be a single component-level ref, so leaving
+// a page and coming back — or the mark-count auto-save firing right after a
+// page swap — reused an id that no longer matched the page's round and spawned
+// a duplicate "In Progress" row. Persisting the id per drawing+page lets a
+// return to the same page continue the same variant instead of starting a new
+// one from scratch.
+
+const draftVariantKey = (projectId: string, drawingId: string, page: number) =>
+  `ws-draft-variant-v1-${projectId}-${drawingId}-p${page}`;
+
+export function loadPageDraftVariantId(
+  projectId: string,
+  drawingId: string,
+  page: number,
+): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem(draftVariantKey(projectId, drawingId, page));
+  } catch {
+    return null;
+  }
+}
+
+export function savePageDraftVariantId(
+  projectId: string,
+  drawingId: string,
+  page: number,
+  variantId: string,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(draftVariantKey(projectId, drawingId, page), variantId);
+  } catch {}
+}
+
+export function clearPageDraftVariantId(
+  projectId: string,
+  drawingId: string,
+  page: number,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(draftVariantKey(projectId, drawingId, page));
+  } catch {}
+}

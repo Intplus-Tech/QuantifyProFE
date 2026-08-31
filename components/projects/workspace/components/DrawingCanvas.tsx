@@ -39,6 +39,7 @@ export function DrawingCanvas({
   page,
   scale,
   rotation = 0,
+  resetSignal,
   panEnabled = false,
   onPanningChange,
   onPageCountResolved,
@@ -50,6 +51,9 @@ export function DrawingCanvas({
   /** Visual rotation in degrees — applied to the page and its measurement
    *  overlay together, so drawn marks stay aligned with the rotated page. */
   rotation?: 0 | 90 | 180 | 270;
+  /** Bumped by the parent (Reset Zoom) to recenter the free-drag pan offset
+   *  without otherwise resetting drawing/page state. */
+  resetSignal?: number;
   /** Click-and-drag panning — only offered when no measurement tool is actively drawing. */
   panEnabled?: boolean;
   /** Fires whenever an active pan drag starts/stops — including middle-mouse
@@ -65,16 +69,31 @@ export function DrawingCanvas({
     [drawing?.extension]
   );
 
-  // ── Click-and-drag panning (PDF path scrolls its own overflow-auto container) ──
-  const scrollRef = useRef<HTMLDivElement>(null);
+  // ── Click-and-drag panning — a free CSS-transform offset, not native scroll.
+  // Native scroll clamps to the content's bounds, so you can never drag an edge
+  // of the drawing past the middle of the viewport — exactly the limitation this
+  // replaces. There's no clamping here: the drawing can be dragged arbitrarily
+  // far in any direction, overflowing off-screen on one side so the opposite
+  // extreme of a large drawing can be brought fully into view.
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const panState = useRef<{
     startX: number;
     startY: number;
-    startScrollLeft: number;
-    startScrollTop: number;
+    startOffsetX: number;
+    startOffsetY: number;
     moved: boolean;
   } | null>(null);
+
+  // Recenter (synchronously, no one-frame flash) whenever the drawing/page
+  // changes, or the parent explicitly asks for it via resetSignal (Reset Zoom).
+  const resetToken = `${drawing?.id ?? "none"}-${page}::${resetSignal ?? 0}`;
+  const [prevResetToken, setPrevResetToken] = useState(resetToken);
+  if (prevResetToken !== resetToken) {
+    setPrevResetToken(resetToken);
+    setPanOffset({ x: 0, y: 0 });
+  }
 
   function handlePanPointerDown(e: React.PointerEvent<HTMLDivElement>) {
     // Middle-mouse-button drag pans regardless of the active tool — browsers
@@ -85,29 +104,25 @@ export function DrawingCanvas({
     const isMiddleButton = e.button === 1;
     if (!isMiddleButton && !panEnabled) return;
     if (isMiddleButton) e.preventDefault();
-    const el = scrollRef.current;
-    if (!el) return;
     panState.current = {
       startX: e.clientX,
       startY: e.clientY,
-      startScrollLeft: el.scrollLeft,
-      startScrollTop: el.scrollTop,
+      startOffsetX: panOffset.x,
+      startOffsetY: panOffset.y,
       moved: false,
     };
     setIsPanning(true);
     onPanningChange?.(true);
-    el.setPointerCapture(e.pointerId);
+    (e.target as Element).setPointerCapture(e.pointerId);
   }
 
   function handlePanPointerMove(e: React.PointerEvent<HTMLDivElement>) {
     const ps = panState.current;
-    const el = scrollRef.current;
-    if (!ps || !el) return;
+    if (!ps) return;
     const dx = e.clientX - ps.startX;
     const dy = e.clientY - ps.startY;
     if (Math.abs(dx) > 2 || Math.abs(dy) > 2) ps.moved = true;
-    el.scrollLeft = ps.startScrollLeft - dx;
-    el.scrollTop = ps.startScrollTop - dy;
+    setPanOffset({ x: ps.startOffsetX + dx, y: ps.startOffsetY + dy });
   }
 
   function handlePanPointerUp() {
@@ -129,27 +144,28 @@ export function DrawingCanvas({
   if (viewerType === "pdf" && drawing.previewUrl) {
     return (
       <div
-        ref={scrollRef}
+        ref={viewportRef}
         onPointerDown={handlePanPointerDown}
         onPointerMove={handlePanPointerMove}
         onPointerUp={handlePanPointerUp}
         onPointerCancel={handlePanPointerUp}
         style={panEnabled ? { touchAction: "none" } : undefined}
-        className={`flex items-start justify-center h-full overflow-auto p-6 ${
+        className={`flex items-center justify-center h-full overflow-hidden p-6 ${
           isPanning ? "cursor-grabbing" : panEnabled ? "cursor-grab" : ""
         }`}
       >
-        {/* Wrapper is inline so it sizes to the rendered page, not the scroll container.
+        {/* Wrapper is inline so it sizes to the rendered page, not the viewport.
             The measurement overlay is absolute inset-0 over exactly this element —
-            rotating this wrapper (not the scroll container) keeps drawn marks
-            aligned with the page, since both rotate together as one unit. */}
+            translating/rotating this wrapper (not the viewport) keeps drawn marks
+            aligned with the page, since both move together as one unit. Translate
+            is the outer transform so pan distance is always real screen pixels,
+            independent of rotation. */}
         <div
           className="relative inline-block"
-          style={
-            rotation
-              ? { transform: `rotate(${rotation}deg)`, transformOrigin: "center center" }
-              : undefined
-          }
+          style={{
+            transform: `translate(${panOffset.x}px, ${panOffset.y}px)${rotation ? ` rotate(${rotation}deg)` : ""}`,
+            transformOrigin: "center center",
+          }}
         >
           <Document
             file={drawing.previewUrl}
@@ -176,15 +192,27 @@ export function DrawingCanvas({
     const src = drawing.previewUrl ?? drawing.uploadedUrl;
     if (src) {
       return (
-        <div className="flex items-center justify-center h-full overflow-hidden">
+        <div
+          ref={viewportRef}
+          onPointerDown={handlePanPointerDown}
+          onPointerMove={handlePanPointerMove}
+          onPointerUp={handlePanPointerUp}
+          onPointerCancel={handlePanPointerUp}
+          style={panEnabled ? { touchAction: "none" } : undefined}
+          className={`flex items-center justify-center h-full overflow-hidden ${
+            isPanning ? "cursor-grabbing" : panEnabled ? "cursor-grab" : ""
+          }`}
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={src}
             alt={drawing.name}
             style={{
-              transform: `scale(${scale}) rotate(${rotation}deg)`,
+              // Translate is the outer transform so pan distance is always real
+              // screen pixels, independent of the current zoom/rotation.
+              transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${scale}) rotate(${rotation}deg)`,
               transformOrigin: "center",
-              transition: "transform 0.15s ease",
+              transition: isPanning ? "none" : "transform 0.15s ease",
             }}
             className="max-w-full max-h-full object-contain"
             draggable={false}

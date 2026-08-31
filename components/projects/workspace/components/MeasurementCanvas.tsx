@@ -119,6 +119,10 @@ export interface MeasurementCanvasProps {
   /** True while the drawing is being click-dragged to pan — overrides the tool
    *  cursor with "grabbing" so the hand icon shows even mid-drag with a tool active. */
   isPanning?: boolean;
+  /** True while the Hand tool is active — fully hands the canvas to the pan
+   *  layer underneath (no pointer capture, no crosshair) regardless of which
+   *  measurement tool was selected before. */
+  panMode?: boolean;
   /** Fires when calibration points change. ptCount = 0|1|2 */
   onCalibrationUpdate: (
     basePxDist: number | null,
@@ -144,6 +148,7 @@ export function MeasurementCanvas({
   nextCountIndex,
   pageKey,
   isPanning = false,
+  panMode = false,
   onCalibrationUpdate,
   onMeasurementAdd,
   onLiveLength,
@@ -176,7 +181,7 @@ export function MeasurementCanvas({
     return () => ro.disconnect();
   }, []);
 
-  // Reset in-progress when tool, calibration mode, or page/file changes
+  // Reset in-progress when tool, calibration mode, pan mode, or page/file changes
   useEffect(() => {
     inProgressRef.current = [];
     setInProgress([]);
@@ -184,7 +189,7 @@ export function MeasurementCanvas({
     setSnapToClose(false);
     onLiveLength?.(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTool, isCalibrating, pageKey]);
+  }, [activeTool, isCalibrating, panMode, pageKey]);
 
   // Clear calibration points when calibration mode exits
   useEffect(() => {
@@ -384,12 +389,15 @@ export function MeasurementCanvas({
     }
   }, [activeTool, closeAreaShape]);
 
+  // Hand tool active → the overlay steps aside entirely so the pan layer
+  // beneath it receives the drag, no matter which tool was armed before.
   const isInteractive =
-    isCalibrating ||
-    (!!scaleFactor &&
-      (activeTool === "length" ||
-        activeTool === "area" ||
-        activeTool === "count"));
+    !panMode &&
+    (isCalibrating ||
+      (!!scaleFactor &&
+        (activeTool === "length" ||
+          activeTool === "area" ||
+          activeTool === "count")));
 
   const SW = 4 / pdfScale;      // stroke width — thick enough to see clearly over a PDF
   const RD = 5 / pdfScale;      // vertex dot radius
@@ -402,11 +410,13 @@ export function MeasurementCanvas({
       style={{
         cursor: isPanning
           ? "grabbing"
-          : snapToClose
-            ? "pointer"
-            : isInteractive
-              ? "crosshair"
-              : "default",
+          : panMode
+            ? "grab"
+            : snapToClose
+              ? "pointer"
+              : isInteractive
+                ? "crosshair"
+                : "default",
         pointerEvents: isInteractive ? "all" : "none",
       }}
     >
