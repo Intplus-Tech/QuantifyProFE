@@ -48,6 +48,11 @@ export const DEFAULT_GLOBAL_PARAMETERS: GlobalParameters = {
   blinding: 50,
   concreteCover: 50,
   soilType: "Sand/Gravel",
+  // Y16 at 200 c/c both ways with a top mat is the usual starting point for a
+  // pile cap or pad; every one of these is editable in Global Parameters.
+  barDiameter: 16,
+  barSpacing: 200,
+  topMesh: true,
 };
 
 export const SOIL_TYPES = ["Sand/Gravel", "Clay", "Silt", "Rock", "Made Ground"];
@@ -111,6 +116,9 @@ const rect = (length: number | null, width: number | null, depth: number | null)
   width,
   depth,
   diameter: null,
+  height: null,
+  thickness: null,
+  rise: null,
 });
 
 export const MOCK_EXTRACTED_GROUPS: ExtractedGroup[] = [
@@ -119,14 +127,14 @@ export const MOCK_EXTRACTED_GROUPS: ExtractedGroup[] = [
     title: "PILE CAPS",
     pageRange: "PAGES 1-3",
     elements: [
-      { id: "PC-1", measureTypeId: "pile-cap", grid: "A/1", page: 1, source: "Pg1_Base", confidence: 98, status: "valid", dimensions: rect(2400, 2400, 800) },
-      { id: "PC-2", measureTypeId: "pile-cap", grid: "B/1", page: 1, source: "Pg1_Base", confidence: 97, status: "valid", dimensions: rect(2400, 2400, 800) },
-      { id: "PC-3", measureTypeId: "pile-cap", grid: "C/2", page: 2, source: "Pg2_Detail", confidence: 95, status: "valid", dimensions: rect(1800, 1800, 600) },
-      { id: "PC-4", measureTypeId: "pile-cap", grid: "D/3", page: 2, source: "Pg2_Detail", confidence: 65, status: "review", dimensions: rect(3200, 3200, null), note: "Pending (Depth missing)" },
-      { id: "PC-5", measureTypeId: "pile-cap", grid: "A/4", page: 3, source: "Pg3_Plan", confidence: 96, status: "valid", dimensions: rect(2400, 2400, 800) },
-      { id: "PC-6", measureTypeId: "pile-cap", grid: "B/4", page: 3, source: "Pg3_Plan", confidence: 99, status: "valid", dimensions: rect(2400, 2400, 800) },
-      { id: "PC-7", measureTypeId: "pile-cap", grid: "C/4", page: 3, source: "Pg3_Plan", confidence: 92, status: "valid", dimensions: rect(1800, 1800, 600) },
-      { id: "PC-8", measureTypeId: "pile-cap", grid: "D/4", page: 3, source: "Pg3_Plan", confidence: 94, status: "valid", dimensions: rect(1800, 1800, 600) },
+      { quantity: 1, id: "PC-1", measureTypeId: "pile-cap", grid: "A/1", page: 1, source: "Pg1_Base", confidence: 98, status: "valid", dimensions: rect(2400, 2400, 800) },
+      { quantity: 1, id: "PC-2", measureTypeId: "pile-cap", grid: "B/1", page: 1, source: "Pg1_Base", confidence: 97, status: "valid", dimensions: rect(2400, 2400, 800) },
+      { quantity: 1, id: "PC-3", measureTypeId: "pile-cap", grid: "C/2", page: 2, source: "Pg2_Detail", confidence: 95, status: "valid", dimensions: rect(1800, 1800, 600) },
+      { quantity: 1, id: "PC-4", measureTypeId: "pile-cap", grid: "D/3", page: 2, source: "Pg2_Detail", confidence: 65, status: "review", dimensions: rect(3200, 3200, null), note: "Pending (Depth missing)" },
+      { quantity: 1, id: "PC-5", measureTypeId: "pile-cap", grid: "A/4", page: 3, source: "Pg3_Plan", confidence: 96, status: "valid", dimensions: rect(2400, 2400, 800) },
+      { quantity: 1, id: "PC-6", measureTypeId: "pile-cap", grid: "B/4", page: 3, source: "Pg3_Plan", confidence: 99, status: "valid", dimensions: rect(2400, 2400, 800) },
+      { quantity: 1, id: "PC-7", measureTypeId: "pile-cap", grid: "C/4", page: 3, source: "Pg3_Plan", confidence: 92, status: "valid", dimensions: rect(1800, 1800, 600) },
+      { quantity: 1, id: "PC-8", measureTypeId: "pile-cap", grid: "D/4", page: 3, source: "Pg3_Plan", confidence: 94, status: "valid", dimensions: rect(1800, 1800, 600) },
     ],
   },
   {
@@ -134,12 +142,12 @@ export const MOCK_EXTRACTED_GROUPS: ExtractedGroup[] = [
     title: "GROUND BEAMS",
     pageRange: "PAGES 1-2",
     elements: [
-      { id: "GB-1", measureTypeId: "ground-beam", grid: "Grid 1", page: 1, source: "Pg1_Base", confidence: 98, status: "valid", dimensions: rect(4500, 300, 600) },
-      { id: "GB-2", measureTypeId: "ground-beam", grid: "Grid 2", page: 1, source: "Pg1_Base", confidence: 97, status: "valid", dimensions: rect(4500, 300, 600) },
-      { id: "GB-3", measureTypeId: "ground-beam", grid: "Grid A", page: 2, source: "Pg2_Detail", confidence: 95, status: "valid", dimensions: rect(6000, 300, 600) },
-      { id: "GB-4", measureTypeId: "ground-beam", grid: "Grid B", page: 2, source: "Pg2_Detail", confidence: 96, status: "valid", dimensions: rect(6000, 300, 600) },
-      { id: "GB-5", measureTypeId: "ground-beam", grid: "Grid C", page: 2, source: "Pg2_Detail", confidence: 93, status: "valid", dimensions: rect(3000, 300, 600) },
-      { id: "GB-6", measureTypeId: "ground-beam", grid: "Grid D", page: 2, source: "Pg2_Detail", confidence: 94, status: "valid", dimensions: rect(3000, 300, 600) },
+      { quantity: 1, id: "GB-1", measureTypeId: "ground-beam", grid: "Grid 1", page: 1, source: "Pg1_Base", confidence: 98, status: "valid", dimensions: rect(4500, 300, 600) },
+      { quantity: 1, id: "GB-2", measureTypeId: "ground-beam", grid: "Grid 2", page: 1, source: "Pg1_Base", confidence: 97, status: "valid", dimensions: rect(4500, 300, 600) },
+      { quantity: 1, id: "GB-3", measureTypeId: "ground-beam", grid: "Grid A", page: 2, source: "Pg2_Detail", confidence: 95, status: "valid", dimensions: rect(6000, 300, 600) },
+      { quantity: 1, id: "GB-4", measureTypeId: "ground-beam", grid: "Grid B", page: 2, source: "Pg2_Detail", confidence: 96, status: "valid", dimensions: rect(6000, 300, 600) },
+      { quantity: 1, id: "GB-5", measureTypeId: "ground-beam", grid: "Grid C", page: 2, source: "Pg2_Detail", confidence: 93, status: "valid", dimensions: rect(3000, 300, 600) },
+      { quantity: 1, id: "GB-6", measureTypeId: "ground-beam", grid: "Grid D", page: 2, source: "Pg2_Detail", confidence: 94, status: "valid", dimensions: rect(3000, 300, 600) },
     ],
   },
 ];

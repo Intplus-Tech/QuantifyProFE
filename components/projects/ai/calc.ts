@@ -1,3 +1,11 @@
+import {
+  elementSpec,
+  isBelowGround,
+  toMetres,
+  usesWorkingSpace,
+  type DimField,
+  type DimKey,
+} from "./elementSpec";
 import type {
   ComputedQuantities,
   ElementDimensions,
@@ -10,8 +18,23 @@ import type {
 } from "./types";
 
 /**
- * Calibrated against the design's Quick Edit preview: a 2.40 × 2.40 × 0.90 m
- * pile cap reads 5.18 m³ concrete / 8.64 m² formwork / 201.3 kg rebar.
+ * Reinforcement per metre of bar, kg, from the bar diameter in millimetres.
+ * The QS shorthand: mass/m = Ø² / 162.2, which is (π/4)Ø² x 7850 with the
+ * millimetre-to-metre conversion folded in.
+ */
+export const barMassPerMetre = (diameterMm: number) => diameterMm ** 2 / 162.2;
+
+/**
+ * Weight of a set of identical bars, per the reinforcement rule:
+ *   kg = count x (Ø² / 162.2) x length
+ */
+export const rebarWeight = (count: number, diameterMm: number, lengthM: number) =>
+  count * barMassPerMetre(diameterMm) * lengthM;
+
+/**
+ * Fallback reinforcement rate for members whose steel cannot be counted from
+ * the plan — a pile cage, a column, a beam. Calibrated against the design's
+ * Quick Edit preview: a 2.40 x 2.40 x 0.90 m pile cap reads 201.3 kg.
  */
 const REBAR_KG_PER_M3 = 38.83;
 
@@ -29,68 +52,149 @@ export const BAR_MASS_PER_M: Record<number, number> = {
 
 const mm = (v: number | null) => (v ?? 0) / 1000;
 
+/**
+ * Reinforcement in a rectangular mat:
+ *   bar length in X      = Lx - 2cv
+ *   number of bars in X  = floor(Ly / spacing) + 1
+ *   weight per direction = length x count x (Ø² / 162.2)
+ * Both directions summed, doubled when a top mesh is specified.
+ */
+export function matRebar(
+  lengthM: number,
+  widthM: number,
+  params: GlobalParameters,
+): number {
+  const cover = mm(params.concreteCover);
+  const spacing = mm(params.barSpacing);
+  if (spacing <= 0) return 0;
+
+  const lx = lengthM - 2 * cover;
+  const ly = widthM - 2 * cover;
+  if (lx <= 0 || ly <= 0) return 0;
+
+  const perMetre = barMassPerMetre(params.barDiameter);
+  const alongX = lx * (Math.floor(ly / spacing) + 1);
+  const alongY = ly * (Math.floor(lx / spacing) + 1);
+
+  const bottomMesh = (alongX + alongY) * perMetre;
+  return params.topMesh ? bottomMesh * 2 : bottomMesh;
+}
+
 const ZERO_QUANTITIES: ComputedQuantities = {
   concrete: 0,
   formwork: 0,
   rebar: 0,
   excavation: 0,
+  blinding: 0,
 };
 
-export function computeElementQuantities(
-  dimensions: ElementDimensions,
-  params: GlobalParameters,
-): ComputedQuantities {
-  // Working space and blinding are added *around* the element, so an element
-  // whose dimensions the AI could not read still produced an excavation
-  // volume: (0 + 2ws)(0 + 2ws)(0 + blinding) — a real-looking figure sitting
-  // beside 0.00 m3 of concrete. Nothing is derivable until the dimensions are
-  // known, so nothing is returned.
-  if (!isElementComplete(dimensions)) return { ...ZERO_QUANTITIES };
+/**
+ * Smallest figure that can be a real structural dimension, in millimetres.
+ * An uncalibrated page turns a symbol into a 2 mm "length", which then reads as
+ * a successful detection. A dimension this small is missing, not measured.
+ */
+const MIN_PLAUSIBLE_MM = 10;
 
-  const l = mm(dimensions.length);
-  const w = mm(dimensions.width);
-  const d = mm(dimensions.depth);
+export const isDimensionKnown = (value: number | null): value is number =>
+  value !== null && value >= MIN_PLAUSIBLE_MM;
 
-  const isCircular = dimensions.shape.toLowerCase().includes("circ");
-  const r = mm(dimensions.diameter) / 2;
+export type DimensionKey = DimKey;
 
-  const concrete = isCircular ? Math.PI * r * r * d : l * w * d;
-  const formwork = isCircular ? 2 * Math.PI * r * d : 2 * (l + w) * d;
-  const rebar = concrete * REBAR_KG_PER_M3;
-
-  const ws = mm(params.workingSpace);
-  const blinding = mm(params.blinding);
-  const excavation = isCircular
-    ? Math.PI * (r + ws) * (r + ws) * (d + blinding)
-    : (l + 2 * ws) * (w + 2 * ws) * (d + blinding);
-
-  return { concrete, formwork, rebar, excavation };
-}
-
-export function isElementComplete(dimensions: ElementDimensions): boolean {
-  const isCircular = dimensions.shape.toLowerCase().includes("circ");
-  if (isCircular) return dimensions.diameter !== null && dimensions.depth !== null;
-  return (
-    dimensions.length !== null &&
-    dimensions.width !== null &&
-    dimensions.depth !== null
-  );
-}
-
-export type DimensionKey = "length" | "width" | "depth" | "diameter";
-
+/** The dimensions this element type needs — not a fixed L/W/D for everything. */
 export function applicableDimensionKeys(
   dimensions: ElementDimensions,
+  measureTypeId = "",
 ): DimensionKey[] {
-  return dimensions.shape.toLowerCase().includes("circ")
-    ? ["diameter", "depth"]
-    : ["length", "width", "depth"];
+  return elementSpec(measureTypeId, dimensions).dims.map((field) => field.key);
+}
+
+export function applicableDimensionFields(
+  measureTypeId: string,
+  dimensions: ElementDimensions,
+): DimField[] {
+  return elementSpec(measureTypeId, dimensions).dims;
 }
 
 export function missingDimensionKeys(
   dimensions: ElementDimensions,
+  measureTypeId = "",
 ): DimensionKey[] {
-  return applicableDimensionKeys(dimensions).filter((k) => dimensions[k] === null);
+  return applicableDimensionKeys(dimensions, measureTypeId).filter(
+    // The stair rise is a slope correction, not a dimension the volume fails
+    // without — a flight measured flat is wrong by a few percent, not unusable.
+    (key) => key !== "rise" && !isDimensionKnown(dimensions[key]),
+  );
+}
+
+export function isElementComplete(
+  dimensions: ElementDimensions,
+  measureTypeId = "",
+): boolean {
+  return missingDimensionKeys(dimensions, measureTypeId).length === 0;
+}
+
+export function formatDimensions(
+  dimensions: ElementDimensions,
+  measureTypeId = "",
+): string {
+  return applicableDimensionFields(measureTypeId, dimensions)
+    .map((field) => {
+      const value = dimensions[field.key];
+      return isDimensionKnown(value)
+        ? `${field.symbol}${(value / 1000).toFixed(2)}`
+        : `${field.symbol}?`;
+    })
+    .join(" × ");
+}
+
+/**
+ * Quantities for ONE member of this element type. Multiply by the row's
+ * `quantity` for the row total — a pile legend row stands for 130 piles.
+ */
+export function computeElementQuantities(
+  dimensions: ElementDimensions,
+  params: GlobalParameters,
+  measureTypeId = "",
+): ComputedQuantities {
+  // Working space and blinding are added *around* the element, so an element
+  // whose dimensions could not be read still produced an excavation volume.
+  // Nothing is derivable until the dimensions are known, so nothing is returned.
+  if (!isElementComplete(dimensions, measureTypeId)) return { ...ZERO_QUANTITIES };
+
+  const spec = elementSpec(measureTypeId, dimensions);
+  const d = toMetres(dimensions);
+
+  const concrete = spec.volume(d);
+  const formwork = spec.formwork(d);
+  const planArea = spec.planArea(d);
+  const height = spec.height(d);
+
+  // Counted bar by bar where a mat applies; a cage or a column falls back to
+  // the volumetric rate, which is all a plan view supports.
+  const rebar = spec.hasMat
+    ? matRebar(d.length, d.width, params)
+    : concrete * REBAR_KG_PER_M3;
+
+  let excavation = 0;
+  let blinding = 0;
+
+  if (isBelowGround(measureTypeId, dimensions)) {
+    const blindingDepth = mm(params.blinding);
+
+    if (usesWorkingSpace(measureTypeId)) {
+      // Footprint grown by the working space on every side, dug to the
+      // underside of the blinding.
+      const ws = mm(params.workingSpace);
+      excavation = spec.grownPlanArea(d, ws) * (height + blindingDepth);
+      blinding = planArea * blindingDepth;
+    } else {
+      // A bored pile is its own excavation: the bore, no working space, and
+      // nothing is blinded under it.
+      excavation = planArea * height;
+    }
+  }
+
+  return { concrete, formwork, rebar, excavation, blinding };
 }
 
 export function barWeight(size: number, totalLength: number): number {

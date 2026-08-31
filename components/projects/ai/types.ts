@@ -12,13 +12,23 @@ export type ExtractionStatus = "valid" | "review" | "rejected";
 
 export type PageStatus = "processed" | "review" | "current" | "pending";
 
+/**
+ * Every dimension slot any element type can use. All millimetres; null means
+ * the drawing did not give it. Which of these an element actually needs is
+ * decided per element type in elementSpec.ts — a pile has a diameter and a
+ * length, a column has a width, a depth and a height, and neither is
+ * "L x W x D".
+ */
 export interface ElementDimensions {
   shape: string;
-  /** millimetres — null means OCR could not read it */
   length: number | null;
   width: number | null;
   depth: number | null;
   diameter: number | null;
+  height: number | null;
+  thickness: number | null;
+  /** stair flights only — total rise, for the slope factor */
+  rise: number | null;
 }
 
 export interface ExtractedElement {
@@ -27,6 +37,12 @@ export interface ExtractedElement {
   grid: string;
   page: number;
   source: string;
+  /**
+   * How many identical members this row stands for. A pile legend row reads
+   * "1 - 130 | Ø600 | 10m": one detection, one hundred and thirty piles. Every
+   * quantity is multiplied by it.
+   */
+  quantity: number;
   confidence: number;
   status: ExtractionStatus;
   dimensions: ElementDimensions;
@@ -41,11 +57,17 @@ export interface ExtractedGroup {
 }
 
 export interface GlobalParameters {
-  /** all millimetres except soilType */
+  /** all millimetres except soilType and topMesh */
   workingSpace: number;
   blinding: number;
   concreteCover: number;
   soilType: string;
+  /** main bar diameter, mm — drives the reinforcement calculation */
+  barDiameter: number;
+  /** bar spacing, centre to centre, mm */
+  barSpacing: number;
+  /** a second mat in the top face, doubling the bottom mesh */
+  topMesh: boolean;
 }
 
 export interface DrawingPageMeta {
@@ -67,6 +89,8 @@ export interface ComputedQuantities {
   formwork: number;
   rebar: number;
   excavation: number;
+  /** blinding concrete under the base, m3 */
+  blinding: number;
 }
 
 export interface BoqLineItem {

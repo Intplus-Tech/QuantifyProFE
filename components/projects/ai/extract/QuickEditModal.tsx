@@ -7,28 +7,31 @@ import { Ban, Check, LayoutPanelTop, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
+  applyDimensionsToGroup,
+  setElementQuantity,
   setElementStatus,
   updateElementDimensions,
 } from "@/store/slices/aiFlowSlice";
+import { MEASURE_TYPES } from "../mock-data";
 import type { RootState } from "@/store";
 import {
-  applicableDimensionKeys,
+  applicableDimensionFields,
   computeElementQuantities,
   fmt,
+  isDimensionKnown,
   missingDimensionKeys,
   type DimensionKey,
 } from "../calc";
 import { useAiTakeoff } from "../useAiTakeoff";
 import type { ElementDimensions, ExtractedElement } from "../types";
 
-const DIMENSION_LABELS: Record<DimensionKey, string> = {
-  length: "Length (L)",
-  width: "Width (W)",
-  depth: "Depth (D)",
-  diameter: "Diameter (Ø)",
-};
+// Labels come from the element's own spec now — a pile asks for a diameter and
+// a length, a column for width, depth and height. See elementSpec.ts.
 
-const toMetres = (mm: number | null) => (mm === null ? "" : (mm / 1000).toFixed(2));
+// Three decimals, trailing zeros trimmed: rounding the draft to 2dp turned a
+// 25 mm value into "0.03" and, on save, wrote 30 mm back.
+const toMetres = (mm: number | null) =>
+  mm === null ? "" : String(Number((mm / 1000).toFixed(3)));
 
 export function QuickEditModal({
   element,
@@ -43,15 +46,19 @@ export function QuickEditModal({
     (state: RootState) => state.aiFlow.globalParameters,
   );
 
-  const missing = useMemo(
-    () => (element ? missingDimensionKeys(element.dimensions) : []),
+  const fields = useMemo(
+    () =>
+      element ? applicableDimensionFields(element.measureTypeId, element.dimensions) : [],
     [element],
   );
 
-  const applicable = useMemo(
-    () => (element ? applicableDimensionKeys(element.dimensions) : []),
+  const missing = useMemo(
+    () => (element ? missingDimensionKeys(element.dimensions, element.measureTypeId) : []),
     [element],
   );
+
+  const applicable = useMemo(() => fields.map((f) => f.key), [fields]);
+  const fieldFor = (key: DimensionKey) => fields.find((f) => f.key === key);
 
   // When OCR failed, only the failed dimensions get inputs (as designed).
   // When everything was read, every dimension becomes editable so the row can
@@ -59,14 +66,37 @@ export function QuickEditModal({
   const editKeys = missing.length > 0 ? missing : applicable;
 
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [applyToAll, setApplyToAll] = useState(false);
+  const [countDraft, setCountDraft] = useState("1");
+
+  // A legend gives one spec for a whole run of piles or caps, so offer to push
+  // the figures across the group instead of asking for them 130 times.
+  const groups = useSelector((state: RootState) => state.aiFlow.groups);
+  const siblings = element
+    ? (groups
+        .find((group) => group.measureTypeId === element.measureTypeId)
+        ?.elements.filter((e) => e.status !== "rejected").length ?? 1)
+    : 1;
+  const measureLabel = element
+    ? (MEASURE_TYPES.find((m) => m.id === element.measureTypeId)?.label ??
+      "elements")
+    : "elements";
 
   useEffect(() => {
     if (!element) return;
     setDrafts(
       Object.fromEntries(
-        editKeys.map((key) => [key, toMetres(element.dimensions[key])]),
+        editKeys.map((key) => [
+          key,
+          // A dimension that came back as ~0 is not a reading to preserve.
+          isDimensionKnown(element.dimensions[key])
+            ? toMetres(element.dimensions[key])
+            : "",
+        ]),
       ),
     );
+    setApplyToAll(false);
+    setCountDraft(String(element.quantity || 1));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [element?.id]);
 
@@ -84,9 +114,18 @@ export function QuickEditModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [element, drafts]);
 
-  const preview = draftDimensions
-    ? computeElementQuantities(draftDimensions, globalParameters)
-    : null;
+  // Per member, then multiplied by the row's member count for the row total.
+  const preview =
+    draftDimensions && element
+      ? computeElementQuantities(
+          draftDimensions,
+          globalParameters,
+          element.measureTypeId,
+        )
+      : null;
+  // The count in the box, so the preview moves as it is corrected.
+  const parsedCount = Math.max(1, Math.round(Number(countDraft) || 0));
+  const members = Number.isFinite(parsedCount) ? parsedCount : 1;
 
   const allFilled = editKeys.every((key) => {
     const raw = drafts[key];
@@ -96,6 +135,7 @@ export function QuickEditModal({
   if (!element) return null;
 
   const readOnlyKeys = applicable.filter((key) => !editKeys.includes(key));
+  const scaled = (value: number) => value * members;
 
   // Saving accepts the detection; rejecting excludes it. Both are mirrored to
   // PATCH /ai-takeoff/sessions/:id/elements/review when a session is live.
@@ -104,9 +144,23 @@ export function QuickEditModal({
     const changes: Partial<ElementDimensions> = {};
     for (const key of editKeys) changes[key] = Number(drafts[key]) * 1000;
 
-    dispatch(updateElementDimensions({ elementId: element.id, dimensions: changes }));
+    if (members !== (element.quantity || 1)) {
+      dispatch(setElementQuantity({ elementId: element.id, quantity: members }));
+    }
+
+    if (applyToAll) {
+      dispatch(
+        applyDimensionsToGroup({
+          measureTypeId: element.measureTypeId,
+          dimensions: changes,
+        }),
+      );
+    } else {
+      dispatch(updateElementDimensions({ elementId: element.id, dimensions: changes }));
+    }
+
     await reviewDetections([element.id], "accepted");
-    toast.success(`${element.id} saved`, {
+    toast.success(applyToAll ? `${siblings} ${measureLabel} updated` : `${element.id} saved`, {
       description: "Quantities recalculated from the updated dimensions.",
     });
     onClose();
@@ -144,16 +198,37 @@ export function QuickEditModal({
         <div className="space-y-2 px-5 py-4">
           <DetectedRow label="Detected Shape" value={element.dimensions.shape} />
 
+          <div className="flex items-center gap-3 rounded-md bg-slate-50 px-3 py-2.5 ring-1 ring-slate-200">
+            <span className="flex-1 text-[13px] text-slate-700">
+              How many of these?
+              <span className="block text-[11px] text-slate-500">
+                One detection can stand for a whole run — a legend row of 130
+                piles, or a grid the detector under-counted. Quantities below
+                are for all {members}.
+              </span>
+            </span>
+            <div className="flex w-24 shrink-0 items-center gap-2 rounded-md border border-slate-300 px-3 py-2 focus-within:border-amber-400 focus-within:ring-2 focus-within:ring-amber-100">
+              <input
+                inputMode="numeric"
+                aria-label="Number of members this row stands for"
+                value={countDraft}
+                onChange={(event) => setCountDraft(event.target.value)}
+                className="w-full bg-transparent text-sm tabular-nums outline-none"
+              />
+              <span className="shrink-0 text-xs text-slate-400">no.</span>
+            </div>
+          </div>
+
           {readOnlyKeys.map((key) => (
             <DetectedRow
               key={key}
-              label={DIMENSION_LABELS[key]}
+              label={fieldFor(key)?.label ?? key}
               value={`${fmt((element.dimensions[key] ?? 0) / 1000)} m`}
             />
           ))}
 
           {missing.map((key) => (
-            <FailedRow key={key} label={DIMENSION_LABELS[key]} />
+            <FailedRow key={key} label={fieldFor(key)?.label ?? key} />
           ))}
 
           <div className="pt-2">
@@ -166,14 +241,19 @@ export function QuickEditModal({
             <div className="space-y-2">
               {editKeys.map((key, index) => (
                 <div key={key} className="flex items-center gap-3">
-                  <span className="w-24 shrink-0 text-[11px] text-slate-500">
-                    {DIMENSION_LABELS[key]}
+                  <span className="w-32 shrink-0 text-[11px] text-slate-500">
+                    {fieldFor(key)?.label ?? key}
+                    {fieldFor(key)?.hint && (
+                      <span className="block text-[10px] text-slate-400">
+                        {fieldFor(key)?.hint}
+                      </span>
+                    )}
                   </span>
                   <div className="flex w-36 items-center gap-2 rounded-md border border-slate-300 px-3 py-2 focus-within:border-amber-400 focus-within:ring-2 focus-within:ring-amber-100">
                     <input
                       autoFocus={index === 0}
                       inputMode="decimal"
-                      aria-label={`${DIMENSION_LABELS[key]} in metres`}
+                      aria-label={`${fieldFor(key)?.label ?? key} in metres`}
                       value={drafts[key] ?? ""}
                       onChange={(e) =>
                         setDrafts((d) => ({ ...d, [key]: e.target.value }))
@@ -193,6 +273,25 @@ export function QuickEditModal({
             </div>
           </div>
 
+          {siblings > 1 && (
+            <label className="mt-3 flex cursor-pointer items-start gap-2.5 rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2.5">
+              <input
+                type="checkbox"
+                checked={applyToAll}
+                onChange={(event) => setApplyToAll(event.target.checked)}
+                className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-amber-500"
+              />
+              <span className="text-[12px] leading-relaxed text-slate-700">
+                Apply to all {siblings} {measureLabel.toLowerCase()}
+                <span className="block text-[11px] text-slate-500">
+                  A legend or schedule usually gives one size for the whole run.
+                  The drawing marks where each one sits, not how big it is, so
+                  entering it once here fills them all.
+                </span>
+              </span>
+            </label>
+          )}
+
           {preview && (
             <div className="mt-3 flex flex-wrap items-center gap-x-8 gap-y-2 rounded-md bg-slate-100 px-3 py-2.5">
               <span className="inline-flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
@@ -202,15 +301,19 @@ export function QuickEditModal({
               <div className="ml-auto flex flex-wrap gap-x-7 gap-y-2">
                 <PreviewStat
                   label="Concrete"
-                  value={allFilled ? `${fmt(preview.concrete)} m³` : "—"}
+                  value={allFilled ? `${fmt(scaled(preview.concrete))} m³` : "—"}
                 />
                 <PreviewStat
                   label="Formwork"
-                  value={allFilled ? `${fmt(preview.formwork)} m²` : "—"}
+                  value={allFilled ? `${fmt(scaled(preview.formwork))} m²` : "—"}
                 />
                 <PreviewStat
                   label="Rebar"
-                  value={allFilled ? `${fmt(preview.rebar, 1)} kg` : "—"}
+                  value={allFilled ? `${fmt(scaled(preview.rebar), 1)} kg` : "—"}
+                />
+                <PreviewStat
+                  label="Excavation"
+                  value={allFilled ? `${fmt(scaled(preview.excavation))} m³` : "—"}
                 />
               </div>
             </div>
@@ -255,7 +358,8 @@ function FailedRow({ label }: { label: string }) {
         <X className="h-2.5 w-2.5" strokeWidth={3.5} />
       </span>
       <span className="text-[13px] text-slate-700">
-        {label}: <span className="font-medium">NOT DETECTED - OCR failed</span>
+        {label}:{" "}
+        <span className="font-medium">Not shown on this drawing — enter it below</span>
       </span>
     </div>
   );

@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MEASURE_TYPES } from "../mock-data";
-import { isMeasureSupported } from "../api-mappers";
+import { isMeasureSupported, measureDetectionNote } from "../api-mappers";
 import type { MeasureGroup, MeasureType } from "../types";
 
 const ICONS: Record<string, LucideIcon> = {
@@ -78,6 +78,17 @@ export function MeasureSelectPanel({
 }) {
   const groups: MeasureGroup[] = ["foundations", "superstructure"];
 
+  // Tiles the detector has no exact type for are still selectable — they are
+  // sent as the structural element they really are. Say which, once, rather
+  // than leaving the results to surprise the surveyor.
+  const substitutions = selected
+    .map((id) => {
+      const note = measureDetectionNote(id);
+      const label = MEASURE_TYPES.find((m) => m.id === id)?.label;
+      return note && label ? `${label}: ${note.toLowerCase()}` : null;
+    })
+    .filter((note): note is string => note !== null);
+
   return (
     <div className="flex h-full flex-col bg-white">
       <div className="shrink-0 border-b border-[#d9eef1] px-5 py-4">
@@ -104,6 +115,7 @@ export function MeasureSelectPanel({
                   measure={measure}
                   selected={selected.includes(measure.id)}
                   supported={isMeasureSupported(measure.id)}
+                  note={measureDetectionNote(measure.id)}
                   onToggle={() => onToggle(measure.id)}
                 />
               ))}
@@ -111,6 +123,15 @@ export function MeasureSelectPanel({
           </section>
         ))}
       </div>
+
+      {substitutions.length > 0 && (
+        <div className="shrink-0 border-t border-[#d9eef1] bg-[#f6fdfd] px-4 py-2">
+          <p className="text-[11px] leading-relaxed text-slate-500">
+            {substitutions.join(" · ")} — the drawing carries no separate item
+            for these, so this is what comes back.
+          </p>
+        </div>
+      )}
 
       {error && (
         <div className="shrink-0 border-t border-red-100 bg-red-50 px-4 py-2.5">
@@ -146,11 +167,13 @@ function MeasureTile({
   measure,
   selected,
   supported,
+  note,
   onToggle,
 }: {
   measure: MeasureType;
   selected: boolean;
   supported: boolean;
+  note?: string | null;
   onToggle: () => void;
 }) {
   const Icon = ICONS[measure.icon] ?? Square;
@@ -178,6 +201,7 @@ function MeasureTile({
       role="checkbox"
       aria-checked={selected}
       onClick={onToggle}
+      title={note ?? measure.label}
       className={`flex aspect-[4/3] flex-col items-center justify-center gap-2 rounded-lg border transition-all ${
         selected
           ? "border-amber-400 bg-amber-50/50 ring-1 ring-amber-300"
