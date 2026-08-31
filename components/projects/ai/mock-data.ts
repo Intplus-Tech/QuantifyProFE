@@ -30,11 +30,13 @@ export const MEASURE_TYPES: MeasureType[] = [
   { id: "shear-walls", label: "SHEAR WALLS", group: "superstructure", icon: "Grid2x2" },
   { id: "lift-walls", label: "LIFT WALLS", group: "superstructure", icon: "Frame" },
   { id: "stairs", label: "STAIRS", group: "superstructure", icon: "TrendingUp" },
+  { id: "ext-walls", label: "EXT. WALLS", group: "superstructure", icon: "BrickWall" },
+  { id: "int-walls", label: "INT. WALLS", group: "superstructure", icon: "PanelsTopLeft" },
+  { id: "lintels", label: "LINTELS", group: "superstructure", icon: "RectangleHorizontal" },
   { id: "ramps", label: "RAMPS", group: "superstructure", icon: "Triangle" },
   { id: "blockwork", label: "BLOCKWORK", group: "superstructure", icon: "Blocks" },
-  { id: "walls", label: "WALLS", group: "superstructure", icon: "BrickWall" },
-  // Figma shows "STAIRS" twice in the superstructure grid; treated as a design
-  // slip and mapped to DOORS to keep every tile addressable.
+  // The design repeats STAIRS here. A second tile for the same element would
+  // be unaddressable, so the slot carries DOORS instead.
   { id: "doors", label: "DOORS", group: "superstructure", icon: "DoorOpen" },
   { id: "windows", label: "WINDOWS", group: "superstructure", icon: "AppWindow" },
   { id: "roof", label: "ROOF", group: "superstructure", icon: "Home" },

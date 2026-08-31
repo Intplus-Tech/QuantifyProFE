@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { toast } from "sonner";
 import { LayoutList, X } from "lucide-react";
@@ -8,22 +8,31 @@ import {
   advanceExtraction,
   completeExtraction,
   cancelExtraction,
+  clearAiPageCalibration,
   resetExtraction,
   setActivePage,
   setAiDrawingPageCount,
+  setAiPageCalibration,
   startExtraction,
   toggleMeasureType,
 } from "@/store/slices/aiFlowSlice";
 import type { RootState } from "@/store";
 import { ExtractTopBar } from "./ExtractTopBar";
-import { ExtractCanvas } from "./ExtractCanvas";
+import { ExtractCanvas, type CanvasPoint } from "./ExtractCanvas";
 import { MeasureSelectPanel } from "./MeasureSelectPanel";
 import { ExtractionProgressPanel } from "./ExtractionProgressPanel";
 import { QuickEditModal } from "./QuickEditModal";
+import {
+  GroundScaleBar,
+  METRES_PER_UNIT,
+  type ScaleUnit,
+} from "./GroundScaleBar";
 import { isValidObjectId } from "@/utils/apiError";
 import { StatusBadge } from "../shared/ReportPrimitives";
 import { useAiTakeoff } from "../useAiTakeoff";
-import { PageScaleControl } from "./PageScaleControl";
+import { useDrawingPreviews } from "../useDrawingPreviews";
+import { useAiProjectSession } from "../useAiProjectSession";
+import { rasterScaleFor } from "../pageRaster";
 import type { ExtractedElement } from "../types";
 
 const STEP_DURATION_MS = 1800;
@@ -52,9 +61,11 @@ export function ExtractWorkspaceView({
     session,
   } = useSelector((state: RootState) => state.aiFlow);
 
-
-  const { analyseCurrentPage, ensureSession, reviewDetections, isAnalysingPage } =
-    useAiTakeoff();
+  const { analyseCurrentPage, ensureSession, isAnalysingPage } = useAiTakeoff();
+  // Restores this project's takeoff when the page is reached cold — from the
+  // dashboard, or after a reload — then re-previews the drawing locally.
+  const { recovering } = useAiProjectSession(projectId);
+  const { restoring, failedIds, retry: retryPreview } = useDrawingPreviews();
   /** With a server session the job drives progress; otherwise the mock ticker does. */
   const live = !!session.sessionId;
 
@@ -63,14 +74,36 @@ export function ExtractWorkspaceView({
   const [showElements, setShowElements] = useState(false);
   const [quickEditId, setQuickEditId] = useState<string | null>(null);
 
+  // ── Ground scale ──────────────────────────────────────────────────────────
+  const [naturalSize, setNaturalSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+  const [picking, setPicking] = useState(false);
+  const [calibPoints, setCalibPoints] = useState<CanvasPoint[]>([]);
+  const [knownDistance, setKnownDistance] = useState("");
+  const [scaleUnit, setScaleUnit] = useState<ScaleUnit>("m");
+
   const activeDrawing = drawings.find((d) => d.id === activeDrawingId) ?? null;
   const pageCount = activeDrawing?.pageCount ?? pages.length;
   const selected = selectionsByPage[activePage] ?? [];
+  const calibration = session.pageCalibrations[activePage] ?? null;
 
   const dashboardHref = basePath.startsWith("/enterprise")
     ? "/enterprise/dashboard"
     : "/dashboard";
   const reportHref = `${basePath}/ai/${projectId}/report`;
+
+  const running = extractionPhase === "running";
+  const complete = extractionPhase === "complete";
+
+  // Moving to another page leaves that page's calibration behind — a drawing
+  // set mixes 1:50 details with 1:200 layouts, so the scale never carries over.
+  useEffect(() => {
+    setPicking(false);
+    setCalibPoints([]);
+    setKnownDistance("");
+  }, [activePage, activeDrawingId]);
 
   useEffect(() => {
     if (extractionPhase !== "running" || live) return;
@@ -107,8 +140,78 @@ export function ExtractWorkspaceView({
   const quickEditElement =
     groups.flatMap((g) => g.elements).find((e) => e.id === quickEditId) ?? null;
 
-  const running = extractionPhase === "running";
-  const complete = extractionPhase === "complete";
+  const handleCalibrationPoint = useCallback((point: CanvasPoint) => {
+    setCalibPoints((previous) => (previous.length >= 2 ? [point] : [...previous, point]));
+  }, []);
+
+  const resetCalibration = () => {
+    setCalibPoints([]);
+    setKnownDistance("");
+    setPicking(true);
+    dispatch(clearAiPageCalibration(activePage));
+  };
+
+  /**
+   * Two clicked points plus a real distance give pixels-per-metre, exactly as
+   * the manual canvas does it. The server measures against the *uploaded* page
+   * image rather than what is on screen, so the clicked separation is carried
+   * into that image's pixel space before being stored.
+   */
+  const applyGroundScale = () => {
+    if (calibPoints.length < 2) {
+      toast.warning("Click two points on the drawing first");
+      return;
+    }
+    const entered = parseFloat(knownDistance);
+    if (!Number.isFinite(entered) || entered <= 0) {
+      toast.warning("Enter a real distance greater than 0");
+      return;
+    }
+    if (!naturalSize) {
+      toast.warning("Wait for the page to finish loading");
+      return;
+    }
+
+    const pagePixels = Math.hypot(
+      calibPoints[1].x - calibPoints[0].x,
+      calibPoints[1].y - calibPoints[0].y,
+    );
+    if (pagePixels <= 0) {
+      toast.warning("Those two points are in the same place — pick them further apart");
+      return;
+    }
+
+    const rasterScale = rasterScaleFor(
+      naturalSize.width,
+      naturalSize.height,
+      activeDrawing?.extension === ".pdf",
+    );
+    const imagePixels = pagePixels * rasterScale;
+    const metres = entered * METRES_PER_UNIT[scaleUnit];
+
+    dispatch(
+      setAiPageCalibration({
+        page: activePage,
+        calibration: {
+          metresPerPixel: metres / imagePixels,
+          knownDistance: entered,
+          unit: scaleUnit,
+          pixelDistance: imagePixels,
+        },
+      }),
+    );
+
+    setPicking(false);
+    toast.success("Ground scale applied", {
+      description: `Page ${activePage} · ${entered} ${scaleUnit} across the marked line`,
+    });
+  };
+
+  const scaleInfo = calibration
+    ? `1 px ≈ ${calibration.metresPerPixel.toFixed(4)} m · ${(
+        1 / calibration.metresPerPixel
+      ).toFixed(1)} px/m`
+    : null;
 
   const handleExtract = async () => {
     if (selected.length === 0) return;
@@ -128,6 +231,13 @@ export function ExtractWorkspaceView({
   };
 
   const runExtract = async () => {
+    if (!calibration) {
+      toast.warning("Set the ground scale first", {
+        description:
+          "Mark a known distance on the page so the quantities come out in real units.",
+      });
+      return;
+    }
 
     // A reload loses the in-memory session, so try to resume before deciding
     // this is a demo run. Never silently fall back to the mock when the route
@@ -188,7 +298,8 @@ export function ExtractWorkspaceView({
         dashboardHref={dashboardHref}
         reportHref={reportHref}
         continueLaterHref={basePath}
-        reportLabel={hasExtracted ? "View Reports" : "View Reports"}
+        reportLabel="View Reports"
+        locked={running}
       />
 
       <div className="flex min-h-0 flex-1">
@@ -196,6 +307,9 @@ export function ExtractWorkspaceView({
           drawing={activeDrawing}
           page={activePage}
           pageCount={pageCount}
+          restoring={restoring || recovering}
+          failed={!!activeDrawing && failedIds.includes(activeDrawing.id)}
+          onRetry={retryPreview}
           onPageChange={(page) => dispatch(setActivePage(page))}
           onPageCountResolved={(numPages) =>
             activeDrawing &&
@@ -203,13 +317,34 @@ export function ExtractWorkspaceView({
               setAiDrawingPageCount({ id: activeDrawing.id, pageCount: numPages }),
             )
           }
+          onNaturalSize={setNaturalSize}
           dimmed={running}
+          calibrating={picking && !running}
+          calibrationPoints={calibPoints}
+          onCalibrationPoint={handleCalibrationPoint}
+          footer={
+            <GroundScaleBar
+              picking={picking}
+              pointsPlaced={calibPoints.length}
+              knownDistance={knownDistance}
+              unit={scaleUnit}
+              calibrated={!!calibration}
+              scaleInfo={scaleInfo}
+              disabled={running || !activeDrawing}
+              onStartPicking={() => setPicking(true)}
+              onKnownDistanceChange={setKnownDistance}
+              onUnitChange={setScaleUnit}
+              onApply={applyGroundScale}
+              onReset={resetCalibration}
+            />
+          }
           topLeftSlot={
             hasExtracted ? (
               <button
                 type="button"
+                disabled={running}
                 onClick={() => setShowElements((v) => !v)}
-                className={`mr-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                className={`mr-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                   showElements
                     ? "bg-amber-500 text-white"
                     : "bg-amber-50 text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100"
@@ -221,7 +356,7 @@ export function ExtractWorkspaceView({
             ) : null
           }
           overlay={
-            showElements && hasExtracted ? (
+            showElements && hasExtracted && !running ? (
               <ElementsOverlay
                 elements={pageElements}
                 onSelect={(id) => setQuickEditId(id)}
@@ -231,7 +366,7 @@ export function ExtractWorkspaceView({
           }
         />
 
-        <aside className="w-[400px] shrink-0 border-l border-[#d9eef1]">
+        <aside className="flex w-[400px] shrink-0 flex-col overflow-hidden border-l border-[#d9eef1]">
           {extractionPhase === "idle" || extractionPhase === "cancelled" ? (
             <MeasureSelectPanel
               selected={selected}
@@ -241,6 +376,7 @@ export function ExtractWorkspaceView({
               onExtract={handleExtract}
               busy={isAnalysingPage(activePage)}
               error={session.lastError}
+              scaleReady={!!calibration}
             />
           ) : (
             <ExtractionProgressPanel

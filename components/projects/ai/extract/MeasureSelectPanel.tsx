@@ -5,6 +5,7 @@ import {
   AppWindow,
   ArrowRight,
   Blocks,
+  BrickWall,
   Columns3,
   DoorOpen,
   Frame,
@@ -15,6 +16,8 @@ import {
   Layers,
   Milestone,
   Minus,
+  PanelsTopLeft,
+  RectangleHorizontal,
   Square,
   SquareStack,
   TrendingUp,
@@ -26,13 +29,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { MEASURE_TYPES } from "../mock-data";
 import { isMeasureSupported } from "../api-mappers";
-import { PageScaleControl } from "./PageScaleControl";
 import type { MeasureGroup, MeasureType } from "../types";
 
 const ICONS: Record<string, LucideIcon> = {
   Anchor,
   AppWindow,
   Blocks,
+  BrickWall,
   Columns3,
   DoorOpen,
   Frame,
@@ -43,6 +46,8 @@ const ICONS: Record<string, LucideIcon> = {
   Layers,
   Milestone,
   Minus,
+  PanelsTopLeft,
+  RectangleHorizontal,
   Square,
   SquareStack,
   TrendingUp,
@@ -61,12 +66,15 @@ export function MeasureSelectPanel({
   onExtract,
   busy = false,
   error = null,
+  scaleReady = true,
 }: {
   selected: string[];
   onToggle: (measureTypeId: string) => void;
   onExtract: () => void;
   busy?: boolean;
   error?: string | null;
+  /** false until this page's ground scale has been calibrated */
+  scaleReady?: boolean;
 }) {
   const groups: MeasureGroup[] = ["foundations", "superstructure"];
 
@@ -104,8 +112,6 @@ export function MeasureSelectPanel({
         ))}
       </div>
 
-      <PageScaleControl />
-
       {error && (
         <div className="shrink-0 border-t border-red-100 bg-red-50 px-4 py-2.5">
           <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-red-700">
@@ -121,11 +127,15 @@ export function MeasureSelectPanel({
       <div className="shrink-0 border-t border-[#d9eef1] p-3">
         <Button
           className="h-12 w-full gap-2 text-sm"
-          disabled={selected.length === 0 || busy}
+          disabled={selected.length === 0 || busy || !scaleReady}
           onClick={onExtract}
         >
-          {busy ? "Extracting…" : `Extract Selected (${selected.length})`}
-          {!busy && <ArrowRight className="h-4 w-4" />}
+          {busy
+            ? "Extracting…"
+            : !scaleReady
+              ? "Set the ground scale first"
+              : `Extract Selected (${selected.length})`}
+          {!busy && scaleReady && <ArrowRight className="h-4 w-4" />}
         </Button>
       </div>
     </div>

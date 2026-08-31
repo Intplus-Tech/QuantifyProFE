@@ -38,6 +38,7 @@ import {
   mapBoqResultToSections,
   toAiElementTypes,
 } from "./api-mappers";
+import { elementTypeLabels, humaniseText, summariseNotes } from "./humanise";
 import { rasterisePage } from "./pageRaster";
 import {
   deriveBoqSections,
@@ -56,28 +57,35 @@ const errorMessage = describeApiError;
  * Pull the human-readable part out of that rather than showing raw JSON.
  */
 function readableJobError(raw?: string): string {
-  if (!raw) return "The page analysis failed.";
+  if (!raw) return "We could not finish reading this page.";
 
   const start = raw.indexOf("{");
-  if (start === -1) return raw;
-
-  try {
-    const parsed = JSON.parse(raw.slice(start)) as {
-      error?: { message?: string; type?: string };
-      message?: string;
-    };
-    const message = parsed.error?.message ?? parsed.message;
-    if (!message) return raw;
-
-    // This one is a server-side schema construction fault, not anything the
-    // user did, so say so plainly instead of leaving them to guess.
-    if (/schema is too complex/i.test(message)) {
-      return `${message} The detection request the server builds is rejected by the AI provider — this needs a backend fix.`;
+  const message = (() => {
+    if (start === -1) return raw;
+    try {
+      const parsed = JSON.parse(raw.slice(start)) as {
+        error?: { message?: string; type?: string };
+        message?: string;
+      };
+      return parsed.error?.message ?? parsed.message ?? raw;
+    } catch {
+      return raw;
     }
-    return message;
-  } catch {
-    return raw;
+  })();
+
+  // Nothing the surveyor did or can fix — say so in their words rather than
+  // handing them the provider's wording.
+  if (/schema is too complex/i.test(message)) {
+    return "This page asks for too many element types at once. Run it again with fewer types selected, or report it to support if it keeps happening.";
   }
+  if (/credit/i.test(message)) {
+    return "There are not enough AI credits on this account to run this page.";
+  }
+  if (/timeout|timed out/i.test(message)) {
+    return "This page took too long to read. Try again, or try a page with less on it.";
+  }
+
+  return humaniseText(message) || "We could not finish reading this page.";
 }
 
 /**
@@ -180,7 +188,7 @@ export function useAiTakeoff() {
       toast.error("Extraction failed", {
         id: `ai-extract-${job?.pageNumber ?? "page"}`,
         description: `${message}${
-          job?.creditsCharged === 0 ? " No credits were charged." : ""
+          job?.creditsCharged === 0 ? " You were not charged for this run." : ""
         }`,
       });
       return;
@@ -197,18 +205,18 @@ export function useAiTakeoff() {
     const detected = job?.detectedCount ?? 0;
 
     if (detected === 0) {
-      toast.info("No elements found on this page", {
+      toast.info("Nothing found on this page", {
         id: `ai-extract-${job?.pageNumber ?? "page"}`,
         description:
-          job?.notes ??
-          "The model reported nothing matching the selected element types. Try a page with the relevant plan or schedule.",
+          summariseNotes(job?.notes, 200).short ||
+          "Nothing on this page matched what you asked for. Try a page that carries the relevant plan or schedule.",
         duration: 10000,
       });
     } else {
       toast.success("Extraction complete", {
         id: `ai-extract-${job?.pageNumber ?? "page"}`,
-        description: `${detected} element(s) detected${
-          job?.discardedCount ? `, ${job.discardedCount} discarded` : ""
+        description: `${detected} element${detected === 1 ? "" : "s"} found${
+          job?.discardedCount ? `, ${job.discardedCount} set aside` : ""
         }.`,
       });
     }
@@ -337,7 +345,7 @@ export function useAiTakeoff() {
 
         dispatch(setAiSession({ sessionId, uploadedFileId }));
         toast.success(apiMessage(response, "AI takeoff session started."), {
-          description: `Session ${sessionId}`,
+          description: title ? `Working on ${title}` : "Your drawing is ready to extract.",
         });
         return sessionId;
       } catch (error) {
@@ -401,9 +409,16 @@ export function useAiTakeoff() {
         });
         return null;
       }
-      if (session.scale == null) {
-        toast.error("Page scale required", {
-          description: "Set the drawing scale before extracting.",
+      // Ground scale is per page and expressed in metres per pixel of the
+      // uploaded page image — the same number the manual canvas calibrates,
+      // just inverted, so both flows measure the drawing identically.
+      const pageCalibration = session.pageCalibrations[pageNumber];
+      const pageScale = pageCalibration?.metresPerPixel ?? null;
+
+      if (pageScale == null || pageScale <= 0) {
+        toast.error("Ground scale required", {
+          description:
+            "Mark a known distance on this page and apply the scale before extracting.",
         });
         return null;
       }
@@ -444,8 +459,8 @@ export function useAiTakeoff() {
             uploadedFileId,
             width: size.width,
             height: size.height,
-            unit: session.unit,
-            scale: session.scale,
+            unit: "m",
+            scale: pageScale,
             elementTypes,
             replaceExisting: true,
           },
@@ -456,7 +471,7 @@ export function useAiTakeoff() {
         dispatch(setPageStatus({ page: pageNumber, status: "current" }));
         dispatch(setAiSessionError(null));
         toast.success(apiMessage(response, "Page queued for analysis."), {
-          description: `Page ${pageNumber} · ${elementTypes.join(", ")}`,
+          description: `Page ${pageNumber} — ${elementTypeLabels(elementTypes)}`,
         });
         return jobId;
       } catch (error) {
@@ -478,8 +493,8 @@ export function useAiTakeoff() {
               setAiActiveJob({ jobId: running._id, pageNumber: running.pageNumber }),
             );
             dispatch(setAiSessionError(null));
-            toast.info("Already analysing this page", {
-              description: "Reattached to the run already in progress.",
+            toast.info("This page is already being read", {
+              description: "Picking up the run that is already going.",
             });
             return running._id;
           }
@@ -509,11 +524,10 @@ export function useAiTakeoff() {
       analysePage,
       dispatch,
       selectionsByPage,
+      session.pageCalibrations,
       session.pageSizes,
       session.pageUploadIds,
-      session.scale,
       session.sessionId,
-      session.unit,
       uploadFile,
       jobsQuery,
     ],
@@ -573,7 +587,9 @@ export function useAiTakeoff() {
         }
 
         toast.success(apiMessage(response, "Takeoff finalized."), {
-          description: `${response.data.materialized} measurement(s) materialized${
+          description: `${response.data.materialized} measurement${
+            response.data.materialized === 1 ? "" : "s"
+          } saved to the project${
             response.data.skipped ? `, ${response.data.skipped} skipped` : ""
           }.`,
         });

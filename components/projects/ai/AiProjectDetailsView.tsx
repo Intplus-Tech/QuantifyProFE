@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -69,10 +70,19 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
+const BLANK_FORM: FormValues = {
+  projectTitle: "",
+  clientId: "",
+  projectCode: "",
+  projectType: "",
+  location: "",
+  currency: "NGN",
+  description: "",
+};
+
 export function AiProjectDetailsView({ basePath = "/projects" }: { basePath?: string }) {
   const router = useRouter();
   const dispatch = useDispatch();
-  const details = useSelector((state: RootState) => state.aiFlow.details);
   const currentUser = useSelector((state: RootState) => state.auth.currentUser);
 
   const [createProject, { isLoading: isCreatingProject }] = useCreateProjectMutation();
@@ -87,16 +97,21 @@ export function AiProjectDetailsView({ basePath = "/projects" }: { basePath?: st
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: {
-      projectTitle: details.projectTitle,
-      clientId: details.clientId,
-      projectCode: details.projectCode,
-      projectType: details.projectType,
-      location: details.location,
-      currency: details.currency || "NGN",
-      description: details.description,
-    },
+    // /ai/new always starts a *new* project, so the form never seeds itself
+    // from the previous one. Redux keeps the details for the report headings,
+    // and sessionStorage keeps Redux, so reading either one back into the form
+    // is what left the last project's name, client and address sitting here.
+    defaultValues: BLANK_FORM,
   });
+
+  useEffect(() => {
+    // Clear the persisted copy too, otherwise a hard refresh on this route
+    // rehydrates the old details straight back out of sessionStorage.
+    dispatch(clearAiDetails());
+    reset(BLANK_FORM);
+    // Mount only: re-running on every dispatch would wipe the user's typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /**
    * Step 1 of the documented flow — create the project, because the takeoff
@@ -155,15 +170,7 @@ export function AiProjectDetailsView({ basePath = "/projects" }: { basePath?: st
       // defaultValues, which are seeded from Redux — and Redux is persisted to
       // sessionStorage — so the values have to be cleared in all three places.
       dispatch(clearAiDetails());
-      reset({
-        projectTitle: "",
-        clientId: "",
-        projectCode: "",
-        projectType: "",
-        location: "",
-        currency: "NGN",
-        description: "",
-      });
+      reset(BLANK_FORM);
       router.push(`${basePath}/ai/${createdId}/drawings`);
     } catch (error) {
       // Staying put is deliberate: continuing on a placeholder id makes every

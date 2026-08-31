@@ -7,6 +7,7 @@ import { Project } from "@/types/projects";
 import { format } from "date-fns";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { projectBoqHref, projectHref } from "@/utils/projectRoute";
 
 interface ProjectsTableProps {
   projects: Project[];
@@ -91,8 +92,10 @@ export function ProjectsTable({
             const costDate = project.updatedAt
               ? format(new Date(project.updatedAt), "dd.MM.yyyy")
               : "N/A";
-            const projectUrl = `${basePath}/${project._id}`;
-            const boqUrl = `${basePath}/${project._id}/boq`;
+            // Same destination the Projects grid uses — an AI project opens
+            // its report, a manual one opens the takeoff canvas.
+            const projectUrl = projectHref(project, basePath);
+            const boqUrl = projectBoqHref(project, basePath);
 
             return (
               <tr

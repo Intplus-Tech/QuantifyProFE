@@ -45,6 +45,8 @@ import type { RootState } from "@/store";
 import { apiMessage, describeApiError } from "@/utils/apiError";
 import { AiFlowCard, AiFlowShell } from "./AiFlowShell";
 import { useAiTakeoff } from "./useAiTakeoff";
+import { cacheDrawingFile, removeCachedDrawing } from "./drawingCache";
+import { useDrawingPreviews } from "./useDrawingPreviews";
 
 const AiPdfPreview = dynamic(
   () => import("./AiPdfPreview").then((m) => ({ default: m.AiPdfPreview })),
@@ -85,6 +87,8 @@ export function DrawingReferencesView({
   );
   const [uploadFile] = useUploadAiFileMutation();
   const { openSession, isOpeningSession } = useAiTakeoff();
+  // Re-attaches previews after a reload — see useDrawingPreviews.
+  useDrawingPreviews();
 
   // `zoom` is a multiplier on top of the fit-to-panel scale, so the default
   // view (zoom = 1) always fits exactly and never produces a scrollbar.
@@ -97,6 +101,9 @@ export function DrawingReferencesView({
   const panelRef = useRef<HTMLDivElement>(null);
 
   const active = drawings.find((d) => d.id === activeDrawingId) ?? null;
+  // The local copy first, the server copy only as a last resort — see
+  // useDrawingPreviews for why the remote URL is not trusted to render.
+  const activeSource = active?.previewUrl ?? active?.uploadedUrl ?? null;
 
   useEffect(() => {
     const node = panelRef.current;
@@ -141,6 +148,10 @@ export function DrawingReferencesView({
           previewUrl: URL.createObjectURL(file),
         };
         dispatch(addAiDrawing(entry));
+
+        // Keep the bytes locally so a refresh can rebuild the preview without
+        // depending on the storage origin's CORS headers.
+        void cacheDrawingFile(id, file);
 
         try {
           dispatch(updateAiDrawing({ id, changes: { status: "uploading" } }));
@@ -322,7 +333,10 @@ export function DrawingReferencesView({
                         setPreviewPage(1);
                         setZoom(1);
                       }}
-                      onRemove={() => dispatch(removeAiDrawing(drawing.id))}
+                      onRemove={() => {
+                        void removeCachedDrawing(drawing.id);
+                        dispatch(removeAiDrawing(drawing.id));
+                      }}
                     />
                   ))}
                 </ul>
@@ -337,11 +351,11 @@ export function DrawingReferencesView({
               <p className="min-w-0 flex-1 truncate text-[11px] font-medium text-slate-600">
                 {active ? `Preview: ${active.name}` : "No drawing selected"}
               </p>
-              {active?.previewUrl && (
+              {activeSource && (
                 <button
                   type="button"
                   aria-label="Open in new tab"
-                  onClick={() => window.open(active.previewUrl, "_blank")}
+                  onClick={() => window.open(activeSource, "_blank")}
                   className="rounded border border-slate-200 p-1 text-slate-400 transition-colors hover:text-amber-600"
                 >
                   <SquareArrowOutUpRight className="h-3 w-3" />
@@ -362,9 +376,9 @@ export function DrawingReferencesView({
                   </p>
                 )}
 
-                {active?.previewUrl && active.extension === ".pdf" && (
+                {activeSource && active?.extension === ".pdf" && (
                   <AiPdfPreview
-                    url={active.previewUrl}
+                    url={activeSource}
                     page={previewPage}
                     scale={scale}
                     onPageSize={setPageSize}
@@ -376,10 +390,10 @@ export function DrawingReferencesView({
                   />
                 )}
 
-                {active?.previewUrl && active.extension !== ".pdf" && (
+                {activeSource && active && active.extension !== ".pdf" && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={active.previewUrl}
+                    src={activeSource}
                     alt={active.name}
                     style={{ transform: `scale(${zoom})` }}
                     className="max-h-full max-w-full object-contain shadow-lg"

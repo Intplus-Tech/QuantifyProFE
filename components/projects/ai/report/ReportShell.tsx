@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import type { RootState } from "@/store";
 import { useAiTakeoff } from "../useAiTakeoff";
+import { useAiProjectSession } from "../useAiProjectSession";
 
 const NAV = [
   { slug: "", label: "Overview", icon: LayoutDashboard },
@@ -39,6 +40,10 @@ export function ReportShell({
     (state: RootState) => state.aiFlow.details.projectCode,
   );
   const { session, finish, isFinishing } = useAiTakeoff();
+  // Reopening the project from the dashboard lands here first, so this is where
+  // the saved takeoff — session, ground scale and drawing — is put back, ready
+  // for "Continue to Drawing".
+  useAiProjectSession(projectId);
 
   const reportRoot = `${basePath}/ai/${projectId}/report`;
   const dashboardHref = basePath.startsWith("/enterprise")
