@@ -338,9 +338,12 @@ export function ElementDetailPanel({
 
     onApplyAndContinue();
 
-    // Reset both forms to defaults for the next variant
+    // Reset both forms to defaults for the next (identical) variant. Also drop
+    // any snapshot taken while viewing a Live Measurements row so it can't get
+    // restored over these cleared fields when the selection is released.
     setFieldValues(buildDefaultFields(measure, measureChoice));
     resetRebarToDefaults();
+    draftSnapshotRef.current = null;
     setActiveTab("concrete");
     onTabChange?.("concrete");
 
