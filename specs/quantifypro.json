@@ -2468,6 +2468,39 @@
               "type": "string",
               "example": "m³"
             },
+            "elementType": {
+              "type": "string",
+              "nullable": true,
+              "description": "Optional (boq_v2). Lets the rate attach to a BOQ row by what it prices rather than by description text. Tier 1 match: `elementType` + `workType` together.",
+              "example": "pile_cap"
+            },
+            "workType": {
+              "type": "string",
+              "nullable": true,
+              "description": "Optional (boq_v2). Tier 2 match: `workType` alone covers that work on every member (e.g. one formwork rate).",
+              "example": "concrete",
+              "enum": [
+                "excavation",
+                "disposal",
+                "backfill",
+                "filling",
+                "blinding",
+                "concrete",
+                "formwork",
+                "reinforcement",
+                "fabric",
+                "blockwork",
+                "plastering",
+                "screeding",
+                "tiling",
+                "painting",
+                "ceiling",
+                "roof_covering",
+                "joinery",
+                "services",
+                "provisional"
+              ]
+            },
             "baseRate": {
               "type": "number",
               "example": 4500.5
@@ -2945,6 +2978,352 @@
             "generalNotes": {
               "type": "string",
               "nullable": true
+            }
+          }
+        },
+        "BoqRowOrigin": {
+          "type": "object",
+          "description": "Ties a priced row back to the takeoff element that generated it.",
+          "required": ["elementId", "elementType", "workType"],
+          "properties": {
+            "elementId": { "type": "string", "example": "PC1" },
+            "elementType": { "type": "string", "example": "pile_cap" },
+            "workType": {
+              "type": "string",
+              "example": "concrete",
+              "enum": [
+                "excavation",
+                "disposal",
+                "backfill",
+                "filling",
+                "blinding",
+                "concrete",
+                "formwork",
+                "reinforcement",
+                "fabric",
+                "blockwork",
+                "plastering",
+                "screeding",
+                "tiling",
+                "painting",
+                "ceiling",
+                "roof_covering",
+                "joinery",
+                "services",
+                "provisional"
+              ]
+            }
+          }
+        },
+        "BoqDocumentRow": {
+          "type": "object",
+          "description": "One line inside a work section. Only `item` rows carry money; `note`,\n`header` and `spacer` rows are presentational and are skipped when summing.\n",
+          "required": ["rowId", "rowType", "description"],
+          "properties": {
+            "rowId": {
+              "type": "string",
+              "description": "Stable across regeneration — use for React keys and as the PATCH target.",
+              "example": "PC1:pile_cap:concrete:"
+            },
+            "rowType": {
+              "type": "string",
+              "enum": ["item", "note", "header", "spacer"]
+            },
+            "itemCode": {
+              "type": "string",
+              "nullable": true,
+              "description": "Runs continuously A–Z, then AA, AB… across every section in the group. Does not restart per section.",
+              "example": "A"
+            },
+            "descriptionLeadIn": {
+              "type": "string",
+              "nullable": true,
+              "description": "Render bold, on the same line, immediately before `description`. Only the first row of a work-type run carries one. Plain text — never inject as HTML.",
+              "example": "Excavating:"
+            },
+            "description": {
+              "type": "string",
+              "example": "Excavate to receive pile cap PC1 commencing from stripped level."
+            },
+            "descriptionSource": {
+              "type": "string",
+              "enum": ["template", "user"],
+              "description": "`user` once a QS rewrites the wording."
+            },
+            "unit": {
+              "type": "string",
+              "nullable": true,
+              "description": "Already in QS shorthand — cum, sqm, lm, tons, nr, Item. Display as-is.",
+              "example": "cum"
+            },
+            "quantity": { "type": "number", "nullable": true, "example": 194.4 },
+            "rate": {
+              "type": "number",
+              "nullable": true,
+              "description": "null when unpriced — render an em dash, not a zero.",
+              "example": 4500
+            },
+            "amount": {
+              "type": "number",
+              "nullable": true,
+              "description": "Server-derived as quantity × rate. Read-only — sending it in a PATCH is ignored.",
+              "example": 874800
+            },
+            "locked": {
+              "type": "array",
+              "nullable": true,
+              "description": "Field names the QS has overridden. The generator leaves these alone on the next commit until they are unlocked.",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "description",
+                  "descriptionLeadIn",
+                  "unit",
+                  "quantity",
+                  "rate",
+                  "itemCode"
+                ]
+              }
+            },
+            "origin": {
+              "$ref": "#/components/schemas/BoqRowOrigin",
+              "nullable": true
+            }
+          }
+        },
+        "BoqDocumentSection": {
+          "type": "object",
+          "description": "An SMM work section within an element group.",
+          "required": ["sectionId", "sectionCode", "title", "total", "rows"],
+          "properties": {
+            "sectionId": { "type": "string", "example": "substructure:D20" },
+            "sectionCode": { "type": "string", "example": "D20" },
+            "title": { "type": "string", "example": "EXCAVATING AND FILLING" },
+            "total": {
+              "type": "number",
+              "description": "Summed server-side across the section's item rows.",
+              "example": 4820000
+            },
+            "rows": {
+              "type": "array",
+              "items": { "$ref": "#/components/schemas/BoqDocumentRow" }
+            }
+          }
+        },
+        "BoqElementGroup": {
+          "type": "object",
+          "description": "A numbered element group — the top level of the elemental BOQ.",
+          "required": [
+            "groupId",
+            "groupKey",
+            "elementNo",
+            "title",
+            "total",
+            "sections"
+          ],
+          "properties": {
+            "groupId": {
+              "type": "string",
+              "description": "Stable — use for links and keys.",
+              "example": "substructure"
+            },
+            "groupKey": { "type": "string", "example": "substructure" },
+            "elementNo": {
+              "type": "integer",
+              "description": "Reassigned on every commit — display only (\"ELEMENT NO. 1\"). Never key off this.",
+              "example": 1
+            },
+            "title": { "type": "string", "example": "SUBSTRUCTURAL WORKS" },
+            "total": { "type": "number", "example": 18450000 },
+            "sections": {
+              "type": "array",
+              "items": { "$ref": "#/components/schemas/BoqDocumentSection" }
+            }
+          }
+        },
+        "BoqDocumentMeta": {
+          "type": "object",
+          "required": [
+            "projectTitle",
+            "clientName",
+            "location",
+            "preparedBy",
+            "preparedAt",
+            "currency"
+          ],
+          "properties": {
+            "projectTitle": {
+              "type": "string",
+              "example": "Proposed Residential Development"
+            },
+            "clientName": {
+              "type": "string",
+              "example": "Mr. Adeyemi Oluwaseun Johnson"
+            },
+            "location": {
+              "type": "string",
+              "example": "No. 12a, Taslim Elias Close, Victoria Island, Lagos"
+            },
+            "preparedBy": {
+              "type": "string",
+              "example": "Cost Craft Consultants Inc."
+            },
+            "preparedAt": {
+              "type": "string",
+              "format": "date-time",
+              "example": "2026-09-04T09:12:00.000Z"
+            },
+            "currency": { "type": "string", "example": "NGN" }
+          }
+        },
+        "BoqSummaryEntry": {
+          "type": "object",
+          "required": ["groupId", "elementNo", "title", "amount"],
+          "properties": {
+            "groupId": { "type": "string", "example": "substructure" },
+            "elementNo": { "type": "integer", "example": 1 },
+            "title": { "type": "string", "example": "SUBSTRUCTURAL WORKS" },
+            "amount": { "type": "number", "example": 18450000 }
+          }
+        },
+        "BoqSummaryAdjustment": {
+          "type": "object",
+          "required": ["label", "percentage", "amount"],
+          "properties": {
+            "label": { "type": "string", "example": "Preliminaries" },
+            "percentage": { "type": "number", "example": 8 },
+            "amount": { "type": "number", "example": 1476000 }
+          }
+        },
+        "BoqDocumentSummary": {
+          "type": "object",
+          "required": ["entries", "subTotal", "adjustments", "grandTotal"],
+          "properties": {
+            "entries": {
+              "type": "array",
+              "items": { "$ref": "#/components/schemas/BoqSummaryEntry" }
+            },
+            "subTotal": { "type": "number", "example": 18450000 },
+            "adjustments": {
+              "type": "array",
+              "items": { "$ref": "#/components/schemas/BoqSummaryAdjustment" }
+            },
+            "grandTotal": { "type": "number", "example": 19926000 }
+          }
+        },
+        "BoqDocument": {
+          "type": "object",
+          "description": "boq_v2 — the elemental Bill of Quantities. Served beside the flat\n`boqResult` (excel_boq_v1), never in place of it. Written by the takeoff\ncommit; a freshly committed document is structurally complete but every\nrow has `rate: null` / `amount: null` until library rates attach or a QS\nprices it through the PATCH endpoint.\n",
+          "required": [
+            "templateVersion",
+            "meta",
+            "elementGroups",
+            "summary",
+            "generatedAt"
+          ],
+          "properties": {
+            "templateVersion": { "type": "string", "example": "boq_v2" },
+            "meta": { "$ref": "#/components/schemas/BoqDocumentMeta" },
+            "elementGroups": {
+              "type": "array",
+              "description": "Build the group list from this array — coverage is partial by design (currently ~6 of the 15 Figma groups). Never hard-code the headings.",
+              "items": { "$ref": "#/components/schemas/BoqElementGroup" }
+            },
+            "summary": { "$ref": "#/components/schemas/BoqDocumentSummary" },
+            "generatedAt": { "type": "string", "format": "date-time" }
+          }
+        },
+        "PatchBoqRowRequest": {
+          "type": "object",
+          "description": "Send only what changed. Every field sent is added to the row's `locked`\nlist; the next commit refreshes quantities around it and leaves the edit\nalone. `amount` is never accepted — the server always re-derives it as\nquantity × rate. Unknown fields are stripped by validation, not rejected.\n",
+          "minProperties": 1,
+          "properties": {
+            "description": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000,
+              "description": "Also sets `descriptionSource` to `user`."
+            },
+            "descriptionLeadIn": { "type": "string", "maxLength": 200 },
+            "unit": { "type": "string", "maxLength": 50 },
+            "quantity": {
+              "type": "number",
+              "description": "Overrides the measured figure."
+            },
+            "rate": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Must be ≥ 0. Outranks the library."
+            },
+            "itemCode": { "type": "string", "maxLength": 10 },
+            "unlock": {
+              "type": "array",
+              "description": "Hand fields back to the generator — standard wording / measured quantity returns on the next commit.",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "description",
+                  "descriptionLeadIn",
+                  "unit",
+                  "quantity",
+                  "rate",
+                  "itemCode"
+                ]
+              }
+            }
+          }
+        },
+        "MaterialTakeoffItem": {
+          "type": "object",
+          "required": [
+            "material",
+            "label",
+            "netQuantity",
+            "quantity",
+            "unit",
+            "wastePercentage"
+          ],
+          "properties": {
+            "material": {
+              "type": "string",
+              "description": "Machine key.",
+              "example": "cement"
+            },
+            "label": { "type": "string", "example": "Cement" },
+            "netQuantity": {
+              "type": "number",
+              "description": "Measured figure, no waste.",
+              "example": 1179.78
+            },
+            "quantity": {
+              "type": "number",
+              "description": "What to order — waste included. Show this by default.",
+              "example": 1356.76
+            },
+            "unit": { "type": "string", "example": "bags" },
+            "wastePercentage": { "type": "number", "example": 15 }
+          }
+        },
+        "MaterialTakeoffResult": {
+          "type": "object",
+          "description": "Materials to purchase, derived from the same calculation that builds the\nBOQ. Distinct from the older `GET /takeoff/:projectId/material-schedule`,\nwhich counts taken-off members rather than what has to be bought.\n",
+          "required": ["materials", "derivedAt", "wasteFactorsApplied"],
+          "properties": {
+            "materials": {
+              "type": "array",
+              "items": { "$ref": "#/components/schemas/MaterialTakeoffItem" }
+            },
+            "derivedAt": { "type": "string", "format": "date-time" },
+            "wasteFactorsApplied": {
+              "type": "object",
+              "additionalProperties": { "type": "number" },
+              "example": {
+                "concrete": 5,
+                "rebar": 10,
+                "mortar": 15,
+                "tile": 10,
+                "roofSheet": 15
+              }
             }
           }
         },
@@ -10231,6 +10610,16 @@
                       "type": "string",
                       "example": "m³"
                     },
+                    "elementType": {
+                      "type": "string",
+                      "description": "Optional (boq_v2). Attaches this rate to a BOQ row by the member it prices. Used with `workType` for the tightest match.",
+                      "example": "pile_cap"
+                    },
+                    "workType": {
+                      "type": "string",
+                      "description": "Optional (boq_v2). One of: excavation, disposal, backfill, filling, blinding, concrete, formwork, reinforcement, fabric, blockwork, plastering, screeding, tiling, painting, ceiling, roof_covering, joinery, services, provisional.",
+                      "example": "concrete"
+                    },
                     "baseRate": {
                       "type": "number",
                       "example": 4500.5
@@ -10542,6 +10931,14 @@
                     },
                     "unit": {
                       "type": "string"
+                    },
+                    "elementType": {
+                      "type": "string",
+                      "description": "Optional (boq_v2). Pairs with `workType` to price a BOQ row by what it prices rather than by matching description text."
+                    },
+                    "workType": {
+                      "type": "string",
+                      "description": "Optional (boq_v2). One of: excavation, disposal, backfill, filling, blinding, concrete, formwork, reinforcement, fabric, blockwork, plastering, screeding, tiling, painting, ceiling, roof_covering, joinery, services, provisional."
                     },
                     "baseRate": {
                       "type": "number"
@@ -18379,6 +18776,278 @@
           }
         }
       },
+      "/projects/{projectId}/boq-document": {
+        "get": {
+          "summary": "Get the elemental BOQ document (boq_v2)",
+          "description": "The new elemental Bill of Quantities — numbered element groups, each\nholding SMM work sections, each holding lettered item rows. Served beside\nthe flat `boqResult` on `GET /projects/:id`, never in place of it.\n\n**States to handle:**\n- **404** `\"This project has no BOQ document yet. Commit a takeoff calculation to generate one.\"` — any project committed before boq_v2 shipped has none. Render an empty state with a \"Generate BOQ\" action, not an error toast.\n- **Unpriced rows** — a freshly committed document is structurally complete but every row has `rate: null` / `amount: null` and all totals are 0. Render `null` as an em dash, never ₦0. Rates appear once library items carry `elementType` / `workType`, or a QS keys them in via the PATCH endpoint.\n- **Partial coverage** — the engine currently measures concrete, formwork, reinforcement, excavation and blinding (~6 of the 15 Figma element groups). Build the group list from `elementGroups`, never hard-code headings.\n",
+          "tags": ["Projects"],
+          "security": [{ "bearerAuth": [] }],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": { "type": "string" },
+              "example": "665f4a2b8e4d3c001f2a3b4c"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "The elemental BOQ document.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": { "type": "boolean" },
+                      "message": { "type": "string" },
+                      "data": { "$ref": "#/components/schemas/BoqDocument" },
+                      "timestamp": { "type": "string", "format": "date-time" }
+                    }
+                  },
+                  "example": {
+                    "success": true,
+                    "message": "BOQ document fetched successfully.",
+                    "data": {
+                      "templateVersion": "boq_v2",
+                      "meta": {
+                        "projectTitle": "Proposed Residential Development",
+                        "clientName": "Mr. Adeyemi Oluwaseun Johnson",
+                        "location": "No. 12a, Taslim Elias Close, Victoria Island, Lagos",
+                        "preparedBy": "Cost Craft Consultants Inc.",
+                        "preparedAt": "2026-09-04T09:12:00.000Z",
+                        "currency": "NGN"
+                      },
+                      "elementGroups": [
+                        {
+                          "groupId": "substructure",
+                          "groupKey": "substructure",
+                          "elementNo": 1,
+                          "title": "SUBSTRUCTURAL WORKS",
+                          "total": 18450000,
+                          "sections": [
+                            {
+                              "sectionId": "substructure:D20",
+                              "sectionCode": "D20",
+                              "title": "EXCAVATING AND FILLING",
+                              "total": 4820000,
+                              "rows": [
+                                {
+                                  "rowId": "PC1:pile_cap:concrete:",
+                                  "rowType": "item",
+                                  "itemCode": "A",
+                                  "descriptionLeadIn": "Excavating:",
+                                  "description": "Excavate to receive pile cap PC1 commencing from stripped level.",
+                                  "descriptionSource": "template",
+                                  "unit": "cum",
+                                  "quantity": 194.4,
+                                  "rate": 4500,
+                                  "amount": 874800,
+                                  "locked": null,
+                                  "origin": {
+                                    "elementId": "PC1",
+                                    "elementType": "pile_cap",
+                                    "workType": "concrete"
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ],
+                      "summary": {
+                        "entries": [
+                          {
+                            "groupId": "substructure",
+                            "elementNo": 1,
+                            "title": "SUBSTRUCTURAL WORKS",
+                            "amount": 18450000
+                          }
+                        ],
+                        "subTotal": 18450000,
+                        "adjustments": [
+                          {
+                            "label": "Preliminaries",
+                            "percentage": 8,
+                            "amount": 1476000
+                          }
+                        ],
+                        "grandTotal": 19926000
+                      },
+                      "generatedAt": "2026-09-04T09:12:00.000Z"
+                    }
+                  }
+                }
+              }
+            },
+            "401": { "description": "Missing or expired JWT token" },
+            "403": {
+              "description": "Caller is not owner or member, or the project is archived"
+            },
+            "404": {
+              "description": "This project has no BOQ document yet. Commit a takeoff calculation to generate one."
+            }
+          }
+        }
+      },
+      "/projects/{projectId}/boq-document/rows/{rowId}": {
+        "patch": {
+          "summary": "Edit one BOQ document row (boq_v2)",
+          "description": "Send only what changed. Every field sent is added to that row's `locked`\nlist — the next commit refreshes the quantities around it and leaves the\nedit alone. Send `unlock` to hand a field back to the generator so\nstandard wording / the measured quantity returns on the next commit.\n\n`amount` is never accepted — the server always re-derives it as\n`quantity × rate` and recomputes every section, group and summary total.\nUnknown fields are stripped by validation rather than rejected.\n\n**The response is the whole retotalled document** — replace your local\ncopy with it rather than patching the single row, because the totals\nabove it have moved.\n",
+          "tags": ["Projects"],
+          "security": [{ "bearerAuth": [] }],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": { "type": "string" },
+              "example": "665f4a2b8e4d3c001f2a3b4c"
+            },
+            {
+              "in": "path",
+              "name": "rowId",
+              "required": true,
+              "schema": { "type": "string" },
+              "description": "The row's stable `rowId` from the document.",
+              "example": "PC1:pile_cap:concrete:"
+            }
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PatchBoqRowRequest" },
+                "examples": {
+                  "priceAndReword": {
+                    "summary": "Reword the description and set a rate",
+                    "value": {
+                      "description": "Reinforced concrete grade 35 in pile caps, as agreed with the engineer.",
+                      "rate": 85000
+                    }
+                  },
+                  "unlock": {
+                    "summary": "Hand the description back to the generator",
+                    "value": { "unlock": ["description"] }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "The whole document, retotalled.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": { "type": "boolean" },
+                      "message": { "type": "string" },
+                      "data": { "$ref": "#/components/schemas/BoqDocument" },
+                      "timestamp": { "type": "string", "format": "date-time" }
+                    }
+                  }
+                }
+              }
+            },
+            "400": {
+              "description": "Empty body, or a value outside the documented limits."
+            },
+            "401": { "description": "Missing or expired JWT token" },
+            "403": {
+              "description": "Caller is not owner or editor, or the project is archived."
+            },
+            "404": {
+              "description": "Project not found, no BOQ document yet, or no row with that `rowId`."
+            }
+          }
+        }
+      },
+      "/projects/{projectId}/material-takeoff": {
+        "get": {
+          "summary": "Get the material takeoff — what to purchase (boq_v2)",
+          "description": "The materials behind the BOQ, derived from the same calculation. The BOQ\nbills work (e.g. one line of plastering in m²); this returns the cement\nand sand behind it. `netQuantity` is the measured figure; `quantity` is\nwhat to order with waste included — show `quantity` by default.\n\n> Not to be confused with the older `GET /takeoff/:projectId/material-schedule`,\n> which counts taken-off members (\"what's been taken off so far\"). Both\n> still work — don't wire one expecting the other.\n",
+          "tags": ["Projects"],
+          "security": [{ "bearerAuth": [] }],
+          "parameters": [
+            {
+              "in": "path",
+              "name": "projectId",
+              "required": true,
+              "schema": { "type": "string" },
+              "example": "665f4a2b8e4d3c001f2a3b4c"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Materials to purchase.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "success": { "type": "boolean" },
+                      "message": { "type": "string" },
+                      "data": {
+                        "$ref": "#/components/schemas/MaterialTakeoffResult"
+                      },
+                      "timestamp": { "type": "string", "format": "date-time" }
+                    }
+                  },
+                  "example": {
+                    "success": true,
+                    "message": "Material takeoff fetched successfully.",
+                    "data": {
+                      "materials": [
+                        {
+                          "material": "cement",
+                          "label": "Cement",
+                          "netQuantity": 1179.78,
+                          "quantity": 1356.76,
+                          "unit": "bags",
+                          "wastePercentage": 15
+                        },
+                        {
+                          "material": "sharp_sand",
+                          "label": "Sharp Sand",
+                          "netQuantity": 262.17,
+                          "quantity": 301.49,
+                          "unit": "tonnes",
+                          "wastePercentage": 15
+                        },
+                        {
+                          "material": "reinforcement_steel",
+                          "label": "Reinforcement Steel",
+                          "netQuantity": 22000,
+                          "quantity": 24200,
+                          "unit": "kg",
+                          "wastePercentage": 10
+                        }
+                      ],
+                      "derivedAt": "2026-09-04T09:12:00.000Z",
+                      "wasteFactorsApplied": {
+                        "concrete": 5,
+                        "rebar": 10,
+                        "mortar": 15,
+                        "tile": 10,
+                        "roofSheet": 15
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "401": { "description": "Missing or expired JWT token" },
+            "403": {
+              "description": "Caller is not owner or member, or the project is archived"
+            },
+            "404": {
+              "description": "This project has no committed takeoff calculation yet."
+            }
+          }
+        }
+      },
       "/takeoff/{projectId}/calculate/commit": {
         "post": {
           "summary": "Step 6 — Commit calculation and generate BOQ",
@@ -18403,7 +19072,7 @@
           ],
           "responses": {
             "200": {
-              "description": "Calculation committed and BOQ saved. `data` contains:\n- `boqResult` — the persisted BOQ with sections grouped by category\n- `summary` — the raw calculation totals and per-element breakdown\n",
+              "description": "Calculation committed and BOQ saved. `data` contains:\n- `boqResult` — unchanged (excel_boq_v1, flat `sections[]`); read it exactly as before\n- `summary` — the raw calculation totals and per-element breakdown\n- `boqDocument` — NEW (boq_v2): the elemental document. Also fetchable at `GET /projects/:projectId/boq-document`\n- `materialSchedule` — NEW: materials to purchase. Also fetchable at `GET /projects/:projectId/material-takeoff`\n\nAll changes are additive — existing keys keep their names, positions and shapes.\n",
               "content": {
                 "application/json": {
                   "schema": {
@@ -18423,6 +19092,14 @@
                           },
                           "summary": {
                             "$ref": "#/components/schemas/CalculationSummary"
+                          },
+                          "boqDocument": {
+                            "$ref": "#/components/schemas/BoqDocument",
+                            "description": "NEW (boq_v2). The new BOQ screen reads this."
+                          },
+                          "materialSchedule": {
+                            "$ref": "#/components/schemas/MaterialTakeoffResult",
+                            "description": "NEW. Materials to buy, with waste applied."
                           }
                         }
                       }

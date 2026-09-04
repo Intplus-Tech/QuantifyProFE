@@ -38,6 +38,7 @@ import "./api/projectsApi";
 import "./api/manualProjectApi";
 import "./api/aiTakeoffApi";
 import "./api/measurementSessionApi";
+import "./api/boqDocumentApi";
 
 const persistedProjectWorkspace = loadPersistedProjectWorkspaceState();
 

@@ -20,6 +20,7 @@ export const baseApi = createApi({
     "Dashboard",
     "Projects",
     "Library",
+    "BoqDocument",
     "AiTakeoffSession",
     "AiTakeoffJob",
     "Credits",

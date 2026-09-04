@@ -20,11 +20,12 @@ import {
 import { useCreateClientMutation } from "@/store/api/clientsApi";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
+import type { Client } from "@/types/clients";
 
 interface AddClientDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSuccess?: (client: any) => void;
+  onSuccess?: (client: Client) => void;
 }
 
 const emptyForm = {
@@ -52,7 +53,11 @@ function FieldError({ message }: { message?: string }) {
   return <p className="text-xs text-destructive mt-1">{message}</p>;
 }
 
-export function AddClientDialog({ open, onOpenChange }: AddClientDialogProps) {
+export function AddClientDialog({
+  open,
+  onOpenChange,
+  onSuccess,
+}: AddClientDialogProps) {
   const [form, setForm] = useState(emptyForm);
   const [errors, setErrors] = useState(emptyErrors);
   const [createClient, { isLoading }] = useCreateClientMutation();
@@ -87,9 +92,13 @@ export function AddClientDialog({ open, onOpenChange }: AddClientDialogProps) {
     try {
       const result = await createClient(form).unwrap();
       toast.success("Client added successfully.");
+      onSuccess?.(result?.data);
       handleClose();
-    } catch (err: any) {
-      toast.error(err?.data?.message || "Failed to add client");
+    } catch (err: unknown) {
+      const message =
+        (err as { data?: { message?: string } })?.data?.message ??
+        "Failed to add client";
+      toast.error(message);
     }
   }
 
