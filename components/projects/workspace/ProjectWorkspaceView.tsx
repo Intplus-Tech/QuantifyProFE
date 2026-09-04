@@ -788,9 +788,6 @@ export function ProjectWorkspaceView({
     });
   }
 
-  // Clears every row from the Live Measurements table — pending variants and
-  // every assigned element's variants — local storage only, per element record
-  // metadata (name/category) is kept, only the measurement data is wiped.
   function handleClearAllVariants() {
     const allVariants = [
       ...concreteMeasurements,
@@ -861,10 +858,6 @@ export function ProjectWorkspaceView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
-  // ── Phase 1: Open/resume a measurement session whenever the drawing+page changes ──
-  // The backend allows only one active session per project. Before switching to a new
-  // page we pause the current session; on return to a cached page we resume it.
-  // This prevents the 409 conflict that previously fired on every page navigation.
   useEffect(() => {
     const uploadedFileId = selectedDrawing?.uploadedFileId;
     if (!uploadedFileId) return;
@@ -960,9 +953,6 @@ export function ProjectWorkspaceView({
 
     const { session, elements } = activeSessionData.data;
     const backendScale = session.canvas.scale;
-    const backendUnit = session.canvas.unit
-      ? toUiDistanceUnit(session.canvas.unit)
-      : distanceUnit;
     const calibration = session.canvas.calibration;
 
     // A truthy `scale` alone isn't proof the user ever calibrated this session —
@@ -974,13 +964,29 @@ export function ProjectWorkspaceView({
       !!calibration?.knownDistance &&
       !!calibration?.pixelDistance;
 
-    if (isGenuinelyCalibrated) {
-      setGlobalScaleFactor(backendScale);
+    // `session.canvas.scale` is real-world-units-per-pixel (and carries its own
+    // `calibration.unit`) — the reciprocal of the frontend's scaleFactor, which
+    // is base-pixels-per-METRE. Recompute scaleFactor from the raw calibration
+    // inputs the same way handleApplyScale does, so a hydrated/reloaded session
+    // measures identically to a freshly calibrated one. Consuming `backendScale`
+    // directly is what made a drawn line report the wrong length after reload
+    // (or after the session query resolved post-calibration).
+    const calibKnownMeters = calibration
+      ? calibration.knownDistance *
+        (METERS_PER_UNIT[calibration.unit ?? "m"] ?? 1)
+      : 0;
+    const hydratedScaleFactor =
+      calibration && calibKnownMeters > 0 && calibration.pixelDistance > 0
+        ? calibration.pixelDistance / calibKnownMeters
+        : (backendScale ?? null);
+
+    if (isGenuinelyCalibrated && hydratedScaleFactor) {
+      setGlobalScaleFactor(hydratedScaleFactor);
       setScaleLocked(true);
       setScaleFlowActive(true);
       setShowElementPanel(true);
       setScaleInfo(
-        `Scale: 1 px = ${(1 / backendScale).toFixed(3)} ${backendUnit}`,
+        `Scale: 1 px = ${(1 / hydratedScaleFactor).toFixed(3)} m`,
       );
     }
 
@@ -1011,7 +1017,7 @@ export function ProjectWorkspaceView({
       const newFromBackend = measurements.filter((m) => !existingIds.has(m.id));
       if (newFromBackend.length > 0) {
         measurementHook.resetWithData({
-          scaleFactor: isGenuinelyCalibrated ? backendScale : null,
+          scaleFactor: isGenuinelyCalibrated ? hydratedScaleFactor : null,
           calibPts: null,
           measurements: [
             ...measurementHook.state.measurements,

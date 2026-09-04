@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Minus, Plus, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -246,7 +247,7 @@ export function ElementDetailPanel({
     fieldValues.tag.trim() !== "" ||
     rows.some((row) =>
       row.fields.some((f) => {
-        if (f.type === "select") return false;
+        if (f.type === "select" || f.type === "checkbox") return false;
         const v = fieldValues[f.key] ?? "";
         return v !== "" && v !== "0";
       }),
@@ -488,6 +489,22 @@ export function ElementDetailPanel({
                             ))}
                           </SelectContent>
                         </Select>
+                      ) : field.type === "checkbox" ? (
+                        <label className="flex h-8 items-center gap-2 cursor-pointer">
+                          <Checkbox
+                            checked={
+                              (fieldValues[field.key] ?? field.defaultValue) === "true"
+                            }
+                            onCheckedChange={(checked) =>
+                              setField(field.key, checked === true ? "true" : "false")
+                            }
+                          />
+                          <span className="text-sm text-slate-600">
+                            {(fieldValues[field.key] ?? field.defaultValue) === "true"
+                              ? "Yes"
+                              : "No"}
+                          </span>
+                        </label>
                       ) : (
                         <Input
                           value={fieldValues[field.key] ?? ""}

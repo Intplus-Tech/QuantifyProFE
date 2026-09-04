@@ -37,8 +37,9 @@ export interface PileRow {
 export interface ConcreteFieldDef {
   key: string;
   label: string;
+  /** Text/select store their raw value; checkbox stores "true" | "false". */
   defaultValue: string;
-  type?: "text" | "select";
+  type?: "text" | "select" | "checkbox";
   options?: string[];
 }
 
