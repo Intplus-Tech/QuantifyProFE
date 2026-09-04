@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Printer, Table2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { useGetProjectByIdQuery } from "@/store/api/projectsApi";
 import {
   useGetBoqDocumentQuery,
   usePatchBoqDocumentRowMutation,
@@ -44,6 +46,11 @@ export function BOQDocumentView({
     projectId,
     { skip: !projectId },
   );
+  // Only needed to route AI projects to their own BOQ (Project Audit report).
+  const { data: projectRes } = useGetProjectByIdQuery(projectId, {
+    skip: !projectId,
+  });
+  const project = projectRes?.data;
   const [patchRow, { isLoading: patching }] = usePatchBoqDocumentRowMutation();
 
   const [savingRowId, setSavingRowId] = useState<string | null>(null);
@@ -144,6 +151,11 @@ export function BOQDocumentView({
 
   const doc = data?.data;
   if (!doc || doc.elementGroups.length === 0) {
+    // An AI project keeps its Bill of Quantity under the Project Audit report;
+    // forward there rather than showing the manual empty state.
+    if (project?.processingMode === "ai") {
+      return <AiBoqRedirect basePath={basePath} projectId={projectId} />;
+    }
     return (
       <BOQDocumentEmpty variant="no-boq" workspaceHref={workspaceHref} />
     );
@@ -230,4 +242,26 @@ export function BOQDocumentView({
       />
     </div>
   );
+}
+
+/**
+ * AI projects keep their Bill of Quantity inside the Project Audit report, so
+ * /projects/:id/boq forwards there rather than rendering the manual flow's
+ * "No BOQ generated yet" state.
+ */
+function AiBoqRedirect({
+  basePath,
+  projectId,
+}: {
+  basePath: string;
+  projectId: string;
+}) {
+  const router = useRouter();
+  const target = `${basePath}/ai/${projectId}/report/boq`;
+
+  useEffect(() => {
+    router.replace(target);
+  }, [router, target]);
+
+  return <BOQDocumentLoading />;
 }

@@ -21,6 +21,9 @@ export const baseApi = createApi({
     "Projects",
     "Library",
     "BoqDocument",
+    "AiTakeoffSession",
+    "AiTakeoffJob",
+    "Credits",
   ],
   endpoints: () => ({}),
 });

@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { ProjectWorkspaceLayout } from "@/components/projects/workspace/ProjectWorkspaceLayout";
 import { useGetProjectByIdQuery } from "@/store/api/projectsApi";
+import { isValidObjectId } from "@/utils/apiError";
 
 interface EnterpriseProjectLayoutProps {
   children: React.ReactNode;
@@ -14,8 +15,10 @@ export default function EnterpriseProjectLayout({
 }: EnterpriseProjectLayoutProps) {
   const params = useParams<{ projectId?: string }>();
   const projectId = typeof params?.projectId === "string" ? params.projectId : "";
+  // Skip unless the segment is a real id, so a static route segment can never
+  // be fetched as a project.
   const { data: projectResponse, isLoading } = useGetProjectByIdQuery(projectId, {
-    skip: !projectId,
+    skip: !isValidObjectId(projectId),
   });
 
   if (isLoading && !projectResponse) {

@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useDeleteProjectMutation } from "@/store/api/projectsApi";
 import { toast } from "sonner";
+import { projectHref } from "@/utils/projectRoute";
 import { UpdateThumbnailModal } from "./modals/UpdateThumbnailModal";
 import { InviteMemberModal } from "./modals/InviteMemberModal";
 
@@ -50,7 +51,7 @@ export function ProjectCard({ project }: ProjectCardProps) {
   const [showInviteModal, setShowInviteModal] = useState(false);
   const isAiMode = project.processingMode === "ai";
   const processingModeLabel = isAiMode ? "AI" : "Manual";
-  const projectRoute = isAiMode ? `/projects/${project._id}/boq` : `/projects/${project._id}`;
+  const projectRoute = projectHref(project);
 
   const [deleteProject, { isLoading: isDeleting }] = useDeleteProjectMutation();
 
