@@ -1,24 +1,47 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, ChevronDown, Loader2 } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+
+type SaveStatus = "idle" | "saving" | "saved";
 
 interface BOQTopBarProps {
   workspaceHref: string;
   dashboardHref: string;
-  isSaving?: boolean;
-  hasUnsavedChanges?: boolean;
-  onSave: () => void;
+  /** When provided, an autosave chip replaces the manual Save button. */
+  saveStatus?: SaveStatus;
   onExport: () => void;
+}
+
+function AutoSaveChip({ status }: { status: SaveStatus }) {
+  if (status === "saving") {
+    return (
+      <span className="flex items-center gap-1.5 text-[11px] font-medium text-amber-600">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Saving…
+      </span>
+    );
+  }
+  if (status === "saved") {
+    return (
+      <span className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-600">
+        <Check className="h-3 w-3" />
+        Saved
+      </span>
+    );
+  }
+  return (
+    <span className="text-[11px] font-medium text-slate-400">
+      Changes save automatically
+    </span>
+  );
 }
 
 export function BOQTopBar({
   workspaceHref,
   dashboardHref,
-  isSaving,
-  hasUnsavedChanges,
-  onSave,
+  saveStatus = "idle",
   onExport,
 }: BOQTopBarProps) {
   return (
@@ -40,17 +63,8 @@ export function BOQTopBar({
           </Link>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 px-3 text-[11px] font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-            onClick={onSave}
-            disabled={isSaving || !hasUnsavedChanges}
-          >
-            {isSaving && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
-            Save
-          </Button>
+        <div className="flex items-center gap-3">
+          <AutoSaveChip status={saveStatus} />
           <Button
             variant="outline"
             size="sm"

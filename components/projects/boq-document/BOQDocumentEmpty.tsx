@@ -34,13 +34,13 @@ export function BOQDocumentEmpty({
       </div>
 
       <h1 className="mt-4 text-lg font-bold text-slate-900">
-        {isError ? "Couldn't load this project" : "No BOQ generated yet"}
+        {isError ? "Couldn't load the BOQ" : "No BOQ document yet"}
       </h1>
 
       <p className="mt-1.5 max-w-sm text-sm text-slate-500">
         {isError
-          ? `We couldn't fetch project ${projectId ?? ""}. It may not exist, or the request failed.`
-          : `${projectName ?? "This project"} has no bill of quantities yet. Run the take-off or upload a drawing to generate one.`}
+          ? `We couldn't fetch the bill of quantities for project ${projectId ?? ""}. The request failed — try again in a moment.`
+          : `${projectName ?? "This project"} has no BOQ document yet. Commit a takeoff calculation from the workspace to generate one.`}
       </p>
 
       <Button asChild variant="outline" size="sm" className="mt-6 h-9">

@@ -135,6 +135,10 @@ export const projects = {
   updateThumbnail: (id: string) => `/projects/${id}/thumbnail`,
   boqReportPreview: (id: string) => `/projects/${id}/boq-report-preview`,
   saveBoqRowToLibrary: (id: string) => `/projects/${id}/boq/save-to-library`,
+  boqDocument: (id: string) => `/projects/${id}/boq-document`,
+  boqDocumentRow: (id: string, rowId: string) =>
+    `/projects/${id}/boq-document/rows/${rowId}`,
+  materialTakeoff: (id: string) => `/projects/${id}/material-takeoff`,
   listByCompany: (companyId: string) => `/projects/company/${companyId}`,
   activity: (id: string) => `/projects/${id}/activity`,
   members: {

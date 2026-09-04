@@ -863,6 +863,83 @@ If `concreteMeasurements` is somehow still empty when "+ Assign Element" is clic
 
 ---
 
+## Session — Elemental BOQ (`boq_v2`) + inline "Add Client" (2026-09-04)
+
+### 1. Add Client from the project-creation client dropdown
+
+`AddClientDialog` already had an `onSuccess?` prop in its interface and both callers
+(`StepProjectDetails.tsx` manual flow, `AiAnalysisContent.tsx` AI flow) passed a handler
+to auto-select the new client — but the dialog **never called it**. Fixed: `AddClientDialog`
+now destructures `onSuccess` and fires `onSuccess?.(result?.data)` on a successful
+`createClient`. The dropdown's "Add New Client" item (shown when the list is empty and
+pinned to the bottom otherwise) → dialog → new client returned and selected; the `Clients`
+RTK tag refetch lists it. Also typed `onSuccess` as `(client: Client)` and cleaned the
+`catch (err: any)`.
+
+### 2. New BOQ page — elemental document (`boq_v2`)
+
+Backend shipped an additive elemental BOQ contract. `boqResult` (excel_boq_v1, flat
+`sections[]`) is **unchanged**; the new document sits beside it.
+
+**New endpoints (all under `ApiEndpoints.projects.*`):**
+| Endpoint | Purpose |
+|---|---|
+| `GET /projects/:id/boq-document` | The elemental document (`BoqDocument`) |
+| `PATCH /projects/:id/boq-document/rows/:rowId` | Edit one row — send only changed fields; **response is the whole retotalled document** |
+| `GET /projects/:id/material-takeoff` | Materials to purchase (`MaterialTakeoffResult`) — not the older `/takeoff/:id/material-schedule` |
+
+Commit response (`POST /takeoff/:id/calculate/commit`) grew two keys: `boqDocument`,
+`materialSchedule`. Library items gained optional `elementType` / `workType` for
+rate-matching by what a row prices instead of description text.
+
+**Document shape** (`types/boqDocument.ts`): `elementGroups[]` → `sections[]` → `rows[]`.
+- `groupId` / `sectionId` / `rowId` are stable — key off these. `elementNo` renumbers every
+  commit (display only, "ELEMENT NO. 1").
+- `itemCode` runs continuously A–Z then AA across all sections in a group.
+- `rowType`: `item` (money) · `note` / `header` / `spacer` (presentational — the Figma
+  preamble blocks like "Disposal Of Ground Water" come through as `header` + `note` rows).
+- `descriptionLeadIn` renders bold inline before `description`.
+- `rate` / `amount` `null` → render **em dash, never ₦0** ("not yet priced"). Freshly
+  committed docs are unpriced until library rates attach or a QS keys them in.
+- Coverage is partial by design (~6 of 15 Figma groups) — build the group list from the
+  response, never hard-code headings.
+- `row.locked[]` lists QS-overridden fields; PATCH `unlock: [...]` hands them back.
+
+**Frontend (`components/projects/boq-document/`):** `BOQDocumentView` was **replaced in
+place** — same `/boq` route, same `{ projectId, basePath }` props. The workspace
+"View BOQ" button (`ProjectWorkspaceView.tsx` `handleViewBoq`) already finalizes the
+session with `commit: true` then routes to `/boq`; no change needed there.
+
+| File | Role |
+|---|---|
+| `BOQDocumentView.tsx` | Fetches `useGetBoqDocumentQuery`; loading / 404-empty / error / doc states; owns the row-edit sheet + autosave status |
+| `ProjectInfoPanel.tsx` | Left rail — Project Info + Quick Summary (from `summary.entries` + adjustments + grandTotal) + Refresh |
+| `ElementGroupCard.tsx` | `ELEMENT NO. n: TITLE` card + element total, renders its sections |
+| `SectionBlock.tsx` | SMM band (`D20: …`), 6-col table (ITEM/DESCRIPTION/QTY/UNIT/RATE/AMOUNT), row-type rendering, per-section footer (`+ Add item · Import CSV · Section Total`) |
+| `RateCell.tsx` | Always-editable boxed rate input; commits on blur/Enter → `PATCH { rate }` |
+| `RowEditSheet.tsx` | Right `Sheet` — edit description/leadIn/unit/qty/rate/itemCode + unlock toggles for locked fields |
+| `GrandSummaryBlock.tsx` | `summary` block — entries table + adjustments + GRAND TOTAL |
+| `BOQTopBar.tsx` | Reused; Save button replaced by an autosave chip (`saveStatus` prop) — every edit persists immediately |
+
+Deleted (excel_boq_v1 document UI, superseded): `BillCard`, `SubsectionTable`,
+`GrandSummaryCard`, `GrandTotalCard`, `EditItemDrawer`, `totals.ts`,
+`mapProjectToBoqDocument.ts`, `dummy-data.ts`, `types.ts`, `BOQFooterBar`,
+`InlineNumberCell`.
+
+**RTK:** `store/api/boqDocumentApi.ts` (injected, registered in `store/index.ts`);
+`"BoqDocument"` tag added to `baseApi`. `patchBoqDocumentRow.onQueryStarted` swaps the
+`getBoqDocument` cache for the returned retotalled document.
+
+**Spec:** `specs/quantifypro.json` (root key `swaggerDoc`) — added the 11 `Boq*` /
+`MaterialTakeoff*` schemas + `PatchBoqRowRequest`, the 3 paths, `boqDocument` /
+`materialSchedule` on the commit response, and `elementType` / `workType` on `LibraryItem`
+and its create/patch bodies. `docs/api/openapi.json` left untouched.
+
+### Still stubbed (toast "coming soon")
+Export ▾, Export Excel, per-section "+ Add item" and "Import CSV". Print uses `window.print()`.
+
+---
+
 ## Conventions
 
 - **Colours:** Primary action = amber/orange (`bg-amber-500`). Workspace bg = `#dbe3eb`. Panel bg = `#f8fafc`. Sidebar header = `#fdf8f0`
