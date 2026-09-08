@@ -15,7 +15,7 @@ import {
   ConcreteElement,
   BlindingElement,
 } from "./types";
-import { getFoundationSectionPlan } from "./constants";
+import { getFoundationSectionPlan, FOUNDATION_TYPE_MAP } from "./constants";
 import {
   CreateManualProjectPayload,
   UpdateQsConfigPayload,
@@ -134,6 +134,29 @@ function toFoundationType(uiValue: string): string {
   };
   // Fallback: lowercase + replace spaces with underscores
   return map[uiValue] ?? uiValue.toLowerCase().replace(/\s+/g, "_");
+}
+
+/**
+ * Minimal QS config derived from the Step 1 "Scope of Works" dropdown alone.
+ * The 2-step wizard has no structural-scope step, so foundation types come from
+ * FOUNDATION_TYPE_MAP (already constrained to what each qsProjectType allows) and
+ * the pool / floors / lift fields take neutral defaults a QS can revise later.
+ * Without this the backend's session finalize rejects with
+ * "QS project type must be configured".
+ */
+export function buildQsConfigPayloadFromScope(
+  scopeOfWorks: string
+): UpdateQsConfigPayload {
+  const foundationTypes = (FOUNDATION_TYPE_MAP[scopeOfWorks] ?? ["Pile"]).map(
+    toFoundationType
+  );
+  return {
+    qsProjectType: toQsProjectType(scopeOfWorks),
+    foundationTypes,
+    hasSwimmingPool: false,
+    numberOfFloors: 1,
+    liftOption: "none",
+  };
 }
 
 export function buildQsConfigPayload(

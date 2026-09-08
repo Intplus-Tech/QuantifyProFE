@@ -289,7 +289,7 @@ export function defaultStep2(): Step2Data {
   return {
     projectName: "", clientName: "", projectRef: "", streetAddress: "",
     currency: "", projectType: "", projectPhase: "", durationMonths: "", description: "",
-    source: "",
+    source: "", scopeOfWorks: "",
   };
 }
 

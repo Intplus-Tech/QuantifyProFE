@@ -83,6 +83,9 @@ import {
   useLazyGetMeasurementSessionQuery,
   useDeleteMeasurementSessionMutation,
 } from "@/store/api/measurementSessionApi";
+import { useUpdateQsConfigMutation } from "@/store/api/manualProjectApi";
+import { buildQsConfigPayloadFromScope } from "@/components/projects/manual/manualWizardTransformers";
+import { SCOPE_PROJECT_TYPES } from "@/components/projects/manual/constants";
 import type {
   MeasurementElement as BackendMeasurementElement,
   MeasurementGeometry,
@@ -584,6 +587,13 @@ export function ProjectWorkspaceView({
   // Finalize session for View BOQ
   const [finalizeSession, { isLoading: finalizing }] =
     useFinalizeMeasurementSessionMutation();
+  const [updateQsConfig, { isLoading: savingScope }] =
+    useUpdateQsConfigMutation();
+  // Fallback for projects created before "Scope of Works" was captured in the
+  // wizard — the backend rejects finalize with "QS project type must be
+  // configured" until qsConfig is set.
+  const [scopePromptOpen, setScopePromptOpen] = useState(false);
+  const [scopeChoice, setScopeChoice] = useState<string>("");
   const router = useRouter();
 
   // Sidebar: DRAWINGS collapsible drawer + ELEMENTS panel
@@ -985,9 +995,7 @@ export function ProjectWorkspaceView({
       setScaleLocked(true);
       setScaleFlowActive(true);
       setShowElementPanel(true);
-      setScaleInfo(
-        `Scale: 1 px = ${(1 / hydratedScaleFactor).toFixed(3)} m`,
-      );
+      setScaleInfo(`Scale: 1 px = ${(1 / hydratedScaleFactor).toFixed(3)} m`);
     }
 
     if (calibration?.knownDistance)
@@ -1209,6 +1217,70 @@ export function ProjectWorkspaceView({
     projectElementsLoaded.current = true;
     loadProjectElements();
   }, [backendProject?._id, loadProjectElements]);
+
+  // ── One-time migration: purge orphaned pre-2026-09-08 elements ────────────────
+  // Before `handleCreateNewEl` minted a real id, every "Create New Element" was
+  // saved with a blank id, so they all collided onto the clientIds "-count" /
+  // "-length" / "-area" (one surviving record per tool per session, keyed off an
+  // empty `attributes.elementId`). `loadProjectElements` skips those, so they're
+  // invisible but still on the server. Delete them once per project, then set a
+  // localStorage flag so this never runs again. Safe to remove this whole block
+  // once every active project has loaded the workspace at least once.
+  const orphanCleanupKey = `qp:orphan-elements-cleaned:${projectId}`;
+  const orphanCleanupRan = useRef(false);
+  useEffect(() => {
+    if (orphanCleanupRan.current) return;
+    if (!backendProject?._id) return;
+    if (typeof window === "undefined") return;
+    if (localStorage.getItem(orphanCleanupKey)) return;
+    orphanCleanupRan.current = true;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const sessionsResult = await fetchProjectSessions(projectId);
+        if (cancelled) return;
+        if (!("data" in sessionsResult) || !sessionsResult.data?.data) {
+          orphanCleanupRan.current = false; // fetch failed — retry next load
+          return;
+        }
+
+        const staleClientIds = ["-count", "-length", "-area"];
+        let deletedAny = false;
+        for (const s of sessionsResult.data.data) {
+          for (const clientId of staleClientIds) {
+            try {
+              await deleteMeasurementElement({
+                sessionId: s._id,
+                clientId,
+              }).unwrap();
+              deletedAny = true;
+            } catch {
+              // 404 (nothing there) or a transient error — tolerate either;
+              // the localStorage flag below still stops this from re-running.
+            }
+          }
+        }
+
+        if (cancelled) return;
+        localStorage.setItem(orphanCleanupKey, "1");
+        if (deletedAny) loadProjectElements();
+      } catch {
+        orphanCleanupRan.current = false; // unexpected — allow a retry
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    backendProject?._id,
+    projectId,
+    orphanCleanupKey,
+    fetchProjectSessions,
+    deleteMeasurementElement,
+    loadProjectElements,
+  ]);
 
   // ── Auto-save: upsert the current variant to the backend ─────────────────────
   // Called both by canvas-mark completions and by form field changes (debounced).
@@ -1946,8 +2018,6 @@ export function ProjectWorkspaceView({
     const name = parts.slice(1).join(" / ") || "Element";
 
     const newEl: CreatedElement = {
-      // Sent to the backend as-is (attributes.elementId + `${id}-${tool}` clientId).
-      // Intentionally blank so the backend owns element identity.
       id: "",
       name,
       category,
@@ -2083,28 +2153,84 @@ export function ProjectWorkspaceView({
     setDeleteElementTarget(null);
   }
 
-  async function handleViewBoq() {
-    if (!activeSessionId) {
-      toast.warning(
-        "No active session — open a drawing page first before viewing the BOQ.",
+  async function finalizeAndGo(sessionId: string) {
+    await finalizeSession({ sessionId, body: { commit: true } }).unwrap();
+    router.push(`${basePath}/${projectId}/boq`);
+  }
+
+  // Resolve a session to finalize when "View BOQ" is clicked. Prefer the page
+  // the user has open; otherwise fall back to any session on the project (the
+  // active one first) so navigating straight to the workspace and clicking
+  // "View BOQ" still works. Returns null only when the project has no sessions.
+  async function resolveBoqSessionId(): Promise<string | null> {
+    if (activeSessionId) return activeSessionId;
+    try {
+      const res = await fetchProjectSessions(projectId);
+      const sessions = "data" in res ? (res.data?.data ?? []) : [];
+      return (
+        sessions.find((s) => s.status === "active")?._id ??
+        sessions.find((s) => s.status !== "finalized")?._id ??
+        sessions[0]?._id ??
+        null
       );
+    } catch {
+      return null;
+    }
+  }
+
+  const pendingBoqSessionId = useRef<string | null>(null);
+
+  async function handleViewBoq() {
+    const sessionId = await resolveBoqSessionId();
+    // No session anywhere — nothing to finalize. Go to the BOQ page and let it
+    // render its own empty/loading state instead of blocking with a toast.
+    if (!sessionId) {
+      router.push(`${basePath}/${projectId}/boq`);
+      return;
+    }
+    // Pre-BOQ check: the backend rejects finalize unless the project has a
+    // qsProjectType. Ask for it up front rather than after a failed request.
+    if (!backendProject?.qsProjectType) {
+      pendingBoqSessionId.current = sessionId;
+      setScopePromptOpen(true);
       return;
     }
     try {
-      await finalizeSession({
-        sessionId: activeSessionId,
-        body: { commit: true },
-      }).unwrap();
-      router.push(`${basePath}/${projectId}/boq`);
+      await finalizeAndGo(sessionId);
     } catch (err: unknown) {
       const status = (err as { status?: number })?.status;
+      const serverMsg = (err as { data?: { message?: string } })?.data?.message;
+      if (
+        status === 400 &&
+        serverMsg?.toLowerCase().includes("qs project type")
+      ) {
+        setScopePromptOpen(true);
+        return;
+      }
       const msg =
         status === 404
           ? "Session not found — it may have already been finalized."
           : status === 400
-            ? "Cannot finalize: ensure at least one measurement is saved."
+            ? (serverMsg ??
+              "Cannot finalize: ensure at least one measurement is saved.")
             : `Could not finalize session (${status ?? "unknown error"}) — try again.`;
       toast.error(msg);
+    }
+  }
+
+  async function submitScopeAndFinalize() {
+    const sessionId = pendingBoqSessionId.current ?? activeSessionId;
+    if (!scopeChoice || !sessionId) return;
+    try {
+      await updateQsConfig({
+        projectId,
+        body: buildQsConfigPayloadFromScope(scopeChoice),
+      }).unwrap();
+      setScopePromptOpen(false);
+      await finalizeAndGo(sessionId);
+    } catch (err: unknown) {
+      const serverMsg = (err as { data?: { message?: string } })?.data?.message;
+      toast.error(serverMsg ?? "Could not save the project scope — try again.");
     }
   }
 
@@ -3682,6 +3808,55 @@ export function ProjectWorkspaceView({
                 onClick={handleDeleteConflictAndCreate}
               >
                 Delete &amp; Start Fresh
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* QS scope not configured — capture it before finalizing the BOQ */}
+        <Dialog
+          open={scopePromptOpen}
+          onOpenChange={(v) => {
+            if (!v) setScopePromptOpen(false);
+          }}
+        >
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-sm font-bold">
+                Set the project scope
+              </DialogTitle>
+              <DialogDescription className="text-[13px] text-slate-500 pt-1">
+                This project has no scope of works set, which the BOQ needs.
+                Pick one to continue — you can refine it later.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="pt-1">
+              <Select value={scopeChoice} onValueChange={setScopeChoice}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select scope of works" />
+                </SelectTrigger>
+                <SelectContent>
+                  {SCOPE_PROJECT_TYPES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <Button
+                variant="outline"
+                onClick={() => setScopePromptOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="bg-amber-500 hover:bg-amber-600 text-white"
+                disabled={!scopeChoice || savingScope || finalizing}
+                onClick={submitScopeAndFinalize}
+              >
+                {savingScope || finalizing ? "Saving…" : "Save & View BOQ"}
               </Button>
             </div>
           </DialogContent>

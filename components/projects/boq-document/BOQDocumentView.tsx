@@ -15,10 +15,14 @@ import { BOQDocumentHeader } from "./BOQDocumentHeader";
 import { ProjectInfoPanel } from "./ProjectInfoPanel";
 import { ElementGroupCard } from "./ElementGroupCard";
 import { GrandSummaryBlock } from "./GrandSummaryBlock";
-import { RowEditSheet } from "./RowEditSheet";
+import { RowEditPanel } from "./RowEditPanel";
 import { BOQDocumentLoading } from "./BOQDocumentLoading";
 import { BOQDocumentEmpty } from "./BOQDocumentEmpty";
-import type { BoqDocumentRow, PatchBoqRowRequest } from "@/types/boqDocument";
+import type {
+  BoqDocumentRow,
+  BoqDocumentSection,
+  PatchBoqRowRequest,
+} from "@/types/boqDocument";
 
 interface BOQDocumentViewProps {
   projectId: string;
@@ -55,6 +59,8 @@ export function BOQDocumentView({
 
   const [savingRowId, setSavingRowId] = useState<string | null>(null);
   const [editingRow, setEditingRow] = useState<BoqDocumentRow | null>(null);
+  const [editingSection, setEditingSection] =
+    useState<BoqDocumentSection | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">(
     "idle",
@@ -116,10 +122,14 @@ export function BOQDocumentView({
     [runPatch],
   );
 
-  const handleEditRow = useCallback((row: BoqDocumentRow) => {
-    setEditingRow(row);
-    setSheetOpen(true);
-  }, []);
+  const handleEditRow = useCallback(
+    (row: BoqDocumentRow, section?: BoqDocumentSection) => {
+      setEditingRow(row);
+      setEditingSection(section ?? null);
+      setSheetOpen(true);
+    },
+    [],
+  );
 
   const handleRowSubmit = useCallback(
     async (patch: PatchBoqRowRequest) => {
@@ -173,7 +183,7 @@ export function BOQDocumentView({
       />
 
       <main className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-6xl px-5 py-6 print:max-w-none print:px-0">
+        <div className="w-full px-4 py-6 sm:px-6 lg:px-8 print:px-0">
           <BOQDocumentHeader
             title={`Bill of Quantities — ${meta.projectTitle}`}
             subtitle={meta.location}
@@ -233,10 +243,13 @@ export function BOQDocumentView({
         </div>
       </main>
 
-      <RowEditSheet
+      <RowEditPanel
         row={editingRow}
         open={sheetOpen}
         saving={patching}
+        currency={meta.currency}
+        sectionCode={editingSection?.sectionCode}
+        sectionTitle={editingSection?.title}
         onOpenChange={setSheetOpen}
         onSubmit={handleRowSubmit}
       />

@@ -15,7 +15,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CURRENCIES, PROJECT_TYPES, PROJECT_PHASES, PROJECT_SOURCES } from "./constants";
+import {
+  CURRENCIES,
+  PROJECT_TYPES,
+  PROJECT_PHASES,
+  PROJECT_SOURCES,
+  SCOPE_PROJECT_TYPES,
+} from "./constants";
 import type { Step2Data } from "./types";
 import { useGetClientsQuery } from "@/store/api/clientsApi";
 import { AddClientDialog } from "@/components/clients/AddClientDialog";
@@ -31,6 +37,7 @@ const schema = z.object({
   streetAddress:  z.string().optional(),
   currency:       z.string().min(1, "Currency is required"),
   projectType:    z.string().min(1, "Project type is required"),
+  scopeOfWorks:   z.string().min(1, "Scope of works is required"),
   projectPhase:   z.string().min(1, "Project phase is required"),
   durationMonths: z.string().optional(),
   description:    z.string().optional(),
@@ -244,6 +251,31 @@ export function StepProjectDetails({ data, onChange, onNext }: StepProjectDetail
                 )}
               />
               <FieldError message={errors.projectType?.message} />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs font-medium text-muted-foreground">
+                Scope of Works <span className="text-destructive">*</span>
+              </Label>
+              <Controller
+                control={control}
+                name="scopeOfWorks"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger className="w-full h-12! border-border/60">
+                      <SelectValue placeholder="Select scope of works" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SCOPE_PROJECT_TYPES.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {s}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              <FieldError message={errors.scopeOfWorks?.message} />
             </div>
 
             <div className="space-y-2">

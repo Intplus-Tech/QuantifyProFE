@@ -9,7 +9,7 @@ interface SectionBlockProps {
   section: BoqDocumentSection;
   currency: string;
   savingRowId: string | null;
-  onEditRow: (row: BoqDocumentRow) => void;
+  onEditRow: (row: BoqDocumentRow, section: BoqDocumentSection) => void;
   onRateCommit: (row: BoqDocumentRow, rate: number) => void;
   onAddItem: (section: BoqDocumentSection) => void;
   onImportCsv: (section: BoqDocumentSection) => void;
@@ -205,7 +205,7 @@ export function SectionBlock({
                 row={row}
                 currency={currency}
                 saving={savingRowId === row.rowId}
-                onEditRow={onEditRow}
+                onEditRow={(r) => onEditRow(r, section)}
                 onRateCommit={onRateCommit}
               />
             ))}

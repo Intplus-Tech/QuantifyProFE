@@ -18,7 +18,11 @@ import { StepProjectDetails } from "./StepProjectDetails";
 import { StepDrawings } from "./StepDrawings";
 import { SaveSetupModal } from "./SaveSetupModal";
 import { useCreateProjectMutation } from "@/store/api/projectsApi";
-import { buildCreateProjectPayload } from "./manualWizardTransformers";
+import { useUpdateQsConfigMutation } from "@/store/api/manualProjectApi";
+import {
+  buildCreateProjectPayload,
+  buildQsConfigPayloadFromScope,
+} from "./manualWizardTransformers";
 import { saveSession } from "@/components/projects/workspace/workspaceSession";
 
 const WIZARD_STEPS = [
@@ -45,6 +49,7 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
   const [isSaving, setIsSaving] = useState(false);
 
   const [createProject] = useCreateProjectMutation();
+  const [updateQsConfig] = useUpdateQsConfigMutation();
 
   // Only reset when arriving fresh (no draft)
   useEffect(() => {
@@ -77,6 +82,21 @@ export function ManualSetupShell({ basePath = "/projects" }: ManualSetupShellPro
         projectId = result.data?._id;
         if (!projectId) throw new Error("Project creation did not return a valid ID.");
         dispatch(setCreatedProjectId(projectId));
+
+        // The 2-step wizard has no structural-scope step, but the backend
+        // requires a qsProjectType before a measurement session can be
+        // finalized into a BOQ. Seed it from the Step 1 "Scope of Works" pick.
+        try {
+          await updateQsConfig({
+            projectId,
+            body: buildQsConfigPayloadFromScope(details.scopeOfWorks),
+          }).unwrap();
+        } catch (cfgErr) {
+          const cfgMsg =
+            (cfgErr as { data?: { message?: string } })?.data?.message ??
+            "Project created, but QS scope could not be saved — set it before generating a BOQ.";
+          toast.error(cfgMsg);
+        }
 
         // Persist drawing metadata to workspace session so the workspace
         // can hydrate the sidebar without calling GET /uploads/:id

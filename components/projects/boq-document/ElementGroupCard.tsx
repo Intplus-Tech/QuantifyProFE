@@ -12,7 +12,7 @@ interface ElementGroupCardProps {
   group: BoqElementGroup;
   currency: string;
   savingRowId: string | null;
-  onEditRow: (row: BoqDocumentRow) => void;
+  onEditRow: (row: BoqDocumentRow, section: BoqDocumentSection) => void;
   onRateCommit: (row: BoqDocumentRow, rate: number) => void;
   onAddItem: (section: BoqDocumentSection) => void;
   onImportCsv: (section: BoqDocumentSection) => void;
