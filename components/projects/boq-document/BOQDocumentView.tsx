@@ -1,24 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Printer, Table2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useGetProjectByIdQuery } from "@/store/api/projectsApi";
-import {
-  useGetBoqDocumentQuery,
-  usePatchBoqDocumentRowMutation,
-} from "@/store/api/boqDocumentApi";
+import { useGetBoqDocumentQuery } from "@/store/api/boqDocumentApi";
 import { BOQTopBar } from "./BOQTopBar";
 import { BOQDocumentHeader } from "./BOQDocumentHeader";
 import { ProjectInfoPanel } from "./ProjectInfoPanel";
 import { ElementGroupCard } from "./ElementGroupCard";
 import { GrandSummaryBlock } from "./GrandSummaryBlock";
 import { RowEditSheet } from "./RowEditSheet";
+import { BoqDeleteDialog, BoqSectionRenameDialog } from "./BoqDeleteDialogs";
+import { useBoqDocumentActions } from "./useBoqDocumentActions";
 import { BOQDocumentLoading } from "./BOQDocumentLoading";
 import { BOQDocumentEmpty } from "./BOQDocumentEmpty";
-import type { BoqDocumentRow, PatchBoqRowRequest } from "@/types/boqDocument";
 
 interface BOQDocumentViewProps {
   projectId: string;
@@ -51,87 +49,12 @@ export function BOQDocumentView({
     skip: !projectId,
   });
   const project = projectRes?.data;
-  const [patchRow, { isLoading: patching }] = usePatchBoqDocumentRowMutation();
-
-  const [savingRowId, setSavingRowId] = useState<string | null>(null);
-  const [editingRow, setEditingRow] = useState<BoqDocumentRow | null>(null);
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">(
-    "idle",
-  );
-  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (savedTimer.current) clearTimeout(savedTimer.current);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (patching) setSaveStatus("saving");
-  }, [patching]);
-
-  const flashSaved = useCallback(() => {
-    setSaveStatus("saved");
-    if (savedTimer.current) clearTimeout(savedTimer.current);
-    savedTimer.current = setTimeout(() => setSaveStatus("idle"), 2500);
-  }, []);
+  const actions = useBoqDocumentActions(projectId);
 
   const workspaceHref = `${basePath}/${projectId}`;
   const dashboardHref = basePath.startsWith("/enterprise")
     ? "/enterprise/dashboard"
     : "/dashboard";
-
-  const runPatch = useCallback(
-    async (rowId: string, body: PatchBoqRowRequest) => {
-      setSavingRowId(rowId);
-      try {
-        await patchRow({ projectId, rowId, body }).unwrap();
-        flashSaved();
-        return true;
-      } catch (err: unknown) {
-        const status = (err as { status?: number })?.status;
-        const message =
-          status === 403
-            ? "You don't have permission to edit this BOQ."
-            : status === 404
-              ? "This row no longer exists — refresh the BOQ."
-              : status === 400
-                ? "That value was rejected — check the limits and try again."
-                : "Couldn't save the change. Try again.";
-        toast.error(message);
-        setSaveStatus("idle");
-        return false;
-      } finally {
-        setSavingRowId(null);
-      }
-    },
-    [patchRow, projectId, flashSaved],
-  );
-
-  const handleRateCommit = useCallback(
-    (row: BoqDocumentRow, rate: number) => {
-      void runPatch(row.rowId, { rate });
-    },
-    [runPatch],
-  );
-
-  const handleEditRow = useCallback((row: BoqDocumentRow) => {
-    setEditingRow(row);
-    setSheetOpen(true);
-  }, []);
-
-  const handleRowSubmit = useCallback(
-    async (patch: PatchBoqRowRequest) => {
-      if (!editingRow) return;
-      const ok = await runPatch(editingRow.rowId, patch);
-      if (ok) {
-        toast.success("Row updated");
-        setSheetOpen(false);
-      }
-    },
-    [editingRow, runPatch],
-  );
 
   const notImplemented = (label: string) => () =>
     toast.info(`${label} — coming soon`);
@@ -168,7 +91,7 @@ export function BOQDocumentView({
       <BOQTopBar
         workspaceHref={workspaceHref}
         dashboardHref={dashboardHref}
-        saveStatus={saveStatus}
+        saveStatus={actions.saveStatus}
         onExport={notImplemented("Export")}
       />
 
@@ -193,11 +116,14 @@ export function BOQDocumentView({
                   key={group.groupId}
                   group={group}
                   currency={meta.currency}
-                  savingRowId={savingRowId}
-                  onEditRow={handleEditRow}
-                  onRateCommit={handleRateCommit}
+                  savingRowId={actions.savingRowId}
+                  onEditRow={actions.onEditRow}
+                  onDeleteRow={actions.onDeleteRow}
+                  onRateCommit={actions.onRateCommit}
                   onAddItem={notImplemented("Add item")}
                   onImportCsv={notImplemented("CSV import")}
+                  onEditSection={actions.onEditSection}
+                  onDeleteSection={actions.onDeleteSection}
                 />
               ))}
 
@@ -234,11 +160,26 @@ export function BOQDocumentView({
       </main>
 
       <RowEditSheet
-        row={editingRow}
-        open={sheetOpen}
-        saving={patching}
-        onOpenChange={setSheetOpen}
-        onSubmit={handleRowSubmit}
+        row={actions.editingRow}
+        open={actions.sheetOpen}
+        saving={actions.saving}
+        onOpenChange={actions.setSheetOpen}
+        onSubmit={actions.onRowSubmit}
+        onDelete={actions.onDeleteRow}
+      />
+
+      <BoqSectionRenameDialog
+        section={actions.renamingSection}
+        saving={actions.saving}
+        onCancel={() => actions.setRenamingSection(null)}
+        onSubmit={actions.onSectionRenameSubmit}
+      />
+
+      <BoqDeleteDialog
+        pending={actions.pendingDelete}
+        deleting={actions.deleting}
+        onCancel={() => actions.setPendingDelete(null)}
+        onConfirm={actions.confirmDelete}
       />
     </div>
   );

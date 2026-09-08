@@ -13,9 +13,12 @@ interface ElementGroupCardProps {
   currency: string;
   savingRowId: string | null;
   onEditRow: (row: BoqDocumentRow) => void;
+  onDeleteRow: (row: BoqDocumentRow) => void;
   onRateCommit: (row: BoqDocumentRow, rate: number) => void;
   onAddItem: (section: BoqDocumentSection) => void;
   onImportCsv: (section: BoqDocumentSection) => void;
+  onEditSection: (section: BoqDocumentSection) => void;
+  onDeleteSection: (section: BoqDocumentSection) => void;
 }
 
 export function ElementGroupCard({
@@ -23,9 +26,12 @@ export function ElementGroupCard({
   currency,
   savingRowId,
   onEditRow,
+  onDeleteRow,
   onRateCommit,
   onAddItem,
   onImportCsv,
+  onEditSection,
+  onDeleteSection,
 }: ElementGroupCardProps) {
   return (
     <section className="mb-5 overflow-hidden rounded-lg border border-slate-200 bg-white">
@@ -55,9 +61,12 @@ export function ElementGroupCard({
           currency={currency}
           savingRowId={savingRowId}
           onEditRow={onEditRow}
+          onDeleteRow={onDeleteRow}
           onRateCommit={onRateCommit}
           onAddItem={onAddItem}
           onImportCsv={onImportCsv}
+          onEditSection={onEditSection}
+          onDeleteSection={onDeleteSection}
         />
       ))}
     </section>

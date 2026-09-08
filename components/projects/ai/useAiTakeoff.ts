@@ -596,6 +596,19 @@ export function useAiTakeoff() {
         return response.data;
       } catch (error) {
         const status = (error as { status?: number })?.status;
+        const message = errorMessage(error, "Could not finalize the takeoff.");
+
+        // Already finalized is not a failure — the work is committed, the local
+        // flag had just been lost (a reload, or another tab did it). Record it
+        // and move on rather than showing a red error over a finished takeoff.
+        if (/already been finalized|has been finalized|no longer be modified/i.test(message)) {
+          dispatch(markAiSessionFinalized());
+          toast.info("This takeoff is already finalized", {
+            description: "Nothing further to commit.",
+          });
+          return null;
+        }
+
         // 400 here means there was nothing to materialize but a BOQ commit was
         // asked for — retry without the commit so the session still finalizes.
         if (status === 400 && commit) {
@@ -604,9 +617,7 @@ export function useAiTakeoff() {
           });
           return finish(false);
         }
-        toast.error("Finalize failed", {
-          description: errorMessage(error, "Could not finalize the takeoff."),
-        });
+        toast.error("Finalize failed", { description: message });
         return null;
       }
     },

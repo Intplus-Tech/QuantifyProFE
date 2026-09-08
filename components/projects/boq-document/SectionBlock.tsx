@@ -1,7 +1,8 @@
 "use client";
 
-import { Pencil, Plus, Upload } from "lucide-react";
+import { Plus, Upload } from "lucide-react";
 import { RateCell } from "./RateCell";
+import { RowActionsMenu } from "./RowActionsMenu";
 import { formatCell, formatMoney } from "./format";
 import type { BoqDocumentRow, BoqDocumentSection } from "@/types/boqDocument";
 
@@ -10,9 +11,13 @@ interface SectionBlockProps {
   currency: string;
   savingRowId: string | null;
   onEditRow: (row: BoqDocumentRow) => void;
+  onDeleteRow: (row: BoqDocumentRow) => void;
   onRateCommit: (row: BoqDocumentRow, rate: number) => void;
   onAddItem: (section: BoqDocumentSection) => void;
   onImportCsv: (section: BoqDocumentSection) => void;
+  /** One action for the whole section — renames it. */
+  onEditSection: (section: BoqDocumentSection) => void;
+  onDeleteSection: (section: BoqDocumentSection) => void;
 }
 
 function fmtQty(value: number | null | undefined): string {
@@ -38,32 +43,31 @@ function Description({ row }: { row: BoqDocumentRow }) {
   );
 }
 
-function EditButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label="Edit row"
-      className="rounded p-1 text-slate-300 transition-colors hover:bg-amber-50 hover:text-amber-600 focus-visible:outline-2 focus-visible:outline-amber-500 print:hidden"
-    >
-      <Pencil className="h-3 w-3" />
-    </button>
-  );
-}
-
 function Row({
   row,
   currency,
   saving,
   onEditRow,
+  onDeleteRow,
   onRateCommit,
 }: {
   row: BoqDocumentRow;
   currency: string;
   saving: boolean;
   onEditRow: (row: BoqDocumentRow) => void;
+  onDeleteRow: (row: BoqDocumentRow) => void;
   onRateCommit: (row: BoqDocumentRow, rate: number) => void;
 }) {
+  const actions = (
+    <RowActionsMenu
+      label={`item ${row.itemCode ?? row.description.slice(0, 40)}`}
+      onEdit={() => onEditRow(row)}
+      onDelete={() => onDeleteRow(row)}
+      editLabel="Edit item"
+      deleteLabel="Delete item"
+    />
+  );
+
   if (row.rowType === "spacer") {
     return (
       <tr>
@@ -81,9 +85,7 @@ function Row({
             <Description row={row} />
           </span>
         </td>
-        <td className="px-2 py-2 text-right">
-          <EditButton onClick={() => onEditRow(row)} />
-        </td>
+        <td className="px-2 py-2 text-right">{actions}</td>
       </tr>
     );
   }
@@ -98,9 +100,7 @@ function Row({
         >
           <Description row={row} />
         </td>
-        <td className="px-2 py-2 text-right">
-          <EditButton onClick={() => onEditRow(row)} />
-        </td>
+        <td className="px-2 py-2 text-right">{actions}</td>
       </tr>
     );
   }
@@ -148,9 +148,7 @@ function Row({
         )}
       </td>
 
-      <td className="px-2 py-2.5 text-right">
-        <EditButton onClick={() => onEditRow(row)} />
-      </td>
+      <td className="px-2 py-2.5 text-right">{actions}</td>
     </tr>
   );
 }
@@ -160,10 +158,24 @@ export function SectionBlock({
   currency,
   savingRowId,
   onEditRow,
+  onDeleteRow,
   onRateCommit,
   onAddItem,
   onImportCsv,
+  onEditSection,
+  onDeleteSection,
 }: SectionBlockProps) {
+  // One action for the entire section, sitting at the right end of its header.
+  const sectionActions = (
+    <RowActionsMenu
+      label={`section ${section.sectionCode || section.title}`}
+      onEdit={() => onEditSection(section)}
+      onDelete={() => onDeleteSection(section)}
+      editLabel="Rename section"
+      deleteLabel="Delete whole section"
+    />
+  );
+
   return (
     <section className="border-t border-slate-100 first:border-t-0">
       {section.sectionCode ? (
@@ -174,13 +186,15 @@ export function SectionBlock({
           <h3 className="text-[11px] font-bold uppercase tracking-wide text-amber-600">
             {section.title}
           </h3>
+          <span className="ml-auto shrink-0">{sectionActions}</span>
         </header>
       ) : (
         section.title && (
-          <header className="px-4 py-2">
+          <header className="flex items-center gap-2 px-4 py-2">
             <h3 className="text-[11px] font-bold uppercase tracking-wide text-slate-700">
               {section.title}
             </h3>
+            <span className="ml-auto shrink-0">{sectionActions}</span>
           </header>
         )
       )}
@@ -195,7 +209,7 @@ export function SectionBlock({
               <th className="w-16 px-3 py-2 text-center">Unit</th>
               <th className="w-32 px-3 py-2 text-right">Rate</th>
               <th className="w-28 px-4 py-2 text-right">Amount</th>
-              <th className="w-9 px-2 py-2" />
+              <th className="w-16 px-2 py-2 text-right print:hidden">Action</th>
             </tr>
           </thead>
           <tbody>
@@ -206,6 +220,7 @@ export function SectionBlock({
                 currency={currency}
                 saving={savingRowId === row.rowId}
                 onEditRow={onEditRow}
+                onDeleteRow={onDeleteRow}
                 onRateCommit={onRateCommit}
               />
             ))}
