@@ -52,6 +52,73 @@ export const boqDocumentApi = baseApi.injectEndpoints({
       },
     }),
 
+    /**
+     * DELETE /projects/:projectId/boq-document/rows/:rowId
+     *
+     * Not in the boq_v2 contract yet — the documented BOQ surface is GET the
+     * document, PATCH a row, GET the materials. This follows the same URL
+     * convention as the PATCH so it works the moment the endpoint lands; until
+     * then the caller reports the 404/405 rather than pretending the row went.
+     */
+    deleteBoqDocumentRow: builder.mutation<
+      ApiResponse<BoqDocument>,
+      { projectId: string; rowId: string }
+    >({
+      query: ({ projectId, rowId }) => ({
+        url: ApiEndpoints.projects.boqDocumentRow(projectId, rowId),
+        method: ApiMethods.DELETE,
+      }),
+      async onQueryStarted({ projectId }, { dispatch, queryFulfilled }) {
+        try {
+          const { data } = await queryFulfilled;
+          // Like PATCH, a delete moves every total above the row, so the
+          // server hands back the whole retotalled document.
+          if (data?.data) {
+            dispatch(
+              boqDocumentApi.util.updateQueryData(
+                "getBoqDocument",
+                projectId,
+                (draft) => {
+                  draft.data = data.data;
+                },
+              ),
+            );
+          }
+        } catch {
+          // Cache untouched — the row is still there.
+        }
+      },
+    }),
+
+    /** DELETE /projects/:projectId/boq-document/sections/:sectionId */
+    deleteBoqDocumentSection: builder.mutation<
+      ApiResponse<BoqDocument>,
+      { projectId: string; sectionId: string }
+    >({
+      query: ({ projectId, sectionId }) => ({
+        url: ApiEndpoints.projects.boqDocumentSection(projectId, sectionId),
+        method: ApiMethods.DELETE,
+      }),
+      async onQueryStarted({ projectId }, { dispatch, queryFulfilled }) {
+        try {
+          const { data } = await queryFulfilled;
+          if (data?.data) {
+            dispatch(
+              boqDocumentApi.util.updateQueryData(
+                "getBoqDocument",
+                projectId,
+                (draft) => {
+                  draft.data = data.data;
+                },
+              ),
+            );
+          }
+        } catch {
+          // Cache untouched.
+        }
+      },
+    }),
+
     // GET /projects/:projectId/material-takeoff
     getMaterialTakeoff: builder.query<
       ApiResponse<MaterialTakeoffResult>,
@@ -71,5 +138,7 @@ export const boqDocumentApi = baseApi.injectEndpoints({
 export const {
   useGetBoqDocumentQuery,
   usePatchBoqDocumentRowMutation,
+  useDeleteBoqDocumentRowMutation,
+  useDeleteBoqDocumentSectionMutation,
   useGetMaterialTakeoffQuery,
 } = boqDocumentApi;

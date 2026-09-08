@@ -336,7 +336,7 @@ export function ExtractWorkspaceView({
         dashboardHref={dashboardHref}
         reportHref={reportHref}
         continueLaterHref={basePath}
-        reportLabel="View Reports"
+        reportLabel="View BOQ"
         locked={running}
       />
 

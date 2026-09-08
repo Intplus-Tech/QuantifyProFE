@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Lock } from "lucide-react";
+import { Lock, Trash2 } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -26,6 +26,8 @@ interface RowEditSheetProps {
   saving: boolean;
   onOpenChange: (open: boolean) => void;
   onSubmit: (patch: PatchBoqRowRequest) => void;
+  /** Omitted when the row cannot be removed. */
+  onDelete?: (row: BoqDocumentRow) => void;
 }
 
 interface FormState {
@@ -88,6 +90,7 @@ function LockedBadge({
 
 export function RowEditSheet({
   row,
+  onDelete,
   open,
   saving,
   onOpenChange,
@@ -303,7 +306,19 @@ export function RowEditSheet({
           )}
         </div>
 
-        <SheetFooter className="flex-row justify-end gap-2 border-t border-slate-200">
+        <SheetFooter className="flex-row items-center gap-2 border-t border-slate-200">
+          {onDelete && row && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="mr-auto h-9 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+              disabled={saving}
+              onClick={() => onDelete(row)}
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+              Delete this item
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"

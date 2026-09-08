@@ -135,6 +135,17 @@ export interface AiFlowState {
   formworkBreakdown: FormworkBreakdownRow[];
   contingencyPct: number;
   vatPct: number;
+  /**
+   * Rates and wording for the locally-derived bill, keyed by rowId.
+   *
+   * The AI takeoff's finish call does not write a server BOQ document, so the
+   * bill is derived from the extraction. There is nothing to PATCH, and these
+   * edits would otherwise be lost on every re-render.
+   */
+  boqRowRates: Record<string, number>;
+  boqRowEdits: Record<string, { description?: string; descriptionLeadIn?: string; unit?: string; quantity?: number; itemCode?: string }>;
+  boqRemovedRows: string[];
+  boqRemovedSections: string[];
 }
 
 const emptyDetails: AiProjectDetails = {
@@ -195,6 +206,10 @@ const initialState: AiFlowState = {
   formworkBreakdown: MOCK_FORMWORK_BREAKDOWN,
   contingencyPct: CONTINGENCY_PCT,
   vatPct: VAT_PCT,
+  boqRowRates: {},
+  boqRowEdits: {},
+  boqRemovedRows: [],
+  boqRemovedSections: [],
 };
 
 const revoke = (drawing?: AiDrawing) => {
@@ -447,6 +462,49 @@ const aiFlowSlice = createSlice({
           element.quantity = quantity;
           return;
         }
+      }
+    },
+
+    /** Price one row of the derived bill. */
+    setBoqRowRate(
+      state,
+      action: PayloadAction<{ rowId: string; rate: number | null }>,
+    ) {
+      if (action.payload.rate === null) delete state.boqRowRates[action.payload.rowId];
+      else state.boqRowRates[action.payload.rowId] = action.payload.rate;
+    },
+
+    setBoqRowEdit(
+      state,
+      action: PayloadAction<{
+        rowId: string;
+        changes: {
+          description?: string;
+          descriptionLeadIn?: string;
+          unit?: string;
+          quantity?: number;
+          itemCode?: string;
+          rate?: number;
+        };
+      }>,
+    ) {
+      const { rowId, changes } = action.payload;
+      const { rate, ...rest } = changes;
+      if (rate !== undefined) state.boqRowRates[rowId] = rate;
+      if (Object.keys(rest).length > 0) {
+        state.boqRowEdits[rowId] = { ...state.boqRowEdits[rowId], ...rest };
+      }
+    },
+
+    removeBoqRow(state, action: PayloadAction<string>) {
+      if (!state.boqRemovedRows.includes(action.payload)) {
+        state.boqRemovedRows.push(action.payload);
+      }
+    },
+
+    removeBoqSection(state, action: PayloadAction<string>) {
+      if (!state.boqRemovedSections.includes(action.payload)) {
+        state.boqRemovedSections.push(action.payload);
       }
     },
 
@@ -808,6 +866,10 @@ export const {
   setElementStatus,
   updateBoqItem,
   removeBoqItem,
+  setBoqRowRate,
+  setBoqRowEdit,
+  removeBoqRow,
+  removeBoqSection,
   updateConcreteRow,
   removeConcreteRow,
   updateRebarRow,
