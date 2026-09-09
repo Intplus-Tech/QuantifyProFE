@@ -108,6 +108,17 @@ export function RowEditSheet({
   }
 
   const isItem = row?.rowType === "item";
+  const computedAmount = (() => {
+    const quantity = Number(form.quantity);
+    const rate = Number(form.rate);
+    if (!Number.isFinite(quantity) || !Number.isFinite(rate)) return "—";
+    if (!form.quantity || !form.rate) return "—";
+    return new Intl.NumberFormat("en-NG", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(quantity * rate);
+  })();
+
   const lockedFields = useMemo(
     () => new Set<BoqLockableField>(row?.locked ?? []),
     [row],
@@ -291,6 +302,27 @@ export function RowEditSheet({
                   className="h-9 text-[12px]"
                 />
               </div>
+            </div>
+          )}
+
+          {/* Qty x Rate, exactly as the server will re-derive it — the amount
+              is never sent, so showing it here is the only preview there is. */}
+          {row?.rowType === "item" && (
+            <div className="rounded-md bg-slate-50 px-3 py-2.5 ring-1 ring-slate-200">
+              <p className="flex items-center justify-between text-[10px] text-slate-500">
+                <span>Qty × Rate</span>
+                <span className="tabular-nums">
+                  {form.quantity || "0"} × {form.rate || "0"}
+                </span>
+              </p>
+              <p className="mt-1 flex items-center justify-between">
+                <span className="text-[12px] font-medium text-slate-700">
+                  Computed Amount
+                </span>
+                <span className="text-[15px] font-bold tabular-nums text-amber-600">
+                  {computedAmount}
+                </span>
+              </p>
             </div>
           )}
 

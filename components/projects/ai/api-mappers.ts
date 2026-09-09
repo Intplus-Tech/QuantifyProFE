@@ -329,6 +329,13 @@ export function mapDetectionToElement(
     grid,
     page,
     source: `Pg${page}`,
+    geometry: detection.geometry
+      ? {
+          type: detection.geometry.type,
+          points: detection.geometry.points ?? [],
+          radius: detection.geometry.radius,
+        }
+      : undefined,
     quantity: readQuantity(detection, grid),
     confidence: Math.round((detection.confidence ?? 0) * 100),
     status: STATUS_BY_REVIEW[detection.reviewStatus ?? "pending"] ?? "review",
