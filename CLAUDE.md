@@ -1258,3 +1258,128 @@ Rebar for a mat is Ø²/162.2 per metre (the QS shorthand for π/4 Ø² × 7850)
 2.4 m cap reads 174.2 kg at Y16@200 both ways with a top mesh, against the
 design's 201.3 kg — the design figure came from the 38.83 kg/m³ rule of thumb,
 which now survives only for cages and columns.
+
+### AI flow adopts the elemental BOQ (boq_v2) — 2026-09-07
+
+`Mercy` was 9 commits behind and had no local work of its own (the AI fixes
+landed on main via PRs #61/#62), so it was fast-forwarded to `origin/main` to
+pick up `ad6fae6` — the manual flow's boq_v2 page.
+
+The AI flow now renders **the same document through the same components**
+rather than its own locally-derived tables. Both flows commit a takeoff, the
+server builds one document from it, so a drawing measured either way bills
+identically.
+
+| AI report tab | Was | Now |
+|---|---|---|
+| Bill of Quantity | `aiFlow.boqSections`, derived in `deriveReports.ts` | `GET /projects/:id/boq-document` via `ElementGroupCard` / `SectionBlock` / `RateCell` / `GrandSummaryBlock` / `RowEditSheet` |
+| Material Schedule | concrete + rebar + formwork tables derived locally | `GET /projects/:id/material-takeoff` — what to *order*, waste included |
+
+Both views take `projectId` from the route (the report pages now await
+`params`), and render inside `ReportShell`, so the Project Audit nav is kept —
+only the manual flow's full-screen `BOQDocumentView` chrome is not reused.
+
+Contract details honoured: rows key off `rowId` and groups off `groupId` (never
+`elementNo`, which renumbers); a PATCH response replaces the whole cached
+document because the totals above the row have moved; `null` rates render as an
+em dash, never ₦0; the group list is built from the response rather than
+hard-coded, since coverage is partial by design.
+
+**404 is an empty state, not an error** — the document is written by the takeoff
+commit, so a project that has never been finalized has none. The AI tab offers
+"Generate the BOQ", which calls the existing `finish(true)` and refetches.
+
+`aiFlow.boqSections` is still written by `finish()` and `setDerivedReports`, but
+nothing renders it any more. Left in place: the BBS and Formwork tabs still read
+their own slices.
+
+**Open question for the backend.** No `/takeoff/:projectId/calculate/commit`
+exists anywhere in this frontend — the manual flow finalizes via
+`POST /measurement-sessions/:id/finalize`, and the AI flow via
+`POST /ai-takeoff/sessions/:id/finish`. If the AI finish does not write
+`boqDocument` server-side the way the manual finalize does, the AI BOQ tab will
+sit on its 404 empty state forever and "Generate the BOQ" will not help. Worth
+confirming before this is called done.
+
+### BOQ row + section actions — 2026-09-08
+
+An **Actions** column now closes every BOQ table, after Amount, and one action
+sits in each section header. Hover (or click, or keyboard focus) opens a popup
+with Edit and Delete. Built once in `boq-document/` and used by both flows, so
+the manual page and the AI report's BOQ tab behave identically.
+
+| Level | Edit | Delete |
+|---|---|---|
+| Row | `RowEditSheet` — item code, lead-in, description, unit, qty, rate | confirm → `DELETE .../rows/:rowId` |
+| Section | `BoqSectionRenameDialog` — retitles the section | confirm → `DELETE .../sections/:sectionId` |
+
+New: `RowActionsMenu.tsx`, `BoqDeleteDialogs.tsx`, `useBoqDocumentActions.ts`
+(all the edit/delete wiring, shared). `RowEditSheet` gained a **Delete this
+item** button, matching the design's drawer. The old per-row `EditButton` is
+gone — the menu replaces it.
+
+Amount is deliberately not editable anywhere: the server re-derives it as
+`quantity × rate`, and sending it is stripped by validation rather than
+rejected, so an editable field would fail silently.
+
+**The delete endpoints do not exist yet.** The boq_v2 contract documents three
+routes — GET the document, PATCH a row, GET the materials. Nothing deletes.
+Both mutations follow the PATCH URL convention so they work the moment the
+backend adds them; until then a delete surfaces "Deleting a row isn't supported
+by the server yet" (405/501) rather than removing it from the screen and
+letting it reappear on refresh. **Editing is fully live.**
+
+Section rename is also a workaround: with no section-level endpoint it PATCHes
+`descriptionLeadIn` on the section's first row. A real section title field would
+be better.
+
+Build note: `next build` fails locally with `EPERM: rmdir .next/build/chunks` —
+a OneDrive/Windows file lock, not a code fault. `tsc --noEmit` and ESLint pass.
+
+### Fix — the AI BOQ tab went blank after extraction (2026-09-08)
+
+Pointing the AI Bill of Quantity at `GET /boq-document` alone was wrong: the AI
+takeoff's `finish` call does not write a boq_v2 document, so the endpoint 404s
+forever and the tab showed "No bill of quantities yet" over a completed
+extraction. That is not how the flow behaved before.
+
+**Two sources, one rendering.** `BillOfQuantityView` prefers the server document
+when there is one (edits go through the real PATCH) and otherwise derives the
+bill from the extraction already on screen. Same elemental components either
+way, so the design is identical — only the persistence differs.
+
+`deriveBoqDocument.ts` builds a `BoqDocument` from `groups` + `globalParameters`:
+
+- element groups — SUBSTRUCTURAL WORKS (foundations) / FRAME (superstructure)
+- sections — D20 excavating, E10 concrete, E20 formwork, E30 reinforcement
+- rows — one per measure type per work type, `rowId` = `group:work:measureType`
+- item codes run continuously A–Z, AA… across all sections in a group
+- lead-ins appear on the first row of each run only, as a bill is written
+- reinforcement billed in tonnes; every figure is `perMember × quantity`
+
+Rates and wording for the derived bill live in `aiFlowSlice`
+(`boqRowRates`, `boqRowEdits`, `boqRemovedRows`, `boqRemovedSections`) since
+there is nothing to PATCH; `applyLocalEdits` folds them over each rebuild and
+re-totals. `useLocalBoqActions` mirrors `useBoqDocumentActions`'s shape so the
+view holds either without branching.
+
+**"Finalize failed — this session has been finalized and can no longer be
+modified"** was a finalized session whose local flag had been lost. `finish()`
+now treats that message as success: mark it finalized, say so quietly, no red
+error over completed work.
+
+The empty state is now reached only when nothing has been *measured* — not when
+the server has no document.
+
+### BOQ layout follow-ups (2026-09-08)
+
+- The actions column now carries a visible **Action** header beside Amount,
+  rather than a screen-reader-only label. The three-dot control still opens on
+  hover, click or keyboard focus.
+- `ProjectInfoPanel` (project info + quick summary + grand total) now sits to
+  the left of the bill on the **AI** report's BOQ tab too, matching the manual
+  page — `sm:flex sm:gap-6` with the panel `shrink-0` at `sm:w-[200px]`. It is
+  fed by the same `meta`/`summary` whether the document came from the server or
+  was derived from the extraction.
+- `preparedBy` is left blank on a derived document (the panel renders "—")
+  rather than inventing a consultant name.

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Lock } from "lucide-react";
+import { Lock, Trash2 } from "lucide-react";
 import { DraggablePanel } from "@/components/ui/draggable-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,8 @@ interface RowEditPanelProps {
   sectionTitle?: string;
   onOpenChange: (open: boolean) => void;
   onSubmit: (patch: PatchBoqRowRequest) => void;
+  /** Omitted when the row cannot be removed. */
+  onDelete?: (row: BoqDocumentRow) => void;
 }
 
 interface FormState {
@@ -93,6 +95,7 @@ function LockedBadge({
 
 export function RowEditPanel({
   row,
+  onDelete,
   open,
   saving,
   currency,
@@ -197,11 +200,20 @@ export function RowEditPanel({
       subtitle={subtitle}
       className="w-[23rem]"
       footer={
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] text-slate-400">
-            Saves immediately · survives recalculation
-          </span>
-          <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          {onDelete && row ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+              disabled={saving}
+              onClick={() => onDelete(row)}
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+              Delete
+            </Button>
+          ) : null}
+          <div className="ml-auto flex items-center gap-2">
             <Button
               variant="outline"
               size="sm"

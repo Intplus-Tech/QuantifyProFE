@@ -140,6 +140,8 @@ export const projects = {
   boqDocument: (id: string) => `/projects/${id}/boq-document`,
   boqDocumentRow: (id: string, rowId: string) =>
     `/projects/${id}/boq-document/rows/${rowId}`,
+  boqDocumentSection: (id: string, sectionId: string) =>
+    `/projects/${id}/boq-document/sections/${sectionId}`,
   materialTakeoff: (id: string) => `/projects/${id}/material-takeoff`,
   listByCompany: (companyId: string) => `/projects/company/${companyId}`,
   activity: (id: string) => `/projects/${id}/activity`,
