@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { FileSpreadsheet, Loader2, Printer, RefreshCw } from "lucide-react";
+import { FileDown, FileSpreadsheet, Loader2, RefreshCw, Sheet } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useGetBoqDocumentQuery } from "@/store/api/boqDocumentApi";
@@ -34,6 +34,7 @@ import type {
 } from "@/types/boqDocument";
 import { useAiTakeoff } from "../useAiTakeoff";
 import { deriveBoqDocument } from "./deriveBoqDocument";
+import { exportBoqToExcel, exportBoqToPdf } from "./exportBoq";
 import { ReportHeading } from "./ReportHeading";
 
 /**
@@ -143,10 +144,19 @@ export function BillOfQuantityView({ projectId }: { projectId: string }) {
               variant="outline"
               size="sm"
               className="h-8 text-[11px]"
-              onClick={() => window.print()}
+              onClick={exportBoqToPdf}
             >
-              <Printer className="mr-1.5 h-3 w-3" />
-              Print
+              <FileDown className="mr-1.5 h-3 w-3" />
+              Export to PDF
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-[11px]"
+              onClick={() => void exportBoqToExcel(doc)}
+            >
+              <Sheet className="mr-1.5 h-3 w-3" />
+              Export to Excel
             </Button>
           </div>
         }
@@ -200,7 +210,11 @@ export function BillOfQuantityView({ projectId }: { projectId: string }) {
             />
           ))}
 
-          <GrandSummaryBlock summary={summary} currency={meta.currency} />
+          {/* The bill runs long; the closing summary stays in view so the
+              grand total is readable from anywhere in it. */}
+          <div className="sticky bottom-0 z-10 bg-[#f1fbfc]/95 pt-2 backdrop-blur print:static print:bg-transparent">
+            <GrandSummaryBlock summary={summary} currency={meta.currency} />
+          </div>
 
           <p className="mt-4 border-t border-[#dbeef1] pt-3 text-[10px] text-slate-400 print:hidden">
             Grand total {formatMoney(summary.grandTotal, meta.currency)} ·{" "}
