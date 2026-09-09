@@ -41,6 +41,13 @@ export interface ConcreteFieldDef {
   defaultValue: string;
   type?: "text" | "select" | "checkbox";
   options?: string[];
+  /**
+   * Render this field only while another field in the same form holds one of
+   * these values — e.g. show "Diameter" for a Circular pile, "Width"/"Length"
+   * for a Rectangular one. Hidden fields are also dropped from the saved
+   * concreteFields payload.
+   */
+  visibleWhen?: { field: string; equals: string[] };
 }
 
 export interface ConcreteRowDef {
@@ -100,9 +107,16 @@ export function computeVolume(
   switch (measureType) {
     case "Piles": {
       const depth = n("depth");
-      const diameter = n("diameter");
-      const radius = diameter / 2;
-      vol = pi * radius * radius * depth;
+      const shape = fields.shape ?? "Circular";
+      if (shape === "Rectangular") {
+        vol = n("width") * n("length") * depth;
+      } else if (shape === "Square") {
+        const side = n("side");
+        vol = side * side * depth;
+      } else {
+        const radius = n("diameter") / 2;
+        vol = pi * radius * radius * depth;
+      }
       break;
     }
     case "Stud Column / Column in Foundation":
