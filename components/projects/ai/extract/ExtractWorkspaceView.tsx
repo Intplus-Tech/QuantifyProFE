@@ -18,7 +18,12 @@ import {
 } from "@/store/slices/aiFlowSlice";
 import type { RootState } from "@/store";
 import { ExtractTopBar } from "./ExtractTopBar";
-import { ExtractCanvas, type CanvasPoint, type CanvasTool } from "./ExtractCanvas";
+import {
+  ExtractCanvas,
+  type CanvasDetection,
+  type CanvasPoint,
+  type CanvasTool,
+} from "./ExtractCanvas";
 import { MeasureSelectPanel } from "./MeasureSelectPanel";
 import { ExtractionProgressPanel } from "./ExtractionProgressPanel";
 import { QuickEditModal } from "./QuickEditModal";
@@ -163,6 +168,59 @@ export function ExtractWorkspaceView({
         .filter((element) => element.page === activePage),
     [groups, activePage],
   );
+
+  /**
+   * The calibration line's own read-out, as the manual canvas shows while
+   * measuring: what has been typed before Apply, the resolved length after.
+   */
+  const calibrationLabel = useMemo(() => {
+    if (calibration && calibPoints.length < 2) return null;
+    if (calibPoints.length < 2) return null;
+
+    const typed = parseFloat(knownDistance);
+    if (Number.isFinite(typed) && typed > 0) return `${typed} ${scaleUnit}`;
+
+    if (calibration && naturalSize) {
+      const pagePixels = Math.hypot(
+        calibPoints[1].x - calibPoints[0].x,
+        calibPoints[1].y - calibPoints[0].y,
+      );
+      const rasterScale = rasterScaleFor(
+        naturalSize.width,
+        naturalSize.height,
+        activeDrawing?.extension === ".pdf",
+      );
+      const metres = pagePixels * rasterScale * calibration.metresPerPixel;
+      return `${metres.toFixed(2)} m`;
+    }
+    return "Enter the real distance";
+  }, [calibration, calibPoints, knownDistance, scaleUnit, naturalSize, activeDrawing]);
+
+  /**
+   * Everything found on this page, marked on the drawing itself. Detection
+   * geometry is in uploaded-image pixels; the canvas works in page pixels, so
+   * the inverse of the raster scale carries it across.
+   */
+  const canvasDetections: CanvasDetection[] = useMemo(() => {
+    if (!naturalSize) return [];
+    const rasterScale = rasterScaleFor(
+      naturalSize.width,
+      naturalSize.height,
+      activeDrawing?.extension === ".pdf",
+    );
+    if (rasterScale <= 0) return [];
+
+    return pageElements
+      .filter((element) => element.geometry?.points?.length)
+      .map((element) => ({
+        id: element.id,
+        label: element.grid && element.grid !== "—" ? element.grid : element.id,
+        points: element.geometry!.points,
+        radius: element.geometry!.radius,
+        status: element.status === "valid" ? "valid" : element.status === "rejected" ? "rejected" : "review",
+        toPageScale: 1 / rasterScale,
+      }));
+  }, [pageElements, naturalSize, activeDrawing]);
 
   const quickEditElement =
     groups.flatMap((g) => g.elements).find((e) => e.id === quickEditId) ?? null;
@@ -359,6 +417,9 @@ export function ExtractWorkspaceView({
           dimmed={running}
           calibrating={picking && !running}
           calibrationPoints={calibPoints}
+          calibrationLabel={calibrationLabel}
+          detections={running ? [] : canvasDetections}
+          onDetectionClick={setQuickEditId}
           onCalibrationPoint={handleCalibrationPoint}
           tool={tool}
           onToolChange={setTool}

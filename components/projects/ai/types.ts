@@ -38,6 +38,12 @@ export interface ExtractedElement {
   page: number;
   source: string;
   /**
+   * Where the detection sits on the page, in uploaded-page-image pixels.
+   * Kept so the canvas can mark and label what was measured — without it the
+   * surveyor has a table of numbers and no way to check them against the plan.
+   */
+  geometry?: { type: string; points: number[][]; radius?: number };
+  /**
    * How many identical members this row stands for. A pile legend row reads
    * "1 - 130 | Ø600 | 10m": one detection, one hundred and thirty piles. Every
    * quantity is multiplied by it.

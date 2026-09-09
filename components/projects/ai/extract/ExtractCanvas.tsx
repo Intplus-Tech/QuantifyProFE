@@ -26,6 +26,17 @@ export interface CanvasPoint {
   y: number;
 }
 
+/** One detection to outline on the drawing, in page-image pixels. */
+export interface CanvasDetection {
+  id: string;
+  label: string;
+  points: number[][];
+  radius?: number;
+  status: "valid" | "review" | "rejected";
+  /** page pixels per uploaded-image pixel — the inverse of the raster scale */
+  toPageScale: number;
+}
+
 export type CanvasTool = Tool;
 
 export function ExtractCanvas({
@@ -44,6 +55,9 @@ export function ExtractCanvas({
   onRetry,
   calibrating,
   calibrationPoints,
+  calibrationLabel,
+  detections,
+  onDetectionClick,
   onCalibrationPoint,
   tool,
   onToolChange,
@@ -66,6 +80,14 @@ export function ExtractCanvas({
   onRetry?: () => void;
   calibrating?: boolean;
   calibrationPoints?: CanvasPoint[];
+  /** e.g. "2.03 m" — drawn on the calibration line, as the manual canvas does */
+  calibrationLabel?: string | null;
+  /**
+   * What the AI found on this page, in the page's own pixel space, so each
+   * detection can be outlined and named on the drawing itself.
+   */
+  detections?: CanvasDetection[];
+  onDetectionClick?: (id: string) => void;
   tool: Tool;
   onToolChange: (tool: Tool) => void;
   /**
@@ -264,7 +286,17 @@ export function ExtractCanvas({
                 />
               )}
 
-              <CalibrationOverlay points={points} scale={scale} />
+              <DetectionOverlay
+                detections={detections ?? []}
+                scale={scale}
+                onSelect={onDetectionClick}
+              />
+
+              <CalibrationOverlay
+                points={points}
+                scale={scale}
+                label={calibrationLabel}
+              />
             </div>
           </div>
         </div>
@@ -335,9 +367,11 @@ export function ExtractCanvas({
 function CalibrationOverlay({
   points,
   scale,
+  label,
 }: {
   points: CanvasPoint[];
   scale: number;
+  label?: string | null;
 }) {
   if (points.length === 0) return null;
 
@@ -355,6 +389,14 @@ function CalibrationOverlay({
           stroke="#f59e0b"
           strokeWidth={2}
           strokeDasharray="6 4"
+        />
+      )}
+      {marks.length === 2 && label && (
+        <CanvasLabel
+          x={(marks[0].x + marks[1].x) / 2}
+          y={(marks[0].y + marks[1].y) / 2}
+          text={label}
+          colour="#b45309"
         />
       )}
       {marks.map((point, index) => (
@@ -430,5 +472,141 @@ function ToolButton({
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * A white pill behind bold text, matching the labels the manual measurement
+ * canvas draws — same idea, SVG rather than Konva.
+ */
+function CanvasLabel({
+  x,
+  y,
+  text,
+  colour,
+}: {
+  x: number;
+  y: number;
+  text: string;
+  colour: string;
+}) {
+  // No text metrics in SVG without measuring, so approximate from the glyph
+  // count — the pill only has to sit behind the text, not fit it exactly.
+  const width = text.length * 6.2 + 10;
+
+  return (
+    <g pointerEvents="none">
+      <rect
+        x={x - width / 2}
+        y={y - 9}
+        width={width}
+        height={18}
+        rx={3}
+        fill="white"
+        fillOpacity={0.92}
+        stroke={colour}
+        strokeOpacity={0.35}
+      />
+      <text
+        x={x}
+        y={y + 4}
+        textAnchor="middle"
+        fontSize={11}
+        fontWeight={700}
+        fill={colour}
+        fontFamily="system-ui, sans-serif"
+      >
+        {text}
+      </text>
+    </g>
+  );
+}
+
+const DETECTION_COLOUR: Record<CanvasDetection["status"], string> = {
+  valid: "#059669",
+  review: "#d97706",
+  rejected: "#94a3b8",
+};
+
+/**
+ * Outline and name every detection on the page.
+ *
+ * Without this the surveyor gets a table of quantities and no way to check them
+ * against the plan — this is what shows that what was measured is what they
+ * meant to measure.
+ */
+function DetectionOverlay({
+  detections,
+  scale,
+  onSelect,
+}: {
+  detections: CanvasDetection[];
+  scale: number;
+  onSelect?: (id: string) => void;
+}) {
+  if (detections.length === 0) return null;
+
+  return (
+    <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible">
+      {detections.map((detection) => {
+        // page-image pixels → page pixels → rendered pixels
+        const k = detection.toPageScale * scale;
+        const pts = detection.points
+          .filter((p) => p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1]))
+          .map(([px, py]) => ({ x: px * k, y: py * k }));
+        if (pts.length === 0) return null;
+
+        const xs = pts.map((p) => p.x);
+        const ys = pts.map((p) => p.y);
+        const left = Math.min(...xs);
+        const right = Math.max(...xs);
+        const top = Math.min(...ys);
+        const bottom = Math.max(...ys);
+        const colour = DETECTION_COLOUR[detection.status];
+
+        // A point detection — a pile symbol — has no extent to outline, so it
+        // gets a ring at its own radius instead of a zero-sized box.
+        const isPoint = right - left < 2 && bottom - top < 2;
+        const radius = (detection.radius ?? 0) * k || 9;
+
+        return (
+          <g
+            key={detection.id}
+            className="pointer-events-auto cursor-pointer"
+            onClick={() => onSelect?.(detection.id)}
+          >
+            {isPoint ? (
+              <circle
+                cx={left}
+                cy={top}
+                r={radius}
+                fill={colour}
+                fillOpacity={0.12}
+                stroke={colour}
+                strokeWidth={1.5}
+              />
+            ) : (
+              <rect
+                x={left}
+                y={top}
+                width={right - left}
+                height={bottom - top}
+                fill={colour}
+                fillOpacity={0.08}
+                stroke={colour}
+                strokeWidth={1.5}
+                rx={2}
+              />
+            )}
+            <CanvasLabel
+              x={isPoint ? left : (left + right) / 2}
+              y={(isPoint ? top - radius : top) - 12}
+              text={detection.label}
+              colour={colour}
+            />
+          </g>
+        );
+      })}
+    </svg>
   );
 }

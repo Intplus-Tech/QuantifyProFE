@@ -116,6 +116,7 @@ export function RowEditPanel({
   }
 
   const isItem = row?.rowType === "item";
+
   const lockedFields = useMemo(
     () => new Set<BoqLockableField>(row?.locked ?? []),
     [row],

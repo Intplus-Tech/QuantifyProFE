@@ -1383,3 +1383,45 @@ the server has no document.
   was derived from the extraction.
 - `preparedBy` is left blank on a derived document (the panel renders "—")
   rather than inventing a consultant name.
+
+### The BOQ template — corrected to the right workbook tab (2026-09-09)
+
+The first pass transcribed the **wrong sheet**. The shared link carries
+`#gid=156056865`; the default tab is a Preform Factory bill and that is what
+was built. `boqTemplate.ts` is now the residential **Main Building Element**
+bill from the correct tab — the one in the design screenshots:
+
+| # | Element group | # | Element group |
+|---|---|---|---|
+| 1 | Substructural Works (all provisional) | 9 | Internal Doors |
+| 2 | Frame (provisional) | 10 | Plumbing and Mechanical Installation |
+| 3 | Upper Floors | 11 | Electrical Installation |
+| 4 | Roof | 12 | Floor Finishes |
+| 5 | Staircase & Circulation Core | 13 | Wall Finishes |
+| 6 | External Walls | 14 | Ceiling Finishes |
+| 7 | Internal Walls and Partitions | 15 | Fittings and Fixtures |
+| 8 | Windows and External Doors | | |
+
+230 item rows, 55 of them prefilled from the extraction. Item letters are the
+workbook's own — they restart per section in Element 1 and run continuously
+through Element 2 — so they are written out rather than generated.
+
+That tab exports with `#REF!` errors and misaligned columns, so it was
+transcribed from the design screenshots instead, which are legible and complete.
+
+**Fill mapping** splits excavation the way the workbook bills it: the net dig
+(`exc.pilecap`, `exc.groundbeam`) and the working-space allowance
+(`ws.pilecap`, `ws.groundbeam`) are separate items, so
+`netDig = planArea × height` and `workingSpace = excavation − netDig`.
+Blinding is billed per element (`blind.pilecap` / `blind.groundbeam` /
+`blind.raft`), reinforcement in tonnes, blockwork by face area (half the
+formwork figure, which counts both faces), and wall render and paint follow the
+same faces. Closing adjustment is Preliminaries at 10%.
+
+**Edit drawer** now matches the design: item reference, description, unit,
+quantity, unit rate, and a live **Computed Amount** card showing `Qty × Rate`,
+plus **Delete this item**. Amount is still never sent — the server re-derives it.
+
+**Action column** sits after Amount with a visible `Action` header; the control
+opens on hover, click or keyboard focus and offers Edit and Delete, per row and
+once per section.
