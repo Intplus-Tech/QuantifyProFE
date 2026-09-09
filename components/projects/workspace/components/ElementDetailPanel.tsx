@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { ELEMENT_CONFIGS, BAR_SIZE_OPTIONS, PALETTE, PALETTE_LABELS } from "./constants";
-import type { RebarBar } from "./types";
+import type { ConcreteFieldDef, RebarBar } from "./types";
 import type { VariantRebar, WsConcreteMeasurement } from "../workspaceSession";
 
 // ─── Prop types ───────────────────────────────────────────────────────────────
@@ -126,6 +126,29 @@ export function ElementDetailPanel({
   function setField(key: string, value: string) {
     setFieldValues((prev) => ({ ...prev, [key]: value }));
   }
+
+  // A field with `visibleWhen` only shows while its controlling field holds one
+  // of the listed values (e.g. Diameter for a Circular pile, Width/Length for a
+  // Rectangular one).
+  const isFieldVisible = (field: ConcreteFieldDef): boolean =>
+    !field.visibleWhen ||
+    field.visibleWhen.equals.includes(
+      fieldValues[field.visibleWhen.field] ?? "",
+    );
+
+  // The concreteFields payload, minus any field currently hidden by `visibleWhen`
+  // so a Rectangular pile never carries a stale `diameter`, etc.
+  const collectConcreteFields = (): Record<string, string> => {
+    const hidden = new Set(
+      rows.flatMap((r) => r.fields).filter((f) => !isFieldVisible(f)).map((f) => f.key),
+    );
+    const { tag = "", ...rest } = fieldValues;
+    const out: Record<string, string> = { tag };
+    for (const [k, v] of Object.entries(rest)) {
+      if (!hidden.has(k)) out[k] = v;
+    }
+    return out;
+  };
 
   // ── Rebar form ──────────────────────────────────────────────────────────────
 
@@ -246,7 +269,7 @@ export function ElementDetailPanel({
   const concreteFormFilled =
     fieldValues.tag.trim() !== "" ||
     rows.some((row) =>
-      row.fields.some((f) => {
+      row.fields.filter(isFieldVisible).some((f) => {
         if (f.type === "select" || f.type === "checkbox") return false;
         const v = fieldValues[f.key] ?? "";
         return v !== "" && v !== "0";
@@ -281,7 +304,7 @@ export function ElementDetailPanel({
     // the actual in-progress round's auto-save.
     if (!onFormChangeRef.current || selectedVariant) return;
     const timer = setTimeout(() => {
-      const { tag = "", ...restFields } = fieldValues;
+      const tag = fieldValues.tag ?? "";
       const rebarPayload: VariantRebar | null = showRebarTab
         ? {
             method: rebarMethod,
@@ -295,7 +318,7 @@ export function ElementDetailPanel({
       const tool: "count" | "length" | "area" = activeMeasureTool ?? "count";
       onFormChangeRef.current?.({
         tag,
-        concreteFields: { tag, ...restFields },
+        concreteFields: collectConcreteFields(),
         rebar: rebarPayload,
         canvas: { tool, count: liveCount, length: liveLength, area: liveArea, unit: distanceUnit ?? "Meters" },
       });
@@ -309,7 +332,7 @@ export function ElementDetailPanel({
 
   function handleApply() {
     // Capture all data BEFORE any state reset
-    const { tag = "", ...restFields } = fieldValues;
+    const tag = fieldValues.tag ?? "";
 
     const rebarPayload: VariantRebar | null = showRebarTab
       ? {
@@ -326,7 +349,7 @@ export function ElementDetailPanel({
 
     onSaveMeasurement?.({
       tag,
-      concreteFields: { tag, ...restFields },
+      concreteFields: collectConcreteFields(),
       rebar: rebarPayload,
       canvas: {
         tool,
@@ -464,15 +487,18 @@ export function ElementDetailPanel({
               )}
             </div>
 
-            {rows.map((row, i) => (
+            {rows.map((row, i) => {
+              const visibleFields = row.fields.filter(isFieldVisible);
+              if (visibleFields.length === 0) return null;
+              return (
               <div key={i} className="space-y-2">
                 {row.sectionLabel && (
                   <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
                     {row.sectionLabel}
                   </p>
                 )}
-                <div className={row.fields.length === 2 ? "grid grid-cols-2 gap-3" : ""}>
-                  {row.fields.map((field) => (
+                <div className={visibleFields.length === 2 ? "grid grid-cols-2 gap-3" : ""}>
+                  {visibleFields.map((field) => (
                     <div key={field.key} className="space-y-1">
                       <label className="text-[11px] text-slate-500">{field.label}</label>
                       {field.type === "select" ? (
@@ -516,7 +542,8 @@ export function ElementDetailPanel({
                   ))}
                 </div>
               </div>
-            ))}
+              );
+            })}
 
             <div className="space-y-1">
               <label className="text-[11px] text-slate-500">Measurement Color</label>

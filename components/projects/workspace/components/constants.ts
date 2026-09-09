@@ -141,7 +141,14 @@ export const ELEMENT_CONFIGS: Record<string, ElementConcreteConfig> = {
       },
       {
         fields: [
-          { key: "diameter", label: "Diameter (m)", defaultValue: "0" },
+          { key: "diameter", label: "Diameter (m)", defaultValue: "0", visibleWhen: { field: "shape", equals: ["Circular"] } },
+          { key: "side", label: "Side (m)", defaultValue: "0", visibleWhen: { field: "shape", equals: ["Square"] } },
+          { key: "width", label: "Width (m)", defaultValue: "0", visibleWhen: { field: "shape", equals: ["Rectangular"] } },
+          { key: "length", label: "Length (m)", defaultValue: "0", visibleWhen: { field: "shape", equals: ["Rectangular"] } },
+        ],
+      },
+      {
+        fields: [
           { key: "plasticizers", label: "Plasticizers", defaultValue: "false", type: "checkbox" },
         ],
       },
