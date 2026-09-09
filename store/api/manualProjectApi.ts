@@ -23,6 +23,10 @@ export const manualProjectApi = baseApi.injectEndpoints({
         method: ApiMethods.PATCH,
         body,
       }),
+      invalidatesTags: (result, error, { projectId }) => [
+        { type: "Projects", id: projectId },
+        "Projects",
+      ],
     }),
 
     upsertStructuralScope: builder.mutation<

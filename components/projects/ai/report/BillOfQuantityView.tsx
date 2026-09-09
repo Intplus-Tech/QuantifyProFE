@@ -9,7 +9,7 @@ import { useGetBoqDocumentQuery } from "@/store/api/boqDocumentApi";
 import { ElementGroupCard } from "@/components/projects/boq-document/ElementGroupCard";
 import { GrandSummaryBlock } from "@/components/projects/boq-document/GrandSummaryBlock";
 import { ProjectInfoPanel } from "@/components/projects/boq-document/ProjectInfoPanel";
-import { RowEditSheet } from "@/components/projects/boq-document/RowEditSheet";
+import { RowEditPanel } from "@/components/projects/boq-document/RowEditPanel";
 import {
   BoqDeleteDialog,
   BoqSectionRenameDialog,
@@ -121,6 +121,18 @@ export function BillOfQuantityView({ projectId }: { projectId: string }) {
 
   const { meta, elementGroups, summary } = doc;
 
+  // The edit panel shows the row's section as its subtitle; the actions hook
+  // only tracks the row, so resolve the section from the bill here.
+  const editingSection = actions.editingRow
+    ? elementGroups
+        .flatMap((group) => group.sections)
+        .find((section) =>
+          section.rows.some(
+            (row) => row.rowId === actions.editingRow?.rowId,
+          ),
+        )
+    : undefined;
+
   return (
     <>
       <ReportHeading
@@ -225,10 +237,13 @@ export function BillOfQuantityView({ projectId }: { projectId: string }) {
         </div>
       </div>
 
-      <RowEditSheet
+      <RowEditPanel
         row={actions.editingRow}
         open={actions.sheetOpen}
         saving={actions.saving}
+        currency={meta.currency}
+        sectionCode={editingSection?.sectionCode}
+        sectionTitle={editingSection?.title}
         onOpenChange={actions.setSheetOpen}
         onSubmit={actions.onRowSubmit}
         onDelete={actions.onDeleteRow}

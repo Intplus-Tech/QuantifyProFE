@@ -13,6 +13,9 @@ export interface Step2Data {
   durationMonths: string;
   description: string;
   source: string;
+  // QS scope of works — drives qsProjectType on the backend. Required before a
+  // measurement session can be finalized into a BOQ.
+  scopeOfWorks: string; // one of SCOPE_PROJECT_TYPES
 }
 
 // ─── Step 3 ──────────────────────────────────────────────────────────────────

@@ -12,7 +12,7 @@ import { BOQDocumentHeader } from "./BOQDocumentHeader";
 import { ProjectInfoPanel } from "./ProjectInfoPanel";
 import { ElementGroupCard } from "./ElementGroupCard";
 import { GrandSummaryBlock } from "./GrandSummaryBlock";
-import { RowEditSheet } from "./RowEditSheet";
+import { RowEditPanel } from "./RowEditPanel";
 import { BoqDeleteDialog, BoqSectionRenameDialog } from "./BoqDeleteDialogs";
 import { useBoqDocumentActions } from "./useBoqDocumentActions";
 import { BOQDocumentLoading } from "./BOQDocumentLoading";
@@ -86,6 +86,19 @@ export function BOQDocumentView({
 
   const { meta, elementGroups, summary } = doc;
 
+  // The edit panel shows the row's section (SMM code + title) as its subtitle.
+  // useBoqDocumentActions only tracks the row, so resolve the section from the
+  // document here rather than threading it through every table prop.
+  const editingSection = actions.editingRow
+    ? elementGroups
+        .flatMap((group) => group.sections)
+        .find((section) =>
+          section.rows.some(
+            (row) => row.rowId === actions.editingRow?.rowId,
+          ),
+        )
+    : undefined;
+
   return (
     <div className="flex h-screen flex-col bg-white">
       <BOQTopBar
@@ -96,7 +109,7 @@ export function BOQDocumentView({
       />
 
       <main className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-6xl px-5 py-6 print:max-w-none print:px-0">
+        <div className="w-full px-4 py-6 sm:px-6 lg:px-8 print:px-0">
           <BOQDocumentHeader
             title={`Bill of Quantities — ${meta.projectTitle}`}
             subtitle={meta.location}
@@ -159,10 +172,13 @@ export function BOQDocumentView({
         </div>
       </main>
 
-      <RowEditSheet
+      <RowEditPanel
         row={actions.editingRow}
         open={actions.sheetOpen}
         saving={actions.saving}
+        currency={meta.currency}
+        sectionCode={editingSection?.sectionCode}
+        sectionTitle={editingSection?.title}
         onOpenChange={actions.setSheetOpen}
         onSubmit={actions.onRowSubmit}
         onDelete={actions.onDeleteRow}
