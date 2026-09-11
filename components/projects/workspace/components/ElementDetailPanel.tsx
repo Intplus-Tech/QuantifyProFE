@@ -100,6 +100,12 @@ export function ElementDetailPanel({
     cfg.tool === "choice" && cfg.rowsByChoice
       ? cfg.rowsByChoice[measureChoice ?? "count"]
       : cfg.rows;
+  // Some element types (Pile Cap, Column Base/Pad) let one tag stand for several
+  // identical members via a `count` field on the Concrete tab. Surface the same
+  // field on the Rebar tab too, so bar counts entered there can be read against
+  // how many members they actually cover.
+  const repetitionField =
+    rows.flatMap((r) => r.fields).find((f) => f.key === "count") ?? null;
   const [activeTab, setActiveTab] = useState<"concrete" | "rebar">("concrete");
   const [savedFeedback, setSavedFeedback] = useState(false);
   const blockworkLabel =
@@ -572,6 +578,22 @@ export function ElementDetailPanel({
                 {measure}: {fieldValues.tag || "—"}
               </span>
             </div>
+
+            {repetitionField && (
+              <div className="space-y-1">
+                <label className="text-[11px] text-slate-500">
+                  {repetitionField.label}
+                </label>
+                <Input
+                  value={fieldValues[repetitionField.key] ?? repetitionField.defaultValue}
+                  onChange={(e) => setField(repetitionField.key, e.target.value)}
+                  className="h-8 text-sm"
+                />
+                <p className="text-[10px] text-slate-400">
+                  Read the bar counts below against this many members.
+                </p>
+              </div>
+            )}
 
             <div className="space-y-2">
               <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">

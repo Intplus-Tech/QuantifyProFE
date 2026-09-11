@@ -200,7 +200,20 @@ export const ELEMENT_CONFIGS: Record<string, ElementConcreteConfig> = {
     measureLabel: "Area",
     measureUnit: "m²",
     mockMeasureValue: "0",
-    rows: [{ fields: [{ key: "thickness", label: "Thickness (m)", defaultValue: "0" }] }],
+    rows: [
+      {
+        fields: [
+          { key: "thickness", label: "Thickness (m)", defaultValue: "0" },
+          // Repetition multiplier — one tag can stand for several identical
+          // bases. Sent to the backend as `count`, which is the key its
+          // pad_footing materializer already reads (see Pile Cap's own
+          // "Quantity (Identical Caps)" field for the same pattern). Also
+          // surfaced on the Rebar tab so the bar counts there can be read
+          // against how many bases they actually cover.
+          { key: "count", label: "Total Number of Base Type", defaultValue: "1" },
+        ],
+      },
+    ],
   },
   "Stud Column / Column in Foundation": {
     tool: "choice",
