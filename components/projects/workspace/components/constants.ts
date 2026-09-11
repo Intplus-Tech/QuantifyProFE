@@ -210,7 +210,7 @@ export const ELEMENT_CONFIGS: Record<string, ElementConcreteConfig> = {
           // "Quantity (Identical Caps)" field for the same pattern). Also
           // surfaced on the Rebar tab so the bar counts there can be read
           // against how many bases they actually cover.
-          { key: "count", label: "Total Number of Base Type", defaultValue: "1" },
+          { key: "count", label: "No of Base Type", defaultValue: "1" },
         ],
       },
     ],

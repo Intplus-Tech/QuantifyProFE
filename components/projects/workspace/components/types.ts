@@ -143,7 +143,7 @@ export function computeVolume(
       break;
     }
     case "Column Base / Pad": {
-      // Total Number of Base Type multiplies the traced area × thickness —
+      // No of Base Type multiplies the traced area × thickness —
       // same repetition pattern as Pile Cap's `count`, defaulting to 1 so a
       // blank/zero entry never zeroes out the volume.
       const count = n("count") || 1;
