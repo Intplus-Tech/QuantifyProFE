@@ -142,7 +142,14 @@ export function computeVolume(
       vol = n("depth") * canvas.area * count;
       break;
     }
-    case "Column Base / Pad":
+    case "Column Base / Pad": {
+      // No of Base Type multiplies the traced area × thickness —
+      // same repetition pattern as Pile Cap's `count`, defaulting to 1 so a
+      // blank/zero entry never zeroes out the volume.
+      const count = n("count") || 1;
+      vol = n("thickness") * canvas.area * count;
+      break;
+    }
     case "Ground Floor Slab":
     case "Upper Floor Slab": {
       vol = n("thickness") * canvas.area;
