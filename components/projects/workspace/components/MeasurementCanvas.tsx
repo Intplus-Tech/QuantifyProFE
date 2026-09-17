@@ -44,13 +44,34 @@ function flat(pts: MPoint[]) {
   return pts.flatMap((p) => [p.x, p.y]);
 }
 
+// Live in-progress preview only (no frozen measurement to read yet).
 function fmtLen(basePx: number, sf: number, unit: string) {
   return `${(basePx / sf).toFixed(2)} ${unit}`;
 }
 
-function fmtArea(basePx2: number, sf: number, unit: string) {
-  const u2 = unit === "Meters" ? "m²" : `${unit}²`;
-  return `${(basePx2 / sf ** 2).toFixed(2)} ${u2}`;
+// For an already-completed measurement, format its own frozen real-world value
+// instead of recomputing from raw pixels ÷ the CURRENT scaleFactor. The two are
+// only guaranteed to agree at the instant of creation — recomputing meant any
+// later drift in scaleFactor (e.g. a stale carry-over after switching pages,
+// see ProjectWorkspaceView's per-page scale reset) silently corrupted the
+// displayed length/area of measurements that were already correct.
+function fmtRealLen(real: number, unit: string) {
+  return `${real.toFixed(2)} ${unit}`;
+}
+
+function fmtRealArea(real: number, unit: string) {
+  const u2 = unit.includes("²") ? unit : `${unit === "Meters" ? "m" : unit}²`;
+  return `${real.toFixed(2)} ${u2}`;
+}
+
+// Konva fires click→click→dblclick on a genuine double-click, so the second
+// click of the pair always lands one extra (duplicate, same-position) point
+// in an in-progress trace. Drop it before treating the trace as finished.
+function dropTrailingDuplicate(pts: MPoint[]): MPoint[] {
+  if (pts.length < 2) return pts;
+  const last = pts[pts.length - 1];
+  const prev = pts[pts.length - 2];
+  return ptDist(last, prev) < 0.5 ? pts.slice(0, -1) : pts;
 }
 
 // ── Sub-renderers (defined outside component for stable identity) ─────────────
@@ -199,32 +220,6 @@ export function MeasurementCanvas({
     }
   }, [isCalibrating]);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        inProgressRef.current = [];
-        setInProgress([]);
-        calibRef.current = [];
-        setCalibPts([]);
-        onCalibrationUpdate(null, null, 0);
-      }
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === "z") {
-        e.preventDefault();
-        onUndo();
-      }
-      if (
-        (e.ctrlKey || e.metaKey) &&
-        (e.key === "y" || (e.shiftKey && e.key === "z"))
-      ) {
-        e.preventDefault();
-        onRedo();
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCalibrationUpdate, onUndo, onRedo]);
-
   // Convert screen pixel position → base (scale=1) coordinates
   function getBasePos(): MPoint | null {
     const pos = stageRef.current?.getPointerPosition();
@@ -256,13 +251,66 @@ export function MeasurementCanvas({
     }
   }, [scaleFactor, distanceUnit, activeColor, onMeasurementAdd]);
 
+  // Finishes an in-progress length trace — an open polyline, any number of
+  // segments — and fires the measurement. Call this from double-click,
+  // right-click, or Enter. Mirrors closeAreaShape, minus the "closed loop"
+  // bookkeeping (a bar run doesn't snap back to its own start).
+  const finishLengthPath = useCallback(() => {
+    const pts = [...inProgressRef.current];
+    inProgressRef.current = [];
+    setInProgress([]);
+    onLiveLength?.(null);
+    if (pts.length < 2 || !scaleFactor) return;
+    const pixLen = polylineLen(pts);
+    if (pixLen <= 0.5) return; // degenerate — e.g. a double-click with no real 2nd point
+    onMeasurementAdd({
+      id: crypto.randomUUID(),
+      type: "length",
+      points: pts,
+      pixelLength: pixLen,
+      realLength: pixLen / scaleFactor,
+      unit: distanceUnit,
+      color: activeColor,
+    } as LengthMeasurement);
+  }, [scaleFactor, distanceUnit, activeColor, onMeasurementAdd, onLiveLength]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        inProgressRef.current = [];
+        setInProgress([]);
+        calibRef.current = [];
+        setCalibPts([]);
+        onLiveLength?.(null);
+        onCalibrationUpdate(null, null, 0);
+      }
+      if (e.key === "Enter" && activeTool === "length") {
+        finishLengthPath();
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === "z") {
+        e.preventDefault();
+        onUndo();
+      }
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        (e.key === "y" || (e.shiftKey && e.key === "z"))
+      ) {
+        e.preventDefault();
+        onRedo();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCalibrationUpdate, onUndo, onRedo, activeTool, finishLengthPath, onLiveLength]);
+
   const handleMouseMove = useCallback(() => {
     const pos = getBasePos();
     if (!pos) return;
     setMousePos(pos);
 
     if (activeTool === "length" && scaleFactor && inProgressRef.current.length > 0) {
-      onLiveLength?.(polylineLen([inProgressRef.current[0], pos]) / scaleFactor);
+      onLiveLength?.(polylineLen([...inProgressRef.current, pos]) / scaleFactor);
     }
 
     // Snap-to-close detection: light up the first point when cursor is close
@@ -307,35 +355,13 @@ export function MeasurementCanvas({
       return;
     }
 
-    // ── Length: 2-click model — first click starts, second click finishes ──
+    // ── Length: click to add each vertex of a continuous run — a bent or
+    // stepped reinforcement run is one measurement, not several disconnected
+    // 2-point segments. Finish with double-click, right-click, or Enter.
     if (activeTool === "length") {
-      if (inProgressRef.current.length === 0) {
-        inProgressRef.current = [pos];
-        setInProgress([pos]);
-      } else {
-        const pts = [inProgressRef.current[0], pos];
-        inProgressRef.current = [];
-        setInProgress([]);
-        onLiveLength?.(null);
-        const pixLen = polylineLen(pts);
-        // TEMP diagnostic — remove once the pixel-to-real-unit bug is found.
-        console.log("[MEASUREMENT]", {
-          pdfZoom: pdfScale,
-          basePixelLength: pixLen,
-          scaleFactor,
-          resultingRealLength: pixLen / scaleFactor,
-          unit: distanceUnit,
-        });
-        onMeasurementAdd({
-          id: crypto.randomUUID(),
-          type: "length",
-          points: pts,
-          pixelLength: pixLen,
-          realLength: pixLen / scaleFactor,
-          unit: distanceUnit,
-          color: activeColor,
-        } as LengthMeasurement);
-      }
+      const next = [...inProgressRef.current, pos];
+      inProgressRef.current = next;
+      setInProgress([...next]);
       return;
     }
 
@@ -358,27 +384,35 @@ export function MeasurementCanvas({
   }, [isCalibrating, activeTool, scaleFactor, activeColor, nextCountIndex, pdfScale, distanceUnit, onMeasurementAdd, closeAreaShape]);
 
   const handleDblClick = useCallback(() => {
-    if (activeTool === "length") {
-      // Konva fires onClick→onClick→onDblClick on a double-click.
-      // The 1st onClick completed the line; the 2nd onClick accidentally started a
-      // new one. Cancel that phantom start so the cursor stops following.
-      inProgressRef.current = [];
-      setInProgress([]);
-      onLiveLength?.(null);
+    // Konva fires onClick→onClick→onDblClick on a double-click, so the 2nd
+    // onClick of the pair already added a duplicate (same-position) point —
+    // drop it before treating the trace/polygon as finished.
+    if (activeTool === "length" && inProgressRef.current.length >= 2) {
+      inProgressRef.current = dropTrailingDuplicate(inProgressRef.current);
+      finishLengthPath();
       return;
     }
 
-    // Area: double-click also closes the polygon.
-    // Konva's 2nd onClick already added a duplicate point — remove it first.
     if (activeTool === "area" && inProgressRef.current.length >= 3) {
-      inProgressRef.current = inProgressRef.current.slice(0, -1);
+      inProgressRef.current = dropTrailingDuplicate(inProgressRef.current);
       closeAreaShape();
     }
-  }, [activeTool, closeAreaShape, onLiveLength]);
+  }, [activeTool, closeAreaShape, finishLengthPath]);
 
-  // Right-click cancels/closes: closes the area if enough points, otherwise cancels.
+  // Right-click cancels/finishes: closes the area or finishes the length trace
+  // if there are enough points, otherwise cancels the in-progress one.
   const handleContextMenu = useCallback((e: { evt: { preventDefault: () => void } }) => {
     e.evt.preventDefault();
+    if (activeTool === "length") {
+      if (inProgressRef.current.length >= 2) {
+        finishLengthPath();
+      } else {
+        inProgressRef.current = [];
+        setInProgress([]);
+        onLiveLength?.(null);
+      }
+      return;
+    }
     if (activeTool !== "area") return;
     if (inProgressRef.current.length >= 3) {
       closeAreaShape();
@@ -387,7 +421,7 @@ export function MeasurementCanvas({
       setInProgress([]);
       setSnapToClose(false);
     }
-  }, [activeTool, closeAreaShape]);
+  }, [activeTool, closeAreaShape, finishLengthPath, onLiveLength]);
 
   // Hand tool active → the overlay steps aside entirely so the pan layer
   // beneath it receives the drag, no matter which tool was armed before.
@@ -463,7 +497,7 @@ export function MeasurementCanvas({
                         <Circle key={i} x={pt.x} y={pt.y} radius={RD} fill={m.color} />
                       ))}
                       <MeasurementLabel
-                        text={fmtLen(m.pixelLength, scaleFactor, m.unit)}
+                        text={fmtRealLen(m.realLength, m.unit)}
                         cx={c.x}
                         cy={c.y}
                         color={m.color}
@@ -501,7 +535,7 @@ export function MeasurementCanvas({
                         <Circle key={i} x={pt.x} y={pt.y} radius={RD} fill={m.color} />
                       ))}
                       <MeasurementLabel
-                        text={fmtArea(m.pixelArea, scaleFactor, m.unit)}
+                        text={fmtRealArea(m.realArea, m.unit)}
                         cx={c.x}
                         cy={c.y}
                         color={m.color}

@@ -681,6 +681,33 @@ export function ProjectWorkspaceView({
 
   const selectedDrawing =
     drawings.find((d) => d.id === selectedDrawingId) ?? null;
+
+  // Calibration UI state (globalScaleFactor, scaleLocked) is NOT itself
+  // page-scoped — unlike measurementHook, which reloads synchronously, mid-
+  // render, from its OWN page-keyed storage the instant selectedDrawingId/
+  // selectedPage changes (see useCanvasMeasurements' prevKey!==currentKey
+  // check). Nothing reset these on a page switch, so after calibrating page A
+  // (scaleFactor X) and then switching to page B, globalScaleFactor stayed AT
+  // X — and the "restore this page's own calibration" effect further below
+  // bails out on its very first line (`if (globalScaleFactor !== null)
+  // return`), mistaking "stale leftover from page A" for "already correctly
+  // restored for page B". Page B's canvas then silently measured — and
+  // mislabeled already-placed marks — using page A's scale. Mirror
+  // useCanvasMeasurements' own pattern here: reset synchronously, in the same
+  // render, so there is never a stale value for anything downstream to read.
+  const calibPageKey = `${selectedDrawing?.uploadedFileId ?? "none"}-${selectedPage}`;
+  const [prevCalibPageKey, setPrevCalibPageKey] = useState(calibPageKey);
+  if (prevCalibPageKey !== calibPageKey) {
+    setPrevCalibPageKey(calibPageKey);
+    setGlobalScaleFactor(null);
+    setScaleLocked(false);
+    // scaleFlowActive/showElementPanel/scaleInfo/knownDistance/appliedCalibration
+    // are intentionally left alone — the restoration effects below (backend
+    // session hydration, then this page's own localStorage fallback) repopulate
+    // them correctly for the new page; resetting them here too would just
+    // flash the calibration bar closed for an instant on every page switch.
+  }
+
   const sessionTotals = useMemo(() => {
     let count = 0,
       length = 0,
@@ -1056,33 +1083,46 @@ export function ProjectWorkspaceView({
   // storage by the time this runs; pair it with the calibration metadata
   // (knownDistance/unit) saved alongside it to fully restore the UI state.
   useEffect(() => {
-    if (globalScaleFactor !== null) return; // already restored, e.g. via backend hydration
+    if (globalScaleFactor !== null) return; // already restored for this page
     const uploadedFileId = selectedDrawing?.uploadedFileId;
     if (!uploadedFileId) return;
     const localScaleFactor = measurementHook.state.scaleFactor;
     if (!localScaleFactor) return;
-    const saved = loadPageCalibration(uploadedFileId, selectedPage);
-    if (!saved) return;
 
     setGlobalScaleFactor(localScaleFactor);
-    setKnownDistance(saved.knownDistance);
-    setDistanceUnit(saved.distanceUnit);
-    setScaleInfo(saved.scaleInfo);
-    setScaleLocked(saved.scaleLocked);
     setScaleFlowActive(true);
     setShowElementPanel(true);
-    setAppliedCalibration({
-      knownDistance: parseFloat(saved.knownDistance) || 0,
-      pixelDistance: measurementHook.state.calibPts
-        ? Math.hypot(
-            measurementHook.state.calibPts[1].x -
-              measurementHook.state.calibPts[0].x,
-            measurementHook.state.calibPts[1].y -
-              measurementHook.state.calibPts[0].y,
-          )
-        : 0,
-      unit: toBackendDistanceUnit(saved.distanceUnit),
-    });
+
+    // The exact metadata the user typed (known-distance text, its unit, the
+    // scaleLocked toggle) only survives here when THIS page's own
+    // handleApplyScale/handleToggleScaleLock ran — a page whose calibration
+    // instead came from backend hydration (Phase 2, above) won't have it, so
+    // fall back to Phase 2's own convention (locked, generic info string) for
+    // that case. Either way, the scaleFactor restored above — which always
+    // comes from measurementHook's own reliably page-scoped storage — is what
+    // actually matters for measuring correctly.
+    const saved = loadPageCalibration(uploadedFileId, selectedPage);
+    if (saved) {
+      setKnownDistance(saved.knownDistance);
+      setDistanceUnit(saved.distanceUnit);
+      setScaleInfo(saved.scaleInfo);
+      setScaleLocked(saved.scaleLocked);
+      setAppliedCalibration({
+        knownDistance: parseFloat(saved.knownDistance) || 0,
+        pixelDistance: measurementHook.state.calibPts
+          ? Math.hypot(
+              measurementHook.state.calibPts[1].x -
+                measurementHook.state.calibPts[0].x,
+              measurementHook.state.calibPts[1].y -
+                measurementHook.state.calibPts[0].y,
+            )
+          : 0,
+        unit: toBackendDistanceUnit(saved.distanceUnit),
+      });
+    } else {
+      setScaleLocked(true);
+      setScaleInfo(`Scale: 1 px = ${(1 / localScaleFactor).toFixed(3)} m`);
+    }
   }, [
     selectedDrawing?.uploadedFileId,
     selectedPage,
@@ -2487,17 +2527,22 @@ export function ProjectWorkspaceView({
 
   const { countTotal, lengthTotal, areaTotal } = useMemo(() => {
     const ms = measurementHook.state.measurements;
-    const sf = globalScaleFactor;
     let countTotal = 0,
       lengthTotal = 0,
       areaTotal = 0;
     for (const m of ms) {
       if (m.type === "count") countTotal++;
-      else if (m.type === "length" && sf) lengthTotal += m.pixelLength / sf;
-      else if (m.type === "area" && sf) areaTotal += m.pixelArea / (sf * sf);
+      // Each measurement's own realLength/realArea was computed once, at
+      // creation time, from whichever scaleFactor was correct then — reading
+      // it here (instead of recomputing pixelLength/pixelArea against
+      // whatever globalScaleFactor happens to be active right now) keeps this
+      // total correct even if globalScaleFactor has since drifted (e.g. a
+      // stale carry-over from a previously viewed page).
+      else if (m.type === "length") lengthTotal += m.realLength;
+      else if (m.type === "area") areaTotal += m.realArea;
     }
     return { countTotal, lengthTotal, areaTotal };
-  }, [measurementHook.state.measurements, globalScaleFactor]);
+  }, [measurementHook.state.measurements]);
 
   const nextCountIndex = useMemo(
     () =>
@@ -3742,11 +3787,11 @@ export function ProjectWorkspaceView({
                     ))}
                     <span className="text-slate-300">•</span>
                     <span className="text-[10px] text-slate-400">
-                      Double-click to finish polygon
+                      Double-click, right-click, or Enter to finish a line/polygon
                     </span>
                     <span className="text-slate-300">•</span>
                     <span className="text-[10px] text-slate-400">
-                      Right-click to cancel
+                      Esc to cancel
                     </span>
                   </div>
                 </div>
