@@ -701,11 +701,17 @@ export function ProjectWorkspaceView({
     setPrevCalibPageKey(calibPageKey);
     setGlobalScaleFactor(null);
     setScaleLocked(false);
-    // scaleFlowActive/showElementPanel/scaleInfo/knownDistance/appliedCalibration
-    // are intentionally left alone — the restoration effects below (backend
-    // session hydration, then this page's own localStorage fallback) repopulate
-    // them correctly for the new page; resetting them here too would just
-    // flash the calibration bar closed for an instant on every page switch.
+    // scaleInfo/knownDistance/appliedCalibration describe THIS page's scale as
+    // well, so they have to go with it — a page that has never been calibrated
+    // must not inherit the previous page's "SCALE APPLIED" readout and look
+    // ready to measure. The restoration effects below repopulate all of these
+    // for a page that does have a scale of its own.
+    setScaleInfo(null);
+    setKnownDistance("");
+    setAppliedCalibration(null);
+    // scaleFlowActive/showElementPanel stay as they are: they track "the user
+    // is in measuring mode", not "this page is scaled", and clearing them would
+    // collapse the calibration bar shut on every page switch.
   }
 
   const sessionTotals = useMemo(() => {
@@ -1656,6 +1662,15 @@ export function ProjectWorkspaceView({
       setActiveTool(id);
       setCountModeActive(id === "count");
       setPendingTool(null);
+      // Scale is per page. Arriving on a page that has none — a fresh sheet, or
+      // a different sheet of the same PDF — the canvas takes the next two
+      // clicks as calibration reference points, so the bar has to be open
+      // saying so, or the user is left clicking with no line appearing and
+      // nothing on screen explaining why.
+      if (globalScaleFactor === null) {
+        handleShowCalibrationBar();
+        toast.info("Set the scale for this page before measuring it.");
+      }
       return;
     }
     setPendingTool(id);
@@ -3600,7 +3615,10 @@ export function ProjectWorkspaceView({
                   : "max-h-0 opacity-0 border-t-0"
               }`}
             >
-              {!scaleInfo ? (
+              {/* Driven by globalScaleFactor, not the scaleInfo string: the
+                  factor is the page's actual scale, so the bar can never show
+                  "applied" for a page that has none. */}
+              {globalScaleFactor === null ? (
                 <div
                   className="px-6 pt-3 pb-5"
                   style={{ backgroundColor: "#FEF2F280" }}
