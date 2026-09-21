@@ -16,6 +16,7 @@ import { DrawingFileList } from "./DrawingFileList";
 import { DrawingPreviewPanel } from "./DrawingPreviewPanel";
 import { useState } from "react";
 import { useUploadFileMutation } from "@/store/api/uploadApi";
+import { canConvertToPdf, convertToPdf } from "@/utils/drawingToPdf";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -66,30 +67,57 @@ export function StepDrawings({ onBack, onSaveAndProceed, isSaving }: StepDrawing
 
   const processFile = useCallback(
     async (file: File) => {
-      const ext = getExt(file.name);
-      const category = EXT_TO_CATEGORY[ext] ?? "pdf";
+      const sourceExt = getExt(file.name);
       const id = crypto.randomUUID();
-
-      const previewUrl =
-        category === "pdf" || category === "image"
-          ? URL.createObjectURL(file)
-          : undefined;
+      // Normalise to PDF before uploading: the measurement canvas only mounts
+      // over a PDF page, so anything else could be viewed but never taken off.
+      const willConvert = canConvertToPdf(file.name);
 
       dispatch(addDrawing({
         id,
         name: file.name,
         size: file.size,
+        extension: sourceExt,
+        category: EXT_TO_CATEGORY[sourceExt] ?? "pdf",
+        status: willConvert ? "processing" : "uploading",
+        progress: 0,
+      }));
+      setSelectedId(id);
+
+      let upload = file;
+      if (willConvert) {
+        try {
+          upload = await convertToPdf(file);
+        } catch {
+          dispatch(updateDrawing({
+            id,
+            status: "error",
+            error: "Couldn't convert this file to PDF.",
+          }));
+          toast.error(`Couldn't convert "${file.name}" to a measurable PDF.`);
+          return;
+        }
+      }
+
+      const ext = getExt(upload.name);
+      const category = EXT_TO_CATEGORY[ext] ?? "pdf";
+      dispatch(updateDrawing({
+        id,
+        name: upload.name,
+        size: upload.size,
         extension: ext,
         category,
         status: "uploading",
         progress: 0,
-        previewUrl,
+        previewUrl:
+          category === "pdf" || category === "image"
+            ? URL.createObjectURL(upload)
+            : undefined,
       }));
-      setSelectedId(id);
 
       try {
         const formData = new FormData();
-        formData.append("file", file);
+        formData.append("file", upload);
 
         const result = await uploadFile({
           formData,
