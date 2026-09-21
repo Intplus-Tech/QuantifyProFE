@@ -154,6 +154,7 @@ import {
   LINTEL_LENGTH_BONUS_M,
 } from "./components/constants";
 import { getExt } from "./components/utils";
+import { canConvertToPdf, convertToPdf } from "@/utils/drawingToPdf";
 import type {
   ToolId,
   BBSRow,
@@ -2662,17 +2663,52 @@ export function ProjectWorkspaceView({
     const targetFolderId = folders[0]?.id ?? "default";
     let firstNewId: string | null = null;
 
-    for (const file of files) {
-      const ext = getExt(file.name);
-      const category = EXT_CATEGORY[ext] ?? "pdf";
+    for (const sourceFile of files) {
+      const sourceExt = getExt(sourceFile.name);
       const id = crypto.randomUUID();
       if (!firstNewId) firstNewId = id;
-      const previewUrl =
-        category === "pdf" || category === "image"
-          ? URL.createObjectURL(file)
-          : undefined;
+      // Normalise to PDF before uploading — the measurement canvas only mounts
+      // over a PDF page, so an image or DXF would otherwise be viewable but
+      // never measurable.
+      const willConvert = canConvertToPdf(sourceFile.name);
       dispatch(
         addDrawing({
+          id,
+          name: sourceFile.name,
+          size: sourceFile.size,
+          extension: sourceExt,
+          category: EXT_CATEGORY[sourceExt] ?? "pdf",
+          status: willConvert ? "processing" : "uploading",
+          progress: 0,
+          folderId: targetFolderId,
+        }),
+      );
+
+      let file = sourceFile;
+      if (willConvert) {
+        try {
+          file = await convertToPdf(sourceFile);
+        } catch {
+          dispatch({
+            type: "manualWizard/updateDrawing",
+            payload: {
+              id,
+              status: "error",
+              error: "Couldn't convert this file to PDF.",
+            },
+          });
+          toast.error(
+            `Couldn't convert "${sourceFile.name}" to a measurable PDF.`,
+          );
+          continue;
+        }
+      }
+
+      const ext = getExt(file.name);
+      const category = EXT_CATEGORY[ext] ?? "pdf";
+      dispatch({
+        type: "manualWizard/updateDrawing",
+        payload: {
           id,
           name: file.name,
           size: file.size,
@@ -2680,10 +2716,12 @@ export function ProjectWorkspaceView({
           category,
           status: "uploading",
           progress: 0,
-          previewUrl,
-          folderId: targetFolderId,
-        }),
-      );
+          previewUrl:
+            category === "pdf" || category === "image"
+              ? URL.createObjectURL(file)
+              : undefined,
+        },
+      });
 
       try {
         const formData = new FormData();
