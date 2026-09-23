@@ -26,6 +26,11 @@ const ThreeViewer = dynamic(
   { ssr: false, loading: () => <ViewerSpinner label="Loading 3D model…" /> }
 );
 
+const ApsViewer = dynamic(
+  () => import("../viewers/ApsViewer").then((m) => ({ default: m.ApsViewer })),
+  { ssr: false, loading: () => <ViewerSpinner label="Connecting to Autodesk…" /> }
+);
+
 function ViewerSpinner({ label }: { label: string }) {
   return (
     <div className="flex items-center justify-center h-full gap-2 text-slate-400 text-sm">
@@ -261,6 +266,22 @@ export function DrawingCanvas({
           <ThreeViewer
             url={src}
             extension={drawing.extension ?? ""}
+            onLoaded={() => onPageCountResolved(drawing.id, 1)}
+          />
+        </div>
+      );
+    }
+  }
+
+  // ── Autodesk Platform Services (RVT, NWD, DGN) ──────────────────────────────
+  if (viewerType === "aps") {
+    const src = drawing.previewUrl ?? drawing.uploadedUrl;
+    if (src) {
+      return (
+        <div className="w-full h-full">
+          <ApsViewer
+            url={src}
+            fileName={drawing.name}
             onLoaded={() => onPageCountResolved(drawing.id, 1)}
           />
         </div>
