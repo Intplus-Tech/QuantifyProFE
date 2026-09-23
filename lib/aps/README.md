@@ -1,17 +1,25 @@
 # Autodesk Platform Services (APS) integration
 
-Routes RVT/NWD/DGN through Autodesk's own viewer, embedded in the workspace,
-instead of the "unsupported format" placeholder those three show today. See
-`components/projects/workspace/components/constants.ts` → `VIEWER_MAP` for
-exactly which extensions are routed here (`APS_VIEWER_EXTENSIONS` in
-`config.ts` is the single source of truth).
+Routes RVT, NWD, DGN, DWG, and SKP through Autodesk's own viewer, embedded in
+the workspace, instead of the "unsupported format" placeholder those five
+used to show. See `components/projects/workspace/components/constants.ts` →
+`VIEWER_MAP` for exactly which extensions are routed here
+(`APS_VIEWER_EXTENSIONS` in `config.ts` is the single source of truth). DWG
+and SKP each had a cheaper or free alternative on the table (a server-side
+ODA converter for DWG; nothing for SKP, it has no sheets to measure from
+regardless) but route through Autodesk anyway, by explicit choice, rather
+than wait on that separate work.
 
-**Status: built, unconfigured, untested against a real Autodesk account.**
-`APS_CLIENT_ID` / `APS_CLIENT_SECRET` / `APS_BUCKET_KEY` are blank in `.env`.
-Every function in this folder checks `isApsConfigured()` first and fails with
-a clear message rather than a raw network error, so the rest of the app is
-completely unaffected while these are unset — open an RVT today and you get
-"Autodesk Platform Services isn't configured yet," not a crash.
+**Status: credentials confirmed live, not yet verified against a real
+model.** `APS_CLIENT_ID` / `APS_CLIENT_SECRET` / `APS_BUCKET_KEY` are set in
+`.env` and have been exercised against Autodesk's real servers — token
+exchange, bucket creation, and a file upload all succeeded. What's still
+unverified is an actual RVT/NWD/DGN/DWG/SKP file translating and rendering
+in the viewer — every test so far used a placeholder file, since translation
+needs real CAD content to produce anything to look at. Every function in
+this folder still checks `isApsConfigured()` first and fails with a clear
+message rather than a raw network error, so the rest of the app stays
+unaffected if these are ever unset again.
 
 ## What this does NOT do
 
@@ -23,8 +31,8 @@ for JPG/PNG/DXF (`utils/drawingToPdf.ts`). Consequences:
   Autodesk's UI, running inside Autodesk's viewer — connecting it to
   `Measurement`/`LengthMeasurement` objects and the backend would be
   separate, not-yet-built work.
-- RVT/NWD/DGN files carry real-world units already (unlike a scanned PDF),
-  so Autodesk's Measure tool needs no manual two-click calibration the way
+- These formats carry real-world units already (unlike a scanned PDF), so
+  Autodesk's Measure tool needs no manual two-click calibration the way
   our own canvas does.
 
 ## What you need before this can run
@@ -64,11 +72,14 @@ Every upload here calls the Model Derivative API, which is billed per file
 (≈$0.30–$1.50 depending on volume tier at the time this was written — see
 the pricing conversation in project history, and reconfirm at
 aps.autodesk.com/pricing-pilot before relying on it, Autodesk has changed
-this model more than once). `APS_VIEWER_EXTENSIONS` is deliberately narrow —
-IFC/FBX/OBJ already have free viewers elsewhere in this folder
-(`IfcViewer.tsx`, `ThreeViewer.tsx`), and DWG/DXF already convert to a
-measurable PDF for free (`utils/drawingToPdf.ts`). Don't widen this list to
-a format that already has a free path without a specific reason to.
+this model more than once). This now includes DWG and SKP, which had a
+free-or-cheaper path available (a server-side ODA converter for DWG; nothing
+for SKP either way) — routed through Autodesk anyway by explicit request,
+so every DWG/SKP upload now costs a translation credit too, not just
+RVT/NWD/DGN. IFC/FBX/OBJ stay off `APS_VIEWER_EXTENSIONS` — they already
+have free viewers elsewhere in this folder (`IfcViewer.tsx`,
+`ThreeViewer.tsx`) — and JPG/PNG/DXF stay off it too, converting to a
+measurable PDF for free instead (`utils/drawingToPdf.ts`).
 
 ## Verifying this once real credentials exist
 

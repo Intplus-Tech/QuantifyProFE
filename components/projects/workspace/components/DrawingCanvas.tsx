@@ -48,6 +48,7 @@ export function DrawingCanvas({
   panEnabled = false,
   onPanningChange,
   onPageCountResolved,
+  onApsUrnResolved,
   measurementOverlay,
 }: {
   drawing: DrawingFile | null;
@@ -66,6 +67,8 @@ export function DrawingCanvas({
    *  (rendered by the parent, on top of this component) can reflect it too. */
   onPanningChange?: (panning: boolean) => void;
   onPageCountResolved: (id: string, numPages: number) => void;
+  /** Caches the Autodesk translation so reopening a file doesn't re-upload (and re-bill) it. */
+  onApsUrnResolved?: (id: string, urn: string) => void;
   /** Konva measurement canvas — rendered only over PDF pages */
   measurementOverlay?: React.ReactNode;
 }) {
@@ -273,7 +276,7 @@ export function DrawingCanvas({
     }
   }
 
-  // ── Autodesk Platform Services (RVT, NWD, DGN) ──────────────────────────────
+  // ── Autodesk Platform Services (see APS_VIEWER_EXTENSIONS in lib/aps/config.ts) ──
   if (viewerType === "aps") {
     const src = drawing.previewUrl ?? drawing.uploadedUrl;
     if (src) {
@@ -282,6 +285,8 @@ export function DrawingCanvas({
           <ApsViewer
             url={src}
             fileName={drawing.name}
+            urn={drawing.apsUrn}
+            onUrnResolved={(urn) => onApsUrnResolved?.(drawing.id, urn)}
             onLoaded={() => onPageCountResolved(drawing.id, 1)}
           />
         </div>

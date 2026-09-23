@@ -7,10 +7,10 @@ export const runtime = "nodejs"; // needs Buffer + streaming fetch bodies, not t
 export const maxDuration = 300; // large RVT/NWD files can take a while to relay to S3
 
 /**
- * Accepts one RVT/NWD/DGN file (multipart form-data, field "file"), pushes it
- * to the APS bucket, and kicks off translation. Returns the URN the frontend
- * then polls via GET /api/aps/status/[urn] and eventually hands to
- * <ApsViewer urn=... />.
+ * Accepts one file (multipart form-data, field "file") in a format routed
+ * through APS_VIEWER_EXTENSIONS (lib/aps/config.ts), pushes it to the APS
+ * bucket, and kicks off translation. Returns the URN the frontend then polls
+ * via GET /api/aps/status/[urn] and eventually hands to <ApsViewer urn=... />.
  */
 export async function POST(req: NextRequest) {
   if (!isApsConfigured()) {
@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
       {
         success: false,
         message:
-          "Autodesk Platform Services isn't configured yet. Set APS_CLIENT_ID / APS_CLIENT_SECRET / APS_BUCKET_KEY to enable RVT/NWD/DGN viewing.",
+          "Autodesk Platform Services isn't configured yet. Set APS_CLIENT_ID / APS_CLIENT_SECRET / APS_BUCKET_KEY to enable this file's viewing.",
       },
       { status: 503 },
     );

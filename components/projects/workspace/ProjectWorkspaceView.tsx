@@ -3475,6 +3475,12 @@ export function ProjectWorkspaceView({
                   }
                   onPanningChange={setIsPanningDrawing}
                   onPageCountResolved={handlePageCountResolved}
+                  onApsUrnResolved={(id, urn) =>
+                    dispatch({
+                      type: "manualWizard/updateDrawing",
+                      payload: { id, apsUrn: urn },
+                    })
+                  }
                   measurementOverlay={
                     <MeasurementCanvas
                       pdfScale={scale}

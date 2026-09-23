@@ -31,6 +31,14 @@ export interface DrawingFile {
   pages: DrawingPage[];
   folderId: string | null;
   error?: string;
+  /**
+   * Autodesk Model Derivative URN, once this file has been uploaded and
+   * translated. Cached so the wizard preview and the workspace viewer reuse
+   * one translation instead of paying Autodesk for the same file twice.
+   * In-memory only — a hard reload re-uploads (and re-charges); persisting it
+   * properly means storing it server-side with the drawing.
+   */
+  apsUrn?: string;
 }
 
 interface ManualWizardState {

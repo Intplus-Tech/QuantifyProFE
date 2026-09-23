@@ -394,27 +394,27 @@ Per-extension viewer routing lives in `VIEWER_MAP`
 | `.dxf` | converted to real-vector PDF on upload (`utils/drawingToPdf.ts`), then react-pdf | free |
 | `.ifc` | `IfcViewer.tsx` (`@thatopen/components` + `web-ifc`) | free |
 | `.fbx` `.obj` `.stl` `.ply` `.dae` | `ThreeViewer.tsx` (Three.js loaders) | free |
-| `.rvt` `.nwd` `.dgn` | `ApsViewer.tsx` — Autodesk Platform Services, see `lib/aps/README.md` | **paid per file** — unconfigured, see below |
-| `.dwg` `.skp` | `BimViewerPlaceholder` ("unsupported") | — |
+| `.rvt` `.nwd` `.dgn` `.dwg` `.skp` | `ApsViewer.tsx` — Autodesk Platform Services, see `lib/aps/README.md` | **paid per file** |
 
 Only the PDF-conversion path (images, DXF) feeds this app's own measurement
 canvas and BOQ pipeline. The APS path embeds Autodesk's *own* viewer and
-Measure tool — real-world-scale-aware, no manual calibration needed for those
-three formats, but its measurements don't reach the BOQ without further work
+Measure tool — real-world-scale-aware, no manual calibration needed for these
+five formats, but its measurements don't reach the BOQ without further work
 (see `lib/aps/README.md` "What this does NOT do").
 
-**`APS_CLIENT_ID`/`APS_CLIENT_SECRET`/`APS_BUCKET_KEY` are blank in `.env`** —
-no Autodesk account exists yet. Every `lib/aps/*` call checks
-`isApsConfigured()` first and fails with a clear on-screen message rather
-than a raw error, so RVT/NWD/DGN just show "Autodesk Platform Services isn't
-configured yet" until those are filled in. Nothing here has been exercised
-against a live Autodesk account — `tsc`/`eslint`/`next build` all pass, but
-the first real upload will likely need a small fix somewhere in
-`lib/aps/oss.ts` or `lib/aps/modelDerivative.ts`.
+DWG and SKP had a free-or-cheaper path on the table — a server-side ODA
+converter for DWG (unbuilt), and nothing for SKP either way, since it has no
+sheets to measure from regardless — but route through Autodesk anyway, by
+explicit request, rather than wait on that separate work.
 
-**Left deliberately unbuilt:** DWG (needs a server-side ODA File Converter
-step — no free in-browser library reads DWG, unlike DXF) and SKP (no sheets
-to measure from, and no free viewer for it either — low priority).
+**`APS_CLIENT_ID`/`APS_CLIENT_SECRET`/`APS_BUCKET_KEY` are set in `.env` and
+confirmed live** (2026-09-23) — token exchange, bucket creation, and a file
+upload all succeeded against Autodesk's real servers. Every `lib/aps/*` call
+still checks `isApsConfigured()` first and fails with a clear on-screen
+message rather than a raw error if these are ever unset again. **Not yet
+verified:** a real RVT/NWD/DGN/DWG/SKP file actually translating and
+rendering — every live test so far used a placeholder file, since
+translation needs real CAD content to produce anything to look at.
 
 ### Historical: Phase 1 plan (now implemented; kept for context)
 
