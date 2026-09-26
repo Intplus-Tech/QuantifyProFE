@@ -642,7 +642,7 @@ export const ACCEPTED_EXTENSIONS = [
   ".dwg", ".dxf", ".dgn",
 ];
 
-export type ViewerType = "pdf" | "image" | "ifc" | "dxf" | "three" | "unsupported";
+export type ViewerType = "pdf" | "image" | "ifc" | "dxf" | "three" | "aps" | "unsupported";
 
 export const VIEWER_MAP: Record<string, ViewerType> = {
   ".pdf":  "pdf",
@@ -656,12 +656,23 @@ export const VIEWER_MAP: Record<string, ViewerType> = {
   ".stl":  "three",
   ".ply":  "three",
   ".dae":  "three",
-  // Proprietary formats — no free client-side viewer available
-  ".rvt":  "unsupported",
-  ".nwd":  "unsupported",
+  // No free reader exists for these — routed through Autodesk Platform
+  // Services (components/projects/workspace/viewers/ApsViewer.tsx). Requires
+  // APS_CLIENT_ID/APS_CLIENT_SECRET to be set; see lib/aps/config.ts — with
+  // those unset the viewer shows a clear "not configured" message instead of
+  // silently failing.
+  ".rvt":  "aps",
+  ".nwd":  "aps",
+  ".dgn":  "aps",
+  // .skp (SketchUp) is a pure 3D shape file with no drawing sheets to measure
+  // from — same reasoning that keeps IFC/FBX/OBJ off the APS list, just
+  // without a free viewer for it yet either. Stays "unsupported" rather than
+  // spending paid Autodesk calls on a format with nothing to take off.
   ".skp":  "unsupported",
+  // DWG has no free in-browser converter (unlike DXF — see utils/drawingToPdf.ts)
+  // — would need a server-side ODA File Converter step. Stays "unsupported"
+  // until that's built; ask for a DXF export in the meantime.
   ".dwg":  "unsupported",
-  ".dgn":  "unsupported",
 };
 
 export const EXT_CATEGORY: Record<string, DrawingCategory> = {

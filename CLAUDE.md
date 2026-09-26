@@ -382,16 +382,41 @@ preview rendering) is fully wired and will work without changes.
 
 ## BIM/3D Viewer — Current Status & Roadmap
 
-### Current behaviour
-`.rvt` `.ifc` `.nwd` `.skp` `.fbx` `.obj` `.dwg` `.dxf` `.dgn` files show a styled
-placeholder card. Two swap points are marked with `/* SWAP POINT */` comments:
+### Current behaviour (updated 2026-09-23 — most of this section below is historical)
+Per-extension viewer routing lives in `VIEWER_MAP`
+(`components/projects/workspace/components/constants.ts`), dispatched from
+`DrawingCanvas.tsx`:
 
-- `components/projects/manual/DrawingPreviewPanel.tsx` → `BimViewerPlaceholder`
-- `components/projects/workspace/ProjectWorkspaceView.tsx` → `BimViewerPlaceholder`
+| Extension | Viewer | Cost |
+|---|---|---|
+| `.pdf` | react-pdf (native) | free |
+| `.jpg` `.jpeg` `.png` | converted to PDF on upload (`utils/drawingToPdf.ts`), then react-pdf | free |
+| `.dxf` | converted to real-vector PDF on upload (`utils/drawingToPdf.ts`), then react-pdf | free |
+| `.ifc` | `IfcViewer.tsx` (`@thatopen/components` + `web-ifc`) | free |
+| `.fbx` `.obj` `.stl` `.ply` `.dae` | `ThreeViewer.tsx` (Three.js loaders) | free |
+| `.rvt` `.nwd` `.dgn` | `ApsViewer.tsx` — Autodesk Platform Services, see `lib/aps/README.md` | **paid per file** — unconfigured, see below |
+| `.dwg` `.skp` | `BimViewerPlaceholder` ("unsupported") | — |
 
-### Phase 1 — Free Tier 1 (client-side, zero cloud cost)
+Only the PDF-conversion path (images, DXF) feeds this app's own measurement
+canvas and BOQ pipeline. The APS path embeds Autodesk's *own* viewer and
+Measure tool — real-world-scale-aware, no manual calibration needed for those
+three formats, but its measurements don't reach the BOQ without further work
+(see `lib/aps/README.md` "What this does NOT do").
 
-Full implementation plan below. All libraries run 100% in the browser — no API keys, no cloud costs.
+**`APS_CLIENT_ID`/`APS_CLIENT_SECRET`/`APS_BUCKET_KEY` are blank in `.env`** —
+no Autodesk account exists yet. Every `lib/aps/*` call checks
+`isApsConfigured()` first and fails with a clear on-screen message rather
+than a raw error, so RVT/NWD/DGN just show "Autodesk Platform Services isn't
+configured yet" until those are filled in. Nothing here has been exercised
+against a live Autodesk account — `tsc`/`eslint`/`next build` all pass, but
+the first real upload will likely need a small fix somewhere in
+`lib/aps/oss.ts` or `lib/aps/modelDerivative.ts`.
+
+**Left deliberately unbuilt:** DWG (needs a server-side ODA File Converter
+step — no free in-browser library reads DWG, unlike DXF) and SKP (no sheets
+to measure from, and no free viewer for it either — low priority).
+
+### Historical: Phase 1 plan (now implemented; kept for context)
 
 **Format coverage after Phase 1:**
 `.ifc` `.dxf` `.dwg` `.fbx` `.obj` `.step` `.iges` `.stl` `.ply` `.dae`
@@ -630,25 +655,19 @@ export function MultiFormatViewer({ url }: { url: string }) {
 
 ### Phase 2 — Tier 2 (server-side, proprietary formats)
 
-**Option A — Speckle self-hosted (Apache-2.0, free to run):**
-- Covers: `.rvt` `.nwd` `.skp` `.dgn` + all Tier 1 formats
-- Converts server-side; embed `@speckle/viewer` in Next.js
-- Requires hosting a Speckle server instance
+**Option A — Speckle self-hosted:** not pursued — would require hosting a
+Speckle server instance; APS below was picked instead since it needs no
+infra of our own.
 
-**Option B — Autodesk Platform Services (APS):**
-
-| Plan | ~Monthly Cost | Complex conversions/mo | Use case |
-|---|---|---|---|
-| Free | $0 | 20 | Dev/testing only |
-| Starter | ~$50–100 | 500 | <50 projects/month |
-| Pro | ~$200–400 | 2,000 | Active production |
-| Enterprise | Custom | Unlimited | High-volume |
-
-**APS implementation (3–4 days after credentials):**
-1. Backend: `POST /api/aps/translate` + `GET /api/aps/status/:urn` + `POST /api/aps/token`
-2. Frontend: `npm install @adsk/forge-viewer` → replace placeholder with `<ApsViewer urn={drawing.urn} getToken={fetchApsToken} />`
-3. Add `urn?: string` field to `DrawingFile` interface in `manualWizardSlice.ts`
-4. Viewer calls `onPageCountResolved(drawing.id, sheetCount)` on model load
+**Option B — Autodesk Platform Services (APS): implemented 2026-09-23, see
+"Current behaviour" above and `lib/aps/README.md`.** Built as Next.js API
+routes in *this* repo (`app/api/aps/*`), not the separate `quantifyprobe`
+backend — token exchange, OSS upload, and Model Derivative translation all
+happen here, with the app-only credentials never leaving the server. Pricing
+is Autodesk's own "Pricing (Pilot)" model (their label, actively changing) —
+roughly $0.30–$1.50 per RVT/NWD/DGN file depending on purchase volume;
+reconfirm at aps.autodesk.com/pricing-pilot before budgeting against it, the
+table this note used to have here was already stale.
 
 ---
 
