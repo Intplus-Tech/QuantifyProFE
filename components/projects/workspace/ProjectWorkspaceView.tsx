@@ -66,6 +66,7 @@ import {
   useGetProjectByIdQuery,
   useUpdateProjectMutation,
 } from "@/store/api/projectsApi";
+import { BimProjectWorkspace } from "./BimProjectWorkspace";
 import {
   useUploadFileMutation,
   useGetUploadQuery,
@@ -369,15 +370,51 @@ function DrawingHydrator({
       (d) => d.id === fileId || d.uploadedFileId === fileId,
     ),
   );
-  const { data: metaData } = useGetUploadQuery(fileId, { skip: existsInRedux });
-  const { data: blobUrl } = useDownloadUploadQuery(fileId, {
+  const {
+    data: metaData,
+    isError: metaErrored,
+    error: metaError,
+  } = useGetUploadQuery(fileId, { skip: existsInRedux });
+  const {
+    data: blobUrl,
+    isError: blobErrored,
+    error: blobError,
+  } = useDownloadUploadQuery(fileId, {
     skip: existsInRedux,
   });
   const dispatched = useRef(false);
 
   useEffect(() => {
-    if (dispatched.current || existsInRedux || !metaData?.data || !blobUrl)
+    if (dispatched.current || existsInRedux) return;
+
+    // Previously this just returned and waited forever on a failed request,
+    // so a drawing that couldn't be re-fetched (a large BIM/CAD file timing
+    // out, an expired download link, …) silently never appeared in the
+    // sidebar — the workspace looked empty with no error anywhere. Surface
+    // it as a placeholder "error" row instead, and still call onLoaded so
+    // the workspace doesn't sit in "loading" forever for a file that failed.
+    if (metaErrored || blobErrored) {
+      dispatched.current = true;
+      console.error("Failed to hydrate drawing", fileId, metaError ?? blobError);
+      toast.error(`Couldn't reload a drawing (${fileId.slice(-6)}) — try refreshing.`);
+      dispatch(
+        addDrawing({
+          id: fileId,
+          name: "Unavailable file",
+          size: 0,
+          extension: "",
+          category: "pdf",
+          status: "error",
+          progress: 0,
+          error: "Couldn't re-download this file from storage.",
+          folderId,
+        }),
+      );
+      onLoaded(fileId);
       return;
+    }
+
+    if (!metaData?.data || !blobUrl) return;
     dispatched.current = true;
 
     const file = metaData.data;
@@ -400,7 +437,19 @@ function DrawingHydrator({
       }),
     );
     onLoaded(file._id);
-  }, [metaData, blobUrl, existsInRedux, dispatch, folderId, onLoaded]);
+  }, [
+    metaData,
+    blobUrl,
+    metaErrored,
+    blobErrored,
+    metaError,
+    blobError,
+    existsInRedux,
+    dispatch,
+    fileId,
+    folderId,
+    onLoaded,
+  ]);
 
   return null;
 }
@@ -2916,6 +2965,13 @@ export function ProjectWorkspaceView({
         </div>
       </div>
     );
+  }
+
+  // A project created from the /bim/* pipeline has no PDF pages or manual
+  // measurements to hydrate — it's one already-translated Autodesk model
+  // plus a BOQ computed server-side from real model properties.
+  if (backendProject?.source === "bim") {
+    return <BimProjectWorkspace project={backendProject} basePath={basePath} />;
   }
 
   return (

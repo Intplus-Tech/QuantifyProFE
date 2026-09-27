@@ -3,6 +3,12 @@
 > This file tracks architectural decisions, implemented features, known patterns, and pending work
 > discussed across all Claude Code sessions. Update it whenever a significant decision is made.
 
+> **⚠ Read `SESSION_HANDOFF.md` first if it exists.** It's a compressed,
+> up-to-date briefing on whatever was mid-flight when it was last written —
+> in particular an open architectural decision about the Autodesk/APS
+> integration that isn't fully reflected below yet. This file (CLAUDE.md) is
+> the full historical log; the handoff file is "start here."
+
 ---
 
 ## Project Overview
