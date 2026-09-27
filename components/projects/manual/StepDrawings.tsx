@@ -249,7 +249,12 @@ export function StepDrawings({ onBack, onSaveAndProceed, isSaving }: StepDrawing
 
         {/* Right: preview panel */}
         <div className="hidden lg:flex border border-border/40 rounded-xl overflow-hidden bg-card h-115 flex-col">
-          <DrawingPreviewPanel file={selectedFile} />
+          <DrawingPreviewPanel
+            file={selectedFile}
+            onApsUrnResolved={(urn) =>
+              selectedFile && dispatch(updateDrawing({ id: selectedFile.id, apsUrn: urn }))
+            }
+          />
         </div>
       </div>
 

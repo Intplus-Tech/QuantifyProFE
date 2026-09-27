@@ -5,19 +5,28 @@
  * Autodesk at all, and returns a clear "not configured" response otherwise —
  * this app ships with these env vars blank until a real APS account exists
  * (see README.md in this folder), and nothing else in the workspace should
- * ever break because of that. RVT/NWD/DGN simply keep showing the same
- * "unsupported format" card they already show today.
+ * ever break because of that. Any extension below simply keeps showing the
+ * same "unsupported format" card it already shows today.
  */
 
 export const APS_HOST = "https://developer.api.autodesk.com";
 
-// Formats routed to the Autodesk viewer instead of a free client-side one —
-// see components/projects/workspace/components/constants.ts VIEWER_MAP.
-// IFC/FBX/OBJ/STL/PLY/DAE already have working free viewers and stay off
-// this list; DWG/DXF already convert to a measurable PDF for free and stay
-// off it too (see utils/drawingToPdf.ts) — Autodesk costs money per file, so
-// only the formats with no free alternative go through it.
-export const APS_VIEWER_EXTENSIONS = [".rvt", ".nwd", ".dgn"] as const;
+// Formats routed to the Autodesk viewer — see
+// components/projects/workspace/components/constants.ts VIEWER_MAP.
+// IFC/FBX/OBJ/STL/PLY/DAE keep their own free client-side viewers (no reason
+// to pay Autodesk for a format that already works for free); DXF/JPG/PNG
+// keep converting to a measurable PDF for free too (utils/drawingToPdf.ts).
+// DWG and SKP were free-alternative candidates too (DWG via a server-side
+// ODA converter that was never built; SKP has no sheets to measure from) but
+// route through Autodesk anyway by explicit choice, rather than waiting on
+// that separate work — every remaining unsupported format goes through APS.
+export const APS_VIEWER_EXTENSIONS = [
+  ".rvt",
+  ".nwd",
+  ".dgn",
+  ".dwg",
+  ".skp",
+] as const;
 
 export function isApsExtension(ext: string): boolean {
   return (APS_VIEWER_EXTENSIONS as readonly string[]).includes(

@@ -17,6 +17,7 @@ import {
 } from "@/store/api/projectsApi";
 import { ProcessingHeader } from "./ProcessingHeader";
 import { DrawingViewer } from "./DrawingViewer";
+import { ApsViewer } from "@/components/projects/workspace/viewers/ApsViewer";
 import { DetectionLog } from "./DetectionLog";
 import { ProcessingFooter } from "./ProcessingFooter";
 import { ReviewBOQModal } from "./ReviewBOQModal";
@@ -327,13 +328,25 @@ export function ProcessingView({
       {/* Main content: Drawing viewer + Detection log */}
       {/* <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[600px]"> */}
       <div className="w-full gap-6 min-h-[600px]">
-        <div className="w-full h-full">
-          <DrawingViewer
-            detections={mergedState.detections}
-            fileUrl={newProjectDraft?.fileUrl}
-            fileType={uploadedFileType}
-            fileName={newProjectDraft?.fileName}
-          />
+        <div className="w-full h-full rounded-2xl overflow-hidden border min-h-[600px]">
+          {uploadedFileType === "bim" && sourceJobId ? (
+            // sourceJobId is the Autodesk urn for a BIM upload (see
+            // BimUploadResponse) — Autodesk already translated it during
+            // upload, so passing it as `urn` shows the real model here
+            // without paying for a second translation.
+            <ApsViewer
+              url=""
+              urn={sourceJobId}
+              fileName={newProjectDraft?.fileName || "model"}
+            />
+          ) : (
+            <DrawingViewer
+              detections={mergedState.detections}
+              fileUrl={newProjectDraft?.fileUrl}
+              fileType={uploadedFileType}
+              fileName={newProjectDraft?.fileName}
+            />
+          )}
         </div>
         {/* <div className="lg:col-span-4 h-full">
           <DetectionLog logs={mergedState.logs} />

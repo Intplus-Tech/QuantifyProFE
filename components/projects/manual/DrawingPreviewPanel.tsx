@@ -1,32 +1,53 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import dynamic from "next/dynamic";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
-import { ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight, ExternalLink, X, Box, PenLine } from "lucide-react";
+import { ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight, ExternalLink, X, Box, PenLine, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { DrawingFile } from "@/store/slices/manualWizardSlice";
+import { isApsExtension } from "@/lib/aps/config";
 
 // Set PDF worker
 pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
-// ── Placeholder for BIM / CAD files (swap in APS viewer when subscription is active) ──
+// Same component the workspace canvas uses post-creation (DrawingCanvas.tsx)
+// — loaded lazily so the Autodesk Viewer SDK/CDN script never touches a
+// session that never opens a file routed through Autodesk.
+const ApsViewer = dynamic(
+  () => import("../workspace/viewers/ApsViewer").then((m) => ({ default: m.ApsViewer })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-full gap-2 text-slate-400 text-sm">
+        <Loader2 className="w-4 h-4 animate-spin text-amber-500" /> Connecting to Autodesk…
+      </div>
+    ),
+  },
+);
+
+// ── Placeholder for formats with no viewer in THIS panel specifically — IFC,
+// FBX, OBJ, STL, PLY, DAE have free viewers in the workspace (DrawingCanvas.tsx)
+// but not here yet. Every other format either previews inline above or now
+// routes through Autodesk (isApsExtension check below), so the "cad-2d"
+// label here is currently unreachable — left in for whichever future format
+// lands without a viewer of its own. ──
 function BimViewerPlaceholder({ file }: { file: DrawingFile }) {
   const labels: Record<string, { label: string; hint: string }> = {
     "bim-3d": {
       label: "3D BIM File",
-      hint: "3D preview available after Autodesk APS subscription activation.",
+      hint: "No preview here yet — open the project workspace once it's created to view this file.",
     },
     "cad-2d": {
       label: "2D CAD File",
-      hint: "CAD preview requires a viewer subscription.",
+      hint: "DWG preview isn't supported yet — export to DXF for a measurable preview, or open the project workspace once it's created.",
     },
   };
   const info = labels[file.category] ?? { label: "File Preview", hint: "" };
 
   return (
-    /* SWAP POINT — replace this div with <ApsViewer urn={file.urn} token={...} /> */
     <div className="flex flex-col items-center justify-center h-full gap-5 px-6 text-center">
       <div className="w-20 h-20 rounded-2xl bg-slate-100 flex items-center justify-center">
         {file.category === "bim-3d" ? (
@@ -123,9 +144,16 @@ interface DrawingPreviewPanelProps {
   file: DrawingFile | null;
   onClose?: () => void;
   onPageCountChange?: (count: number) => void;
+  /** Caches the Autodesk translation so the workspace doesn't pay for it twice. */
+  onApsUrnResolved?: (urn: string) => void;
 }
 
-export function DrawingPreviewPanel({ file, onClose, onPageCountChange }: DrawingPreviewPanelProps) {
+export function DrawingPreviewPanel({
+  file,
+  onClose,
+  onPageCountChange,
+  onApsUrnResolved,
+}: DrawingPreviewPanelProps) {
   const [scale, setScale] = useState(1.0);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
@@ -193,6 +221,18 @@ export function DrawingPreviewPanel({ file, onClose, onPageCountChange }: Drawin
           <PdfViewer file={file} scale={scale} page={page} onPageCount={handlePageCount} />
         ) : file.category === "image" ? (
           <ImageViewer file={file} scale={scale} />
+        ) : isApsExtension(file.extension) && (file.previewUrl ?? file.uploadedUrl) ? (
+          <ApsViewer
+            url={(file.previewUrl ?? file.uploadedUrl) as string}
+            fileName={file.name}
+            urn={file.apsUrn}
+            onUrnResolved={onApsUrnResolved}
+            preview
+          />
+        ) : isApsExtension(file.extension) ? (
+          <div className="flex items-center justify-center h-full gap-2 text-slate-400 text-sm">
+            <Loader2 className="w-4 h-4 animate-spin text-amber-500" /> Waiting for the upload to finish…
+          </div>
         ) : (
           <BimViewerPlaceholder file={file} />
         )}

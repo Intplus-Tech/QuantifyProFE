@@ -66,6 +66,7 @@ import {
   useGetProjectByIdQuery,
   useUpdateProjectMutation,
 } from "@/store/api/projectsApi";
+import { BimProjectWorkspace } from "./BimProjectWorkspace";
 import {
   useUploadFileMutation,
   useGetUploadQuery,
@@ -155,6 +156,7 @@ import {
 } from "./components/constants";
 import { getExt } from "./components/utils";
 import { canConvertToPdf, convertToPdf } from "@/utils/drawingToPdf";
+import { isApsExtension } from "@/lib/aps/config";
 import type {
   ToolId,
   BBSRow,
@@ -368,15 +370,51 @@ function DrawingHydrator({
       (d) => d.id === fileId || d.uploadedFileId === fileId,
     ),
   );
-  const { data: metaData } = useGetUploadQuery(fileId, { skip: existsInRedux });
-  const { data: blobUrl } = useDownloadUploadQuery(fileId, {
+  const {
+    data: metaData,
+    isError: metaErrored,
+    error: metaError,
+  } = useGetUploadQuery(fileId, { skip: existsInRedux });
+  const {
+    data: blobUrl,
+    isError: blobErrored,
+    error: blobError,
+  } = useDownloadUploadQuery(fileId, {
     skip: existsInRedux,
   });
   const dispatched = useRef(false);
 
   useEffect(() => {
-    if (dispatched.current || existsInRedux || !metaData?.data || !blobUrl)
+    if (dispatched.current || existsInRedux) return;
+
+    // Previously this just returned and waited forever on a failed request,
+    // so a drawing that couldn't be re-fetched (a large BIM/CAD file timing
+    // out, an expired download link, …) silently never appeared in the
+    // sidebar — the workspace looked empty with no error anywhere. Surface
+    // it as a placeholder "error" row instead, and still call onLoaded so
+    // the workspace doesn't sit in "loading" forever for a file that failed.
+    if (metaErrored || blobErrored) {
+      dispatched.current = true;
+      console.error("Failed to hydrate drawing", fileId, metaError ?? blobError);
+      toast.error(`Couldn't reload a drawing (${fileId.slice(-6)}) — try refreshing.`);
+      dispatch(
+        addDrawing({
+          id: fileId,
+          name: "Unavailable file",
+          size: 0,
+          extension: "",
+          category: "pdf",
+          status: "error",
+          progress: 0,
+          error: "Couldn't re-download this file from storage.",
+          folderId,
+        }),
+      );
+      onLoaded(fileId);
       return;
+    }
+
+    if (!metaData?.data || !blobUrl) return;
     dispatched.current = true;
 
     const file = metaData.data;
@@ -399,7 +437,19 @@ function DrawingHydrator({
       }),
     );
     onLoaded(file._id);
-  }, [metaData, blobUrl, existsInRedux, dispatch, folderId, onLoaded]);
+  }, [
+    metaData,
+    blobUrl,
+    metaErrored,
+    blobErrored,
+    metaError,
+    blobError,
+    existsInRedux,
+    dispatch,
+    fileId,
+    folderId,
+    onLoaded,
+  ]);
 
   return null;
 }
@@ -682,6 +732,17 @@ export function ProjectWorkspaceView({
 
   const selectedDrawing =
     drawings.find((d) => d.id === selectedDrawingId) ?? null;
+
+  // RVT/NWD/DGN/DWG/SKP render in Autodesk's own viewer (ApsViewer), which has
+  // no Konva overlay behind it — DrawingCanvas only mounts `measurementOverlay`
+  // on the PDF branch. So none of this app's own measuring works on them: no
+  // calibration points to click, no marks to draw, nothing to feed the BOQ.
+  // Gate the measure affordances rather than leaving buttons that silently do
+  // nothing. (Autodesk's own Measure tool still works inside their viewer; its
+  // output just doesn't reach our backend — see lib/aps/README.md.)
+  const selectedIsApsDrawing = selectedDrawing
+    ? isApsExtension(selectedDrawing.extension ?? "")
+    : false;
 
   // Calibration UI state (globalScaleFactor, scaleLocked) is NOT itself
   // page-scoped — unlike measurementHook, which reloads synchronously, mid-
@@ -2906,6 +2967,13 @@ export function ProjectWorkspaceView({
     );
   }
 
+  // A project created from the /bim/* pipeline has no PDF pages or manual
+  // measurements to hydrate — it's one already-translated Autodesk model
+  // plus a BOQ computed server-side from real model properties.
+  if (backendProject?.source === "bim") {
+    return <BimProjectWorkspace project={backendProject} basePath={basePath} />;
+  }
+
   return (
     <>
       {apiHydrateIds.map((fileId) => (
@@ -2980,6 +3048,7 @@ export function ProjectWorkspaceView({
                 <div className="flex gap-1.5">
                   {TOOLS.map((tool) => {
                     const isDisabled =
+                      selectedIsApsDrawing ||
                       (tool.id === "undo" && !measurementHook.canUndo) ||
                       (tool.id === "redo" && !measurementHook.canRedo);
                     return (
@@ -3002,7 +3071,9 @@ export function ProjectWorkspaceView({
                         <TooltipContent side="bottom" sideOffset={6}>
                           <p className="font-semibold text-xs">{tool.label}</p>
                           <p className="text-[10px] opacity-75 mt-0.5">
-                            {tool.description}
+                            {selectedIsApsDrawing
+                              ? "Not available on Autodesk-viewed files — use Autodesk's own tools, or open a PDF/image drawing to measure."
+                              : tool.description}
                           </p>
                         </TooltipContent>
                       </Tooltip>
@@ -3082,7 +3153,13 @@ export function ProjectWorkspaceView({
                   <button
                     ref={newElementBtnRef}
                     onClick={handleAddNewElement}
-                    className="text-[10px] font-bold uppercase tracking-widest text-slate-800 underline hover:text-amber-600 transition-colors"
+                    disabled={selectedIsApsDrawing}
+                    title={
+                      selectedIsApsDrawing
+                        ? "This file opens in Autodesk's viewer, which this app can't measure on. Open a PDF or image drawing to take off quantities."
+                        : undefined
+                    }
+                    className="text-[10px] font-bold uppercase tracking-widest text-slate-800 underline hover:text-amber-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline disabled:hover:text-slate-800"
                   >
                     New Element
                   </button>
@@ -3415,7 +3492,15 @@ export function ProjectWorkspaceView({
                     : "Auto-saved just now"}
                 </span>
               )}
-              {scaleLocked && (
+              {selectedIsApsDrawing && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-sky-50 rounded-lg border border-sky-200">
+                  <Box className="w-3 h-3 text-sky-600" />
+                  <span className="text-[10px] font-semibold text-sky-700">
+                    Autodesk viewer — view only, not measurable here
+                  </span>
+                </div>
+              )}
+              {scaleLocked && !selectedIsApsDrawing && (
                 <div className="flex items-center gap-1.5 px-2.5 py-1 bg-green-100 rounded-lg border border-green-200">
                   <Lock className="w-3 h-3 text-green-600" />
                   <span className="text-[10px] font-semibold text-green-700">
@@ -3475,6 +3560,12 @@ export function ProjectWorkspaceView({
                   }
                   onPanningChange={setIsPanningDrawing}
                   onPageCountResolved={handlePageCountResolved}
+                  onApsUrnResolved={(id, urn) =>
+                    dispatch({
+                      type: "manualWizard/updateDrawing",
+                      payload: { id, apsUrn: urn },
+                    })
+                  }
                   measurementOverlay={
                     <MeasurementCanvas
                       pdfScale={scale}
@@ -3644,8 +3735,11 @@ export function ProjectWorkspaceView({
           </div>
 
           {/* Calibration / Ready bar — fades/collapses out a couple seconds after
-              locking; "Edit Calibration" in the top header brings it back. */}
-          {scaleFlowActive && (
+              locking; "Edit Calibration" in the top header brings it back.
+              Hidden entirely for Autodesk-viewed files: there's no canvas to
+              place the two reference points on, so a "CALIBRATION REQUIRED"
+              prompt over their viewer would be asking for something impossible. */}
+          {scaleFlowActive && !selectedIsApsDrawing && (
             <div
               className={`shrink-0 bg-white overflow-hidden transition-all duration-300 ease-in-out ${
                 showCalibrationBar

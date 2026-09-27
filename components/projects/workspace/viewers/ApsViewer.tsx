@@ -5,8 +5,8 @@ import { ViewerLoadingOverlay, ViewerErrorOverlay } from "./shared";
 
 // The Viewer SDK is loaded from Autodesk's own CDN (not npm) — this is
 // Autodesk's documented approach, and it keeps a multi-megabyte WebGL engine
-// out of this app's bundle for every user who never opens an RVT/NWD/DGN
-// file. It attaches itself as `window.Autodesk`.
+// out of this app's bundle for every user who never opens a file routed
+// through Autodesk. It attaches itself as `window.Autodesk`.
 const VIEWER_JS = "https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/viewer3D.min.js";
 const VIEWER_CSS = "https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/style.min.css";
 
@@ -87,6 +87,20 @@ interface ApsViewerProps {
   /** A fetchable URL for the raw file — same contract as IfcViewer/DxfViewer. */
   url: string;
   fileName: string;
+  /**
+   * Skip the upload entirely and show this already-translated model. Every
+   * upload costs an Autodesk translation, so the wizard preview reports its
+   * URN back via onUrnResolved and the workspace reuses it rather than paying
+   * twice for the same file.
+   */
+  urn?: string;
+  onUrnResolved?: (urn: string) => void;
+  /**
+   * Display only — uses Autodesk's plain Viewer3D instead of GuiViewer3D, so
+   * there's no toolbar and nothing to measure with. Measuring belongs in the
+   * workspace, not in the project-creation preview.
+   */
+  preview?: boolean;
   onLoaded?: () => void;
 }
 
@@ -98,7 +112,14 @@ interface ApsViewerProps {
  * those unset it fails immediately with a clear message instead of a raw
  * network error, so an unconfigured app degrades gracefully.
  */
-export function ApsViewer({ url, fileName, onLoaded }: ApsViewerProps) {
+export function ApsViewer({
+  url,
+  fileName,
+  urn: cachedUrn,
+  onUrnResolved,
+  preview = false,
+  onLoaded,
+}: ApsViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [stage, setStage] = useState("Preparing…");
   const [error, setError] = useState<string | null>(null);
@@ -111,20 +132,29 @@ export function ApsViewer({ url, fileName, onLoaded }: ApsViewerProps) {
 
     async function run() {
       try {
-        setStage("Uploading to Autodesk…");
-        const sourceRes = await fetch(url);
-        if (!sourceRes.ok) throw new Error(`Could not read the source file (${sourceRes.status}).`);
-        const blob = await sourceRes.blob();
+        // Already translated once (wizard preview -> workspace, or a second
+        // look at the same drawing) — reuse it. Every upload is a billable
+        // Autodesk translation, so this is a cost guard, not just a speedup.
+        let urn = cachedUrn;
 
-        const form = new FormData();
-        form.append("file", blob, fileName);
-        form.append("objectKey", `${crypto.randomUUID()}-${fileName}`);
+        if (!urn) {
+          setStage("Uploading to Autodesk…");
+          const sourceRes = await fetch(url);
+          if (!sourceRes.ok) throw new Error(`Could not read the source file (${sourceRes.status}).`);
+          const blob = await sourceRes.blob();
 
-        const { urn } = await fetchJson<{ urn: string }>("/api/aps/upload", {
-          method: "POST",
-          body: form,
-        });
-        if (signal.cancelled) return;
+          const form = new FormData();
+          form.append("file", blob, fileName);
+          form.append("objectKey", `${crypto.randomUUID()}-${fileName}`);
+
+          const uploaded = await fetchJson<{ urn: string }>("/api/aps/upload", {
+            method: "POST",
+            body: form,
+          });
+          if (signal.cancelled) return;
+          urn = uploaded.urn;
+          onUrnResolved?.(urn);
+        }
 
         await waitForTranslation(urn, setStage, signal);
         if (signal.cancelled) return;
@@ -156,7 +186,13 @@ export function ApsViewer({ url, fileName, onLoaded }: ApsViewerProps) {
         });
         if (signal.cancelled || !containerRef.current) return;
 
-        viewer = new Autodesk.Viewing.GuiViewer3D(containerRef.current);
+        // Viewer3D is the bare canvas — no toolbar, so no measure/markup
+        // tools. GuiViewer3D is the full Autodesk UI. The project-creation
+        // preview is display-only by design; measuring happens in the
+        // workspace.
+        viewer = preview
+          ? new Autodesk.Viewing.Viewer3D(containerRef.current)
+          : new Autodesk.Viewing.GuiViewer3D(containerRef.current);
         viewer.start();
 
         await new Promise<void>((resolve, reject) => {
@@ -195,8 +231,10 @@ export function ApsViewer({ url, fileName, onLoaded }: ApsViewerProps) {
         /* cleanup */
       }
     };
+    // onUrnResolved is intentionally excluded — callers pass an inline arrow,
+    // and including it would tear down and re-upload on every parent render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, fileName]);
+  }, [url, fileName, cachedUrn, preview]);
 
   return (
     <div className="relative w-full h-full">
