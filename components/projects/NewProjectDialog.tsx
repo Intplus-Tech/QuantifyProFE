@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Sparkles, PenLine, Box } from "lucide-react";
+import { Plus, Sparkles, PenLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -13,7 +13,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { AiAnalysisContent } from "./AiAnalysisContent";
+// Superseded by the Figma AI flow (details → drawings → extract → report).
+// Kept commented rather than deleted so the old BIM/PDF job wiring in
+// AiAnalysisContent + ProcessingView can be revived if needed.
+// import { AiAnalysisContent } from "./AiAnalysisContent";
 
 interface NewProjectDialogProps {
   open?: boolean;
@@ -31,12 +34,10 @@ export function NewProjectDialog({
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = onOpenChange ?? setInternalOpen;
-  const [selectedMode, setSelectedMode] = useState<"ai" | "manual" | "bim">("ai");
-  const [step, setStep] = useState<"select" | "bim-upload">("select");
+  const [selectedMode, setSelectedMode] = useState<"ai" | "manual">("ai");
 
   const handleOpenChange = (newOpen: boolean) => {
     setOpen(newOpen);
-    if (!newOpen) setStep("select");
   };
 
   const cardBase =
@@ -44,22 +45,6 @@ export function NewProjectDialog({
   const selectedCls = "ring-2 ring-primary bg-primary/5";
   const unselectedCls =
     "ring-1 ring-border hover:ring-primary/40 hover:bg-muted/30";
-
-  if (step === "bim-upload") {
-    return (
-      <Dialog open={open} onOpenChange={handleOpenChange}>
-        <AiAnalysisContent
-          onCancel={() => setStep("select")}
-          onSwitchMode={() => {
-            setStep("select");
-            setSelectedMode("manual");
-          }}
-          basePath={basePath}
-          onSubmitSuccess={() => handleOpenChange(false)}
-        />
-      </Dialog>
-    );
-  }
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -79,7 +64,7 @@ export function NewProjectDialog({
         </DialogTrigger>
       )} */}
 
-      <DialogContent className="sm:max-w-2xl gap-5">
+      <DialogContent className="sm:max-w-xl gap-5">
           {/* Header */}
           <DialogHeader className="text-center px-2">
             <DialogTitle className="text-base font-semibold text-center">
@@ -152,34 +137,6 @@ export function NewProjectDialog({
                 Standard wizard approach →
               </a>
             </Card>
-
-            {/* CAD/BIM Upload */}
-            <Card
-              className={`${cardBase} ${
-                selectedMode === "bim" ? selectedCls : unselectedCls
-              }`}
-              onClick={() => setSelectedMode("bim")}
-            >
-              <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center">
-                <Box className="w-4 h-4 text-muted-foreground" />
-              </div>
-
-              <p className="font-semibold text-sm text-foreground">
-                CAD/BIM Upload
-              </p>
-
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Upload a native RVT, DWG, NWD or SKP file. Autodesk reads the
-                real model to generate quantities and a BOQ automatically.
-              </p>
-
-              <a
-                href="#"
-                className="text-xs text-muted-foreground font-medium mt-auto inline-flex items-center gap-1 hover:underline"
-              >
-                Model-derived quantities →
-              </a>
-            </Card>
           </div>
 
           {/* Footer */}
@@ -188,10 +145,6 @@ export function NewProjectDialog({
               size="lg"
               className="flex-1 h-12"
               onClick={() => {
-                if (selectedMode === "bim") {
-                  setStep("bim-upload");
-                  return;
-                }
                 handleOpenChange(false);
                 router.push(
                   selectedMode === "manual"

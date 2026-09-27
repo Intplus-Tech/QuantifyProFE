@@ -65,6 +65,8 @@ import { useRouter } from "next/navigation";
 import {
   useGetProjectByIdQuery,
   useUpdateProjectMutation,
+  useSubmitBimBoqJobMutation,
+  useGetBimJobByIdQuery,
 } from "@/store/api/projectsApi";
 import { BimProjectWorkspace } from "./BimProjectWorkspace";
 import {
@@ -743,6 +745,72 @@ export function ProjectWorkspaceView({
   const selectedIsApsDrawing = selectedDrawing
     ? isApsExtension(selectedDrawing.extension ?? "")
     : false;
+
+  // "Prepare BOQ" for an Autodesk-loaded drawing — reuses the backend's own
+  // /bim/boq/:urn pipeline (real Volume/Area/Family/Type via Autodesk's
+  // Properties API), keyed off the urn this drawing's own ApsViewer already
+  // resolved. No re-upload: same urn, same translated model.
+  const [submitBimBoqJob, { isLoading: isSubmittingBimBoq }] =
+    useSubmitBimBoqJobMutation();
+  const [bimBoqJobId, setBimBoqJobId] = useState<string | null>(null);
+  const bimBoqJobQuery = useGetBimJobByIdQuery(bimBoqJobId ?? "", {
+    skip: !bimBoqJobId,
+    pollingInterval: bimBoqJobId ? 4000 : 0,
+  });
+  const bimBoqApplied = useRef<string | null>(null);
+
+  useEffect(() => {
+    const job = bimBoqJobQuery.data?.data;
+    if (!job || !bimBoqJobId || bimBoqApplied.current === bimBoqJobId) return;
+
+    if (job.status === "completed" && job.result) {
+      bimBoqApplied.current = bimBoqJobId;
+      updateProject({
+        projectId,
+        body: {
+          boqResult: {
+            projectTitle: job.result.projectTitle,
+            sections: job.result.sections,
+            generalNotes: "",
+          },
+        },
+      })
+        .unwrap()
+        .then(() => {
+          toast.success("BOQ prepared from the Autodesk model — open View BOQ to see it.");
+        })
+        .catch((err: { data?: { message?: string } }) => {
+          toast.error(err?.data?.message ?? "BOQ generated, but saving it to the project failed.");
+        })
+        .finally(() => setBimBoqJobId(null));
+    } else if (job.status === "failed") {
+      bimBoqApplied.current = bimBoqJobId;
+      toast.error("Autodesk couldn't derive a BOQ from this model.");
+      setBimBoqJobId(null);
+    }
+  }, [bimBoqJobQuery.data, bimBoqJobId, projectId, updateProject]);
+
+  async function handlePrepareBoq() {
+    if (!selectedDrawing?.apsUrn) {
+      toast.warning("Wait for this drawing to finish loading in Autodesk's viewer first.");
+      return;
+    }
+    try {
+      const res = await submitBimBoqJob(selectedDrawing.apsUrn).unwrap();
+      if (res.success && res.data?.jobId) {
+        bimBoqApplied.current = null;
+        setBimBoqJobId(res.data.jobId);
+        toast.success("Generating a BOQ from the Autodesk model…");
+      }
+    } catch (err) {
+      const message =
+        (err as { data?: { message?: string } })?.data?.message ??
+        "Couldn't start BOQ generation for this model.";
+      toast.error(message);
+    }
+  }
+
+  const preparingBimBoq = isSubmittingBimBoq || (!!bimBoqJobId && bimBoqJobQuery.data?.data?.status !== "completed" && bimBoqJobQuery.data?.data?.status !== "failed");
 
   // Calibration UI state (globalScaleFactor, scaleLocked) is NOT itself
   // page-scoped — unlike measurementHook, which reloads synchronously, mid-
@@ -3499,6 +3567,23 @@ export function ProjectWorkspaceView({
                     Autodesk viewer — view only, not measurable here
                   </span>
                 </div>
+              )}
+              {selectedIsApsDrawing && (
+                <Button
+                  size="sm"
+                  disabled={!selectedDrawing?.apsUrn || preparingBimBoq}
+                  onClick={handlePrepareBoq}
+                  className="h-6 px-2.5 text-[10px] gap-1 bg-amber-500 hover:bg-amber-600 text-white"
+                >
+                  {preparingBimBoq ? (
+                    <>
+                      <div className="w-2.5 h-2.5 border border-white/60 border-t-transparent rounded-full animate-spin" />
+                      Preparing BOQ…
+                    </>
+                  ) : (
+                    "Prepare BOQ from model"
+                  )}
+                </Button>
               )}
               {scaleLocked && !selectedIsApsDrawing && (
                 <div className="flex items-center gap-1.5 px-2.5 py-1 bg-green-100 rounded-lg border border-green-200">
